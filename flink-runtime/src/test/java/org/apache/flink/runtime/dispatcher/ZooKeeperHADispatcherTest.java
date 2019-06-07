@@ -293,7 +293,7 @@ public class ZooKeeperHADispatcherTest extends TestLogger {
 
 				final LeaderConnectionInfo leaderConnectionInfo = LeaderRetrievalUtils.retrieveLeaderConnectionInfo(haServices.getDispatcherLeaderRetriever(), TIMEOUT);
 
-				final DispatcherGateway dispatcherGateway = rpcService.connect(leaderConnectionInfo.getAddress(), DispatcherId.fromUuid(leaderConnectionInfo.getLeaderSessionID()), DispatcherGateway.class).get();
+				final DispatcherGateway dispatcherGateway = rpcService.connect(leaderConnectionInfo.getAddress(), DispatcherId.fromUuid(leaderConnectionInfo.getLeaderSessionId()), DispatcherGateway.class).get();
 
 				final JobGraph nonEmptyJobGraph = DispatcherHATest.createNonEmptyJobGraph();
 				dispatcherGateway.submitJob(nonEmptyJobGraph, TIMEOUT).get();

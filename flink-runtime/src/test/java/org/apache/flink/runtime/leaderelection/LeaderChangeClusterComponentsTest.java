@@ -157,7 +157,7 @@ public class LeaderChangeClusterComponentsTest extends TestLogger {
 		highAvailabilityServices.grantResourceManagerLeadership();
 
 		// wait for the ResourceManager to confirm the leadership
-		assertThat(LeaderRetrievalUtils.retrieveLeaderConnectionInfo(highAvailabilityServices.getResourceManagerLeaderRetriever(), Time.minutes(TESTING_TIMEOUT.toMinutes())).getLeaderSessionID(), is(notNullValue()));
+		assertThat(LeaderRetrievalUtils.retrieveLeaderConnectionInfo(highAvailabilityServices.getResourceManagerLeaderRetriever(), Time.minutes(TESTING_TIMEOUT.toMinutes())).getLeaderSessionId(), is(notNullValue()));
 
 		waitUntilTaskExecutorsHaveConnected(NUM_TMS, deadline);
 	}
