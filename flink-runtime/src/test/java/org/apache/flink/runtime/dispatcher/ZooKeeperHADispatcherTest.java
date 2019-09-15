@@ -332,6 +332,7 @@ public class ZooKeeperHADispatcherTest extends TestLogger {
 		return new TestingDispatcher(
 			rpcService,
 			Dispatcher.DISPATCHER_NAME + '_' + name.getMethodName() + UUID.randomUUID(),
+			DispatcherId.generate(),
 			Collections.emptyList(),
 			configuration,
 			highAvailabilityServices,
