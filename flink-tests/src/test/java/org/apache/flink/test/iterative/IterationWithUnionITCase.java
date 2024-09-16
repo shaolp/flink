@@ -25,66 +25,77 @@ import org.apache.flink.api.java.ExecutionEnvironment;
 import org.apache.flink.api.java.operators.IterativeDataSet;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.test.util.CoordVector;
-import org.apache.flink.test.util.JavaProgramTestBase;
+import org.apache.flink.test.util.JavaProgramTestBaseJUnit4;
 import org.apache.flink.test.util.PointFormatter;
 import org.apache.flink.test.util.PointInFormat;
 import org.apache.flink.util.Collector;
 
 import java.io.Serializable;
 
-/**
- * Test iteration with union.
- */
-public class IterationWithUnionITCase extends JavaProgramTestBase {
+import static org.apache.flink.test.util.TestBaseUtils.compareResultsByLinesInMemory;
 
-	private static final String DATAPOINTS = "0|50.90|16.20|72.08|\n" + "1|73.65|61.76|62.89|\n" + "2|61.73|49.95|92.74|\n";
+/** Test iteration with union. */
+public class IterationWithUnionITCase extends JavaProgramTestBaseJUnit4 {
 
-	protected String dataPath;
-	protected String resultPath;
+    private static final String DATAPOINTS =
+            "0|50.90|16.20|72.08|\n" + "1|73.65|61.76|62.89|\n" + "2|61.73|49.95|92.74|\n";
 
-	@Override
-	protected void preSubmit() throws Exception {
-		dataPath = createTempFile("datapoints.txt", DATAPOINTS);
-		resultPath = getTempDirPath("union_iter_result");
-	}
+    protected String dataPath;
+    protected String resultPath;
 
-	@Override
-	protected void postSubmit() throws Exception {
-		compareResultsByLinesInMemory(DATAPOINTS + DATAPOINTS + DATAPOINTS + DATAPOINTS, resultPath);
-	}
+    @Override
+    protected void preSubmit() throws Exception {
+        dataPath = createTempFile("datapoints.txt", DATAPOINTS);
+        resultPath = getTempDirPath("union_iter_result");
+    }
 
-	@Override
-	protected void testProgram() throws Exception {
-		ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
+    @Override
+    protected void postSubmit() throws Exception {
+        compareResultsByLinesInMemory(
+                DATAPOINTS + DATAPOINTS + DATAPOINTS + DATAPOINTS, resultPath);
+    }
 
-		DataSet<Tuple2<Integer, CoordVector>> initialInput = env.readFile(new PointInFormat(), this.dataPath).setParallelism(1);
+    @Override
+    protected void testProgram() throws Exception {
+        ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
 
-		IterativeDataSet<Tuple2<Integer, CoordVector>> iteration = initialInput.iterate(2);
+        DataSet<Tuple2<Integer, CoordVector>> initialInput =
+                env.readFile(new PointInFormat(), this.dataPath).setParallelism(1);
 
-		DataSet<Tuple2<Integer, CoordVector>> result = iteration.union(iteration).map(new IdentityMapper());
+        IterativeDataSet<Tuple2<Integer, CoordVector>> iteration = initialInput.iterate(2);
 
-		iteration.closeWith(result).writeAsFormattedText(this.resultPath, new PointFormatter());
+        DataSet<Tuple2<Integer, CoordVector>> result =
+                iteration.union(iteration).map(new IdentityMapper());
 
-		env.execute();
-	}
+        iteration.closeWith(result).writeAsFormattedText(this.resultPath, new PointFormatter());
 
-	static final class IdentityMapper implements MapFunction<Tuple2<Integer, CoordVector>, Tuple2<Integer, CoordVector>>, Serializable {
-		private static final long serialVersionUID = 1L;
+        env.execute();
+    }
 
-		@Override
-		public Tuple2<Integer, CoordVector> map(Tuple2<Integer, CoordVector> rec) {
-			return rec;
-		}
-	}
+    static final class IdentityMapper
+            implements MapFunction<Tuple2<Integer, CoordVector>, Tuple2<Integer, CoordVector>>,
+                    Serializable {
+        private static final long serialVersionUID = 1L;
 
-	static class DummyReducer implements GroupReduceFunction<Tuple2<Integer, CoordVector>, Tuple2<Integer, CoordVector>>, Serializable {
-		private static final long serialVersionUID = 1L;
+        @Override
+        public Tuple2<Integer, CoordVector> map(Tuple2<Integer, CoordVector> rec) {
+            return rec;
+        }
+    }
 
-		@Override
-		public void reduce(Iterable<Tuple2<Integer, CoordVector>> it, Collector<Tuple2<Integer, CoordVector>> out) {
-			for (Tuple2<Integer, CoordVector> r : it) {
-				out.collect(r);
-			}
-		}
-	}
+    static class DummyReducer
+            implements GroupReduceFunction<
+                            Tuple2<Integer, CoordVector>, Tuple2<Integer, CoordVector>>,
+                    Serializable {
+        private static final long serialVersionUID = 1L;
+
+        @Override
+        public void reduce(
+                Iterable<Tuple2<Integer, CoordVector>> it,
+                Collector<Tuple2<Integer, CoordVector>> out) {
+            for (Tuple2<Integer, CoordVector> r : it) {
+                out.collect(r);
+            }
+        }
+    }
 }

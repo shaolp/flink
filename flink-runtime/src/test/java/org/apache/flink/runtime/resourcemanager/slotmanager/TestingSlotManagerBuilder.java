@@ -18,21 +18,48 @@
 
 package org.apache.flink.runtime.resourcemanager.slotmanager;
 
+import org.apache.flink.api.common.JobID;
+import org.apache.flink.runtime.slots.ResourceRequirements;
+
 import java.util.function.Consumer;
 
-/**
- * Factory for {@link TestingSlotManager}.
- */
+/** Factory for {@link TestingSlotManager}. */
 public class TestingSlotManagerBuilder {
 
-	private Consumer<Boolean> setFailUnfulfillableRequestConsumer = ignored -> {};
+    private Consumer<Boolean> setFailUnfulfillableRequestConsumer = ignored -> {};
+    private Consumer<ResourceRequirements> processRequirementsConsumer = ignored -> {};
+    private Consumer<JobID> clearRequirementsConsumer = ignored -> {};
+    private Consumer<Void> triggerRequirementsCheckConsumer = ignored -> {};
 
-	public TestingSlotManagerBuilder setSetFailUnfulfillableRequestConsumer(Consumer<Boolean> setFailUnfulfillableRequestConsumer) {
-		this.setFailUnfulfillableRequestConsumer = setFailUnfulfillableRequestConsumer;
-		return this;
-	}
+    public TestingSlotManagerBuilder setSetFailUnfulfillableRequestConsumer(
+            Consumer<Boolean> setFailUnfulfillableRequestConsumer) {
+        this.setFailUnfulfillableRequestConsumer = setFailUnfulfillableRequestConsumer;
+        return this;
+    }
 
-	public TestingSlotManager createSlotManager() {
-		return new TestingSlotManager(setFailUnfulfillableRequestConsumer);
-	}
+    public TestingSlotManagerBuilder setProcessRequirementsConsumer(
+            Consumer<ResourceRequirements> processRequirementsConsumer) {
+        this.processRequirementsConsumer = processRequirementsConsumer;
+        return this;
+    }
+
+    public TestingSlotManagerBuilder setClearRequirementsConsumer(
+            Consumer<JobID> clearRequirementsConsumer) {
+        this.clearRequirementsConsumer = clearRequirementsConsumer;
+        return this;
+    }
+
+    public TestingSlotManagerBuilder setTriggerRequirementsCheckConsumer(
+            Consumer<Void> triggerRequirementsCheckConsumer) {
+        this.triggerRequirementsCheckConsumer = triggerRequirementsCheckConsumer;
+        return this;
+    }
+
+    public TestingSlotManager createSlotManager() {
+        return new TestingSlotManager(
+                setFailUnfulfillableRequestConsumer,
+                processRequirementsConsumer,
+                clearRequirementsConsumer,
+                triggerRequirementsCheckConsumer);
+    }
 }

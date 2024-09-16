@@ -20,27 +20,24 @@ package org.apache.flink.core.fs;
 
 import java.io.IOException;
 
-import static org.junit.Assert.assertEquals;
+import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * Various utility functions for testing {@link FileSystem} implementations.
- */
+/** Various utility functions for testing {@link FileSystem} implementations. */
 public class FileSystemTestUtils {
 
-	/**
-	 * Verifies that the given path eventually appears on / disappears from <tt>fs</tt> within
-	 * <tt>deadline</tt> nanoseconds.
-	 */
-	public static void checkPathEventualExistence(
-			FileSystem fs,
-			Path path,
-			boolean expectedExists,
-			long deadline) throws IOException, InterruptedException {
-		boolean dirExists;
-		while ((dirExists = fs.exists(path)) != expectedExists &&
-				System.nanoTime() < deadline) {
-			Thread.sleep(10);
-		}
-		assertEquals(expectedExists, dirExists);
-	}
+    /**
+     * Verifies that the given path eventually appears on / disappears from <tt>fs</tt> within
+     * <tt>consistencyToleranceNS</tt> nanoseconds.
+     */
+    public static void checkPathEventualExistence(
+            FileSystem fs, Path path, boolean expectedExists, long consistencyToleranceNS)
+            throws IOException, InterruptedException {
+        boolean dirExists;
+        long deadline = System.nanoTime() + consistencyToleranceNS;
+        while ((dirExists = fs.exists(path)) != expectedExists
+                && System.nanoTime() - deadline < 0) {
+            Thread.sleep(10);
+        }
+        assertThat(dirExists).isEqualTo(expectedExists);
+    }
 }

@@ -18,12 +18,9 @@
 
 package org.apache.flink.runtime.rest;
 
-import org.apache.flink.util.TestLogger;
-
-import org.junit.Assume;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.slf4j.helpers.NOPLogger;
 
 import java.io.File;
@@ -34,67 +31,60 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/**
- * Test cases for the {@link RestServerEndpoint}.
- */
-public class RestServerEndpointTest extends TestLogger {
+/** Test cases for the {@link RestServerEndpoint}. */
+class RestServerEndpointTest {
 
-	@Rule
-	public TemporaryFolder temporaryFolder = new TemporaryFolder();
+    /** Tests that the REST handler URLs are properly sorted. */
+    @Test
+    void testRestHandlerUrlSorting() {
+        final int numberHandlers = 5;
 
-	/**
-	 * Tests that the REST handler URLs are properly sorted.
-	 */
-	@Test
-	public void testRestHandlerUrlSorting() {
-		final int numberHandlers = 5;
+        final List<String> handlerUrls = new ArrayList<>(numberHandlers);
 
-		final List<String> handlerUrls = new ArrayList<>(numberHandlers);
+        handlerUrls.add("/jobs/overview");
+        handlerUrls.add("/jobs/:jobid");
+        handlerUrls.add("/jobs");
+        handlerUrls.add("/:*");
+        handlerUrls.add("/jobs/:jobid/config");
 
-		handlerUrls.add("/jobs/overview");
-		handlerUrls.add("/jobs/:jobid");
-		handlerUrls.add("/jobs");
-		handlerUrls.add("/:*");
-		handlerUrls.add("/jobs/:jobid/config");
+        final List<String> expected = new ArrayList<>(numberHandlers);
 
-		final List<String> expected = new ArrayList<>(numberHandlers);
+        expected.add("/jobs");
+        expected.add("/jobs/overview");
+        expected.add("/jobs/:jobid");
+        expected.add("/jobs/:jobid/config");
+        expected.add("/:*");
 
-		expected.add("/jobs");
-		expected.add("/jobs/overview");
-		expected.add("/jobs/:jobid");
-		expected.add("/jobs/:jobid/config");
-		expected.add("/:*");
+        Collections.sort(
+                handlerUrls,
+                new RestServerEndpoint.RestHandlerUrlComparator.CaseInsensitiveOrderComparator());
 
-		Collections.sort(handlerUrls, new RestServerEndpoint.RestHandlerUrlComparator.CaseInsensitiveOrderComparator());
+        assertThat(handlerUrls).isEqualTo(expected);
+    }
 
-		assertEquals(expected, handlerUrls);
-	}
+    @Test
+    void testCreateUploadDir(@TempDir File file) throws Exception {
+        final Path testUploadDir = file.toPath().resolve("testUploadDir");
+        assertThat(Files.exists(testUploadDir)).isFalse();
+        RestServerEndpoint.createUploadDir(testUploadDir, NOPLogger.NOP_LOGGER, true);
+        assertThat(Files.exists(testUploadDir)).isTrue();
+    }
 
-	@Test
-	public void testCreateUploadDir() throws Exception {
-		final File file = temporaryFolder.newFolder();
-		final Path testUploadDir = file.toPath().resolve("testUploadDir");
-		assertFalse(Files.exists(testUploadDir));
-		RestServerEndpoint.createUploadDir(testUploadDir, NOPLogger.NOP_LOGGER, true);
-		assertTrue(Files.exists(testUploadDir));
-	}
+    @Tag("org.apache.flink.testutils.junit.FailsInGHAContainerWithRootUser")
+    @Test
+    void testCreateUploadDirFails(@TempDir File file) throws Exception {
+        assertThat(file.setWritable(false));
 
-	@Test
-	public void testCreateUploadDirFails() throws Exception {
-		final File file = temporaryFolder.newFolder();
-		Assume.assumeTrue(file.setWritable(false));
+        final Path testUploadDir = file.toPath().resolve("testUploadDir");
+        assertThat(Files.exists(testUploadDir)).isFalse();
 
-		final Path testUploadDir = file.toPath().resolve("testUploadDir");
-		assertFalse(Files.exists(testUploadDir));
-		try {
-			RestServerEndpoint.createUploadDir(testUploadDir, NOPLogger.NOP_LOGGER, true);
-			fail("Expected exception not thrown.");
-		} catch (IOException e) {
-		}
-	}
+        assertThatThrownBy(
+                        () ->
+                                RestServerEndpoint.createUploadDir(
+                                        testUploadDir, NOPLogger.NOP_LOGGER, true))
+                .isInstanceOf(IOException.class);
+    }
 }

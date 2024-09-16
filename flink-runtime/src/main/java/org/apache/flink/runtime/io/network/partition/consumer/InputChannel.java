@@ -19,11 +19,16 @@
 package org.apache.flink.runtime.io.network.partition.consumer;
 
 import org.apache.flink.metrics.Counter;
+import org.apache.flink.runtime.checkpoint.CheckpointException;
+import org.apache.flink.runtime.checkpoint.channel.InputChannelInfo;
 import org.apache.flink.runtime.event.TaskEvent;
 import org.apache.flink.runtime.execution.CancelTaskException;
+import org.apache.flink.runtime.io.network.api.CheckpointBarrier;
+import org.apache.flink.runtime.io.network.api.EndOfData;
 import org.apache.flink.runtime.io.network.buffer.Buffer;
 import org.apache.flink.runtime.io.network.partition.PartitionException;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionID;
+import org.apache.flink.runtime.io.network.partition.ResultSubpartitionIndexSet;
 import org.apache.flink.runtime.io.network.partition.ResultSubpartitionView;
 
 import java.io.IOException;
@@ -37,252 +42,372 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
  * An input channel consumes a single {@link ResultSubpartitionView}.
  *
  * <p>For each channel, the consumption life cycle is as follows:
+ *
  * <ol>
- * <li>{@link #requestSubpartition(int)}</li>
- * <li>{@link #getNextBuffer()}</li>
- * <li>{@link #releaseAllResources()}</li>
+ *   <li>{@link #requestSubpartitions()}
+ *   <li>{@link #getNextBuffer()}
+ *   <li>{@link #releaseAllResources()}
  * </ol>
  */
 public abstract class InputChannel {
+    /** The info of the input channel to identify it globally within a task. */
+    protected final InputChannelInfo channelInfo;
 
-	protected final int channelIndex;
+    /** The parent partition of the subpartitions consumed by this channel. */
+    protected final ResultPartitionID partitionId;
 
-	protected final ResultPartitionID partitionId;
+    /** The indexes of the subpartitions consumed by this channel. */
+    protected final ResultSubpartitionIndexSet consumedSubpartitionIndexSet;
 
-	protected final SingleInputGate inputGate;
+    protected final SingleInputGate inputGate;
 
-	// - Asynchronous error notification --------------------------------------
+    // - Asynchronous error notification --------------------------------------
 
-	private final AtomicReference<Throwable> cause = new AtomicReference<Throwable>();
+    private final AtomicReference<Throwable> cause = new AtomicReference<Throwable>();
 
-	// - Partition request backoff --------------------------------------------
+    // - Partition request backoff --------------------------------------------
 
-	/** The initial backoff (in ms). */
-	private final int initialBackoff;
+    /** The initial backoff (in ms). */
+    protected final int initialBackoff;
 
-	/** The maximum backoff (in ms). */
-	private final int maxBackoff;
+    /** The maximum backoff (in ms). */
+    protected final int maxBackoff;
 
-	protected final Counter numBytesIn;
+    protected final Counter numBytesIn;
 
-	protected final Counter numBuffersIn;
+    protected final Counter numBuffersIn;
 
-	/** The current backoff (in ms). */
-	private int currentBackoff;
+    /**
+     * The index of the subpartition if {@link #consumedSubpartitionIndexSet} contains only one
+     * subpartition, or -1.
+     */
+    private final int subpartitionId;
 
-	protected InputChannel(
-			SingleInputGate inputGate,
-			int channelIndex,
-			ResultPartitionID partitionId,
-			int initialBackoff,
-			int maxBackoff,
-			Counter numBytesIn,
-			Counter numBuffersIn) {
+    /** The current backoff (in ms). */
+    protected int currentBackoff;
 
-		checkArgument(channelIndex >= 0);
+    protected InputChannel(
+            SingleInputGate inputGate,
+            int channelIndex,
+            ResultPartitionID partitionId,
+            ResultSubpartitionIndexSet consumedSubpartitionIndexSet,
+            int initialBackoff,
+            int maxBackoff,
+            Counter numBytesIn,
+            Counter numBuffersIn) {
 
-		int initial = initialBackoff;
-		int max = maxBackoff;
+        checkArgument(channelIndex >= 0);
 
-		checkArgument(initial >= 0 && initial <= max);
+        int initial = initialBackoff;
+        int max = maxBackoff;
 
-		this.inputGate = checkNotNull(inputGate);
-		this.channelIndex = channelIndex;
-		this.partitionId = checkNotNull(partitionId);
+        checkArgument(initial >= 0 && initial <= max);
 
-		this.initialBackoff = initial;
-		this.maxBackoff = max;
-		this.currentBackoff = initial == 0 ? -1 : 0;
+        this.inputGate = checkNotNull(inputGate);
+        this.channelInfo = new InputChannelInfo(inputGate.getGateIndex(), channelIndex);
+        this.partitionId = checkNotNull(partitionId);
 
-		this.numBytesIn = numBytesIn;
-		this.numBuffersIn = numBuffersIn;
-	}
+        this.consumedSubpartitionIndexSet = consumedSubpartitionIndexSet;
+        this.subpartitionId =
+                consumedSubpartitionIndexSet.size() > 1
+                        ? -1
+                        : consumedSubpartitionIndexSet.values().iterator().next();
 
-	// ------------------------------------------------------------------------
-	// Properties
-	// ------------------------------------------------------------------------
+        this.initialBackoff = initial;
+        this.maxBackoff = max;
+        this.currentBackoff = 0;
 
-	int getChannelIndex() {
-		return channelIndex;
-	}
+        this.numBytesIn = numBytesIn;
+        this.numBuffersIn = numBuffersIn;
+    }
 
-	public ResultPartitionID getPartitionId() {
-		return partitionId;
-	}
+    // ------------------------------------------------------------------------
+    // Properties
+    // ------------------------------------------------------------------------
 
-	/**
-	 * Notifies the owning {@link SingleInputGate} that this channel became non-empty.
-	 *
-	 * <p>This is guaranteed to be called only when a Buffer was added to a previously
-	 * empty input channel. The notion of empty is atomically consistent with the flag
-	 * {@link BufferAndAvailability#moreAvailable()} when polling the next buffer
-	 * from this channel.
-	 *
-	 * <p><b>Note:</b> When the input channel observes an exception, this
-	 * method is called regardless of whether the channel was empty before. That ensures
-	 * that the parent InputGate will always be notified about the exception.
-	 */
-	protected void notifyChannelNonEmpty() {
-		inputGate.notifyChannelNonEmpty(this);
-	}
+    /** Returns the index of this channel within its {@link SingleInputGate}. */
+    public int getChannelIndex() {
+        return channelInfo.getInputChannelIdx();
+    }
 
-	// ------------------------------------------------------------------------
-	// Consume
-	// ------------------------------------------------------------------------
+    /**
+     * Returns the info of this channel, which uniquely identifies the channel in respect to its
+     * operator instance.
+     */
+    public InputChannelInfo getChannelInfo() {
+        return channelInfo;
+    }
 
-	/**
-	 * Requests the queue with the specified index of the source intermediate
-	 * result partition.
-	 *
-	 * <p>The queue index to request depends on which sub task the channel belongs
-	 * to and is specified by the consumer of this channel.
-	 */
-	abstract void requestSubpartition(int subpartitionIndex) throws IOException, InterruptedException;
+    public ResultPartitionID getPartitionId() {
+        return partitionId;
+    }
 
-	/**
-	 * Returns the next buffer from the consumed subpartition or {@code Optional.empty()} if there is no data to return.
-	 */
-	abstract Optional<BufferAndAvailability> getNextBuffer() throws IOException, InterruptedException;
+    public ResultSubpartitionIndexSet getConsumedSubpartitionIndexSet() {
+        return consumedSubpartitionIndexSet;
+    }
 
-	// ------------------------------------------------------------------------
-	// Task events
-	// ------------------------------------------------------------------------
+    /**
+     * After sending a {@link org.apache.flink.runtime.io.network.api.CheckpointBarrier} of
+     * exactly-once mode, the upstream will be blocked and become unavailable. This method tries to
+     * unblock the corresponding upstream and resume data consumption.
+     */
+    public abstract void resumeConsumption() throws IOException;
 
-	/**
-	 * Sends a {@link TaskEvent} back to the task producing the consumed result partition.
-	 *
-	 * <p><strong>Important</strong>: The producing task has to be running to receive backwards events.
-	 * This means that the result type needs to be pipelined and the task logic has to ensure that
-	 * the producer will wait for all backwards events. Otherwise, this will lead to an Exception
-	 * at runtime.
-	 */
-	abstract void sendTaskEvent(TaskEvent event) throws IOException;
+    /**
+     * When received {@link EndOfData} from one channel, it need to acknowledge after this event get
+     * processed.
+     */
+    public abstract void acknowledgeAllRecordsProcessed() throws IOException;
 
-	// ------------------------------------------------------------------------
-	// Life cycle
-	// ------------------------------------------------------------------------
+    /**
+     * Notifies the owning {@link SingleInputGate} that this channel became non-empty.
+     *
+     * <p>This is guaranteed to be called only when a Buffer was added to a previously empty input
+     * channel. The notion of empty is atomically consistent with the flag {@link
+     * BufferAndAvailability#moreAvailable()} when polling the next buffer from this channel.
+     *
+     * <p><b>Note:</b> When the input channel observes an exception, this method is called
+     * regardless of whether the channel was empty before. That ensures that the parent InputGate
+     * will always be notified about the exception.
+     */
+    protected void notifyChannelNonEmpty() {
+        inputGate.notifyChannelNonEmpty(this);
+    }
 
-	abstract boolean isReleased();
+    public void notifyPriorityEvent(int priorityBufferNumber) {
+        inputGate.notifyPriorityEvent(this, priorityBufferNumber);
+    }
 
-	/**
-	 * Releases all resources of the channel.
-	 */
-	abstract void releaseAllResources() throws IOException;
+    protected void notifyBufferAvailable(int numAvailableBuffers) throws IOException {}
 
-	// ------------------------------------------------------------------------
-	// Error notification
-	// ------------------------------------------------------------------------
+    // ------------------------------------------------------------------------
+    // Consume
+    // ------------------------------------------------------------------------
 
-	/**
-	 * Checks for an error and rethrows it if one was reported.
-	 *
-	 * <p>Note: Any {@link PartitionException} instances should not be transformed
-	 * and make sure they are always visible in task failure cause.
-	 */
-	protected void checkError() throws IOException {
-		final Throwable t = cause.get();
+    /**
+     * Requests the subpartitions specified by {@link #partitionId} and {@link
+     * #consumedSubpartitionIndexSet}.
+     */
+    abstract void requestSubpartitions() throws IOException, InterruptedException;
 
-		if (t != null) {
-			if (t instanceof CancelTaskException) {
-				throw (CancelTaskException) t;
-			}
-			if (t instanceof IOException) {
-				throw (IOException) t;
-			}
-			else {
-				throw new IOException(t);
-			}
-		}
-	}
+    /**
+     * Returns the index of the subpartition where the next buffer locates, or -1 if there is no
+     * buffer available and the subpartition to be consumed is not determined.
+     */
+    public int peekNextBufferSubpartitionId() throws IOException {
+        if (subpartitionId >= 0) {
+            return subpartitionId;
+        }
+        return peekNextBufferSubpartitionIdInternal();
+    }
 
-	/**
-	 * Atomically sets an error for this channel and notifies the input gate about available data to
-	 * trigger querying this channel by the task thread.
-	 */
-	protected void setError(Throwable cause) {
-		if (this.cause.compareAndSet(null, checkNotNull(cause))) {
-			// Notify the input gate.
-			notifyChannelNonEmpty();
-		}
-	}
+    /**
+     * Returns the index of the subpartition where the next buffer locates, or -1 if there is no
+     * buffer available and the subpartition to be consumed is not determined.
+     */
+    protected abstract int peekNextBufferSubpartitionIdInternal() throws IOException;
 
-	// ------------------------------------------------------------------------
-	// Partition request exponential backoff
-	// ------------------------------------------------------------------------
+    /**
+     * Returns the next buffer from the consumed subpartitions or {@code Optional.empty()} if there
+     * is no data to return.
+     */
+    public abstract Optional<BufferAndAvailability> getNextBuffer()
+            throws IOException, InterruptedException;
 
-	/**
-	 * Returns the current backoff in ms.
-	 */
-	protected int getCurrentBackoff() {
-		return currentBackoff <= 0 ? 0 : currentBackoff;
-	}
+    /**
+     * Called by task thread when checkpointing is started (e.g., any input channel received
+     * barrier).
+     */
+    public void checkpointStarted(CheckpointBarrier barrier) throws CheckpointException {}
 
-	/**
-	 * Increases the current backoff and returns whether the operation was successful.
-	 *
-	 * @return <code>true</code>, iff the operation was successful. Otherwise, <code>false</code>.
-	 */
-	protected boolean increaseBackoff() {
-		// Backoff is disabled
-		if (currentBackoff < 0) {
-			return false;
-		}
+    /** Called by task thread on cancel/complete to clean-up temporary data. */
+    public void checkpointStopped(long checkpointId) {}
 
-		// This is the first time backing off
-		if (currentBackoff == 0) {
-			currentBackoff = initialBackoff;
+    public void convertToPriorityEvent(int sequenceNumber) throws IOException {}
 
-			return true;
-		}
+    // ------------------------------------------------------------------------
+    // Task events
+    // ------------------------------------------------------------------------
 
-		// Continue backing off
-		else if (currentBackoff < maxBackoff) {
-			currentBackoff = Math.min(currentBackoff * 2, maxBackoff);
+    /**
+     * Sends a {@link TaskEvent} back to the task producing the consumed result partition.
+     *
+     * <p><strong>Important</strong>: The producing task has to be running to receive backwards
+     * events. This means that the result type needs to be pipelined and the task logic has to
+     * ensure that the producer will wait for all backwards events. Otherwise, this will lead to an
+     * Exception at runtime.
+     */
+    abstract void sendTaskEvent(TaskEvent event) throws IOException;
 
-			return true;
-		}
+    // ------------------------------------------------------------------------
+    // Life cycle
+    // ------------------------------------------------------------------------
 
-		// Reached maximum backoff
-		return false;
-	}
+    abstract boolean isReleased();
 
-	// ------------------------------------------------------------------------
-	// Metric related method
-	// ------------------------------------------------------------------------
+    /** Releases all resources of the channel. */
+    abstract void releaseAllResources() throws IOException;
 
-	public int unsynchronizedGetNumberOfQueuedBuffers() {
-		return 0;
-	}
+    abstract void announceBufferSize(int newBufferSize);
 
-	// ------------------------------------------------------------------------
+    abstract int getBuffersInUseCount();
 
-	/**
-	 * A combination of a {@link Buffer} and a flag indicating availability of further buffers,
-	 * and the backlog length indicating how many non-event buffers are available in the
-	 * subpartition.
-	 */
-	public static final class BufferAndAvailability {
+    // ------------------------------------------------------------------------
+    // Error notification
+    // ------------------------------------------------------------------------
 
-		private final Buffer buffer;
-		private final boolean moreAvailable;
-		private final int buffersInBacklog;
+    /**
+     * Checks for an error and rethrows it if one was reported.
+     *
+     * <p>Note: Any {@link PartitionException} instances should not be transformed and make sure
+     * they are always visible in task failure cause.
+     */
+    protected void checkError() throws IOException {
+        final Throwable t = cause.get();
 
-		public BufferAndAvailability(Buffer buffer, boolean moreAvailable, int buffersInBacklog) {
-			this.buffer = checkNotNull(buffer);
-			this.moreAvailable = moreAvailable;
-			this.buffersInBacklog = buffersInBacklog;
-		}
+        if (t != null) {
+            if (t instanceof CancelTaskException) {
+                throw (CancelTaskException) t;
+            }
+            if (t instanceof IOException) {
+                throw (IOException) t;
+            } else {
+                throw new IOException(t);
+            }
+        }
+    }
 
-		public Buffer buffer() {
-			return buffer;
-		}
+    /**
+     * Atomically sets an error for this channel and notifies the input gate about available data to
+     * trigger querying this channel by the task thread.
+     */
+    protected void setError(Throwable cause) {
+        if (this.cause.compareAndSet(null, checkNotNull(cause))) {
+            // Notify the input gate.
+            notifyChannelNonEmpty();
+        }
+    }
 
-		public boolean moreAvailable() {
-			return moreAvailable;
-		}
+    // ------------------------------------------------------------------------
+    // Partition request exponential backoff
+    // ------------------------------------------------------------------------
 
-		public int buffersInBacklog() {
-			return buffersInBacklog;
-		}
-	}
+    /** Returns the current backoff in ms. */
+    protected int getCurrentBackoff() {
+        return currentBackoff <= 0 ? 0 : currentBackoff;
+    }
+
+    /**
+     * Increases the current backoff and returns whether the operation was successful.
+     *
+     * @return <code>true</code>, iff the operation was successful. Otherwise, <code>false</code>.
+     */
+    protected boolean increaseBackoff() {
+        // Backoff is disabled
+        if (initialBackoff == 0) {
+            return false;
+        }
+
+        if (currentBackoff == 0) {
+            // This is the first time backing off
+            currentBackoff = initialBackoff;
+
+            return true;
+        }
+
+        // Continue backing off
+        else if (currentBackoff < maxBackoff) {
+            currentBackoff = Math.min(currentBackoff * 2, maxBackoff);
+
+            return true;
+        }
+
+        // Reached maximum backoff
+        return false;
+    }
+
+    // ------------------------------------------------------------------------
+    // Metric related method
+    // ------------------------------------------------------------------------
+
+    public int unsynchronizedGetNumberOfQueuedBuffers() {
+        return 0;
+    }
+
+    public long unsynchronizedGetSizeOfQueuedBuffers() {
+        return 0;
+    }
+
+    /**
+     * Notify the upstream the id of required segment that should be sent to netty connection.
+     *
+     * @param subpartitionId The id of the corresponding subpartition.
+     * @param segmentId The id of required segment.
+     */
+    public void notifyRequiredSegmentId(int subpartitionId, int segmentId) throws IOException {}
+
+    // ------------------------------------------------------------------------
+
+    /**
+     * A combination of a {@link Buffer} and a flag indicating availability of further buffers, and
+     * the backlog length indicating how many non-event buffers are available in the subpartitions.
+     */
+    public static final class BufferAndAvailability {
+
+        private final Buffer buffer;
+        private final Buffer.DataType nextDataType;
+        private final int buffersInBacklog;
+        private final int sequenceNumber;
+
+        public BufferAndAvailability(
+                Buffer buffer,
+                Buffer.DataType nextDataType,
+                int buffersInBacklog,
+                int sequenceNumber) {
+            this.buffer = checkNotNull(buffer);
+            this.nextDataType = checkNotNull(nextDataType);
+            this.buffersInBacklog = buffersInBacklog;
+            this.sequenceNumber = sequenceNumber;
+        }
+
+        public Buffer buffer() {
+            return buffer;
+        }
+
+        public boolean moreAvailable() {
+            return nextDataType != Buffer.DataType.NONE;
+        }
+
+        public boolean morePriorityEvents() {
+            return nextDataType.hasPriority();
+        }
+
+        public int buffersInBacklog() {
+            return buffersInBacklog;
+        }
+
+        public boolean hasPriority() {
+            return buffer.getDataType().hasPriority();
+        }
+
+        public int getSequenceNumber() {
+            return sequenceNumber;
+        }
+
+        @Override
+        public String toString() {
+            return "BufferAndAvailability{"
+                    + "buffer="
+                    + buffer
+                    + ", nextDataType="
+                    + nextDataType
+                    + ", buffersInBacklog="
+                    + buffersInBacklog
+                    + ", sequenceNumber="
+                    + sequenceNumber
+                    + '}';
+        }
+    }
+
+    void setup() throws IOException {}
 }

@@ -19,32 +19,26 @@
 package org.apache.flink.runtime.rest.messages.job.metrics;
 
 import org.apache.flink.runtime.rest.messages.taskmanager.TaskManagerIdPathParameter;
-import org.apache.flink.util.TestLogger;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import static org.hamcrest.Matchers.equalTo;
-import static org.hamcrest.Matchers.instanceOf;
-import static org.junit.Assert.assertThat;
+import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * Tests for {@link TaskManagerMetricsHeaders}.
- */
-public class TaskManagerMetricsHeadersTest extends TestLogger {
+/** Tests for {@link TaskManagerMetricsHeaders}. */
+public class TaskManagerMetricsHeadersTest {
 
-	private final TaskManagerMetricsHeaders taskManagerMetricsHeaders =
-		TaskManagerMetricsHeaders.getInstance();
+    private final TaskManagerMetricsHeaders taskManagerMetricsHeaders =
+            TaskManagerMetricsHeaders.getInstance();
 
-	@Test
-	public void testUrl() {
-		assertThat(taskManagerMetricsHeaders.getTargetRestEndpointURL(),
-			equalTo("/taskmanagers/:" + TaskManagerIdPathParameter.KEY + "/metrics"));
-	}
+    @Test
+    void testUrl() {
+        assertThat(taskManagerMetricsHeaders.getTargetRestEndpointURL())
+                .isEqualTo("/taskmanagers/:" + TaskManagerIdPathParameter.KEY + "/metrics");
+    }
 
-	@Test
-	public void testMessageParameters() {
-		assertThat(taskManagerMetricsHeaders.getUnresolvedMessageParameters(),
-			instanceOf(TaskManagerMetricsMessageParameters.class));
-	}
-
+    @Test
+    void testMessageParameters() {
+        assertThat(taskManagerMetricsHeaders.getUnresolvedMessageParameters())
+                .isInstanceOf(TaskManagerMetricsMessageParameters.class);
+    }
 }

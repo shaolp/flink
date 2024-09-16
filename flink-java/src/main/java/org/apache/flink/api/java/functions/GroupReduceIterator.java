@@ -26,22 +26,29 @@ import java.util.Iterator;
 
 /**
  * Base class that simplifies reducing all values provided as {@link Iterable}.
+ *
  * @param <IN>
  * @param <OUT>
+ * @deprecated All Flink DataSet APIs are deprecated since Flink 1.18 and will be removed in a
+ *     future Flink major version. You can still build your application in DataSet, but you should
+ *     move to either the DataStream and/or Table API.
+ * @see <a href="https://cwiki.apache.org/confluence/pages/viewpage.action?pageId=158866741">
+ *     FLIP-131: Consolidate the user-facing Dataflow SDKs/APIs (and deprecate the DataSet API</a>
  */
+@Deprecated
 @PublicEvolving
 public abstract class GroupReduceIterator<IN, OUT> extends RichGroupReduceFunction<IN, OUT> {
 
-	private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = 1L;
 
-	public abstract Iterator<OUT> reduceGroup(Iterable<IN> values) throws Exception;
+    public abstract Iterator<OUT> reduceGroup(Iterable<IN> values) throws Exception;
 
-	// -------------------------------------------------------------------------------------------
+    // -------------------------------------------------------------------------------------------
 
-	@Override
-	public final void reduce(Iterable<IN> values, Collector<OUT> out) throws Exception {
-		for (Iterator<OUT> iter = reduceGroup(values); iter.hasNext(); ) {
-			out.collect(iter.next());
-		}
-	}
+    @Override
+    public final void reduce(Iterable<IN> values, Collector<OUT> out) throws Exception {
+        for (Iterator<OUT> iter = reduceGroup(values); iter.hasNext(); ) {
+            out.collect(iter.next());
+        }
+    }
 }

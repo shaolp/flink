@@ -19,26 +19,28 @@
 package org.apache.flink.runtime.rest.messages.taskmanager;
 
 import org.apache.flink.runtime.rest.messages.RestResponseMarshallingTestBase;
+import org.apache.flink.testutils.junit.extensions.parameterized.NoOpTestExtension;
+
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.util.Arrays;
 
 import static org.apache.flink.runtime.rest.messages.taskmanager.TaskManagerInfoTest.createRandomTaskManagerInfo;
 
-/**
- * Test for (un)marshalling of {@link TaskManagersInfo}.
- */
-public class TaskManagersInfoTest extends RestResponseMarshallingTestBase<TaskManagersInfo> {
+/** Test for (un)marshalling of {@link TaskManagersInfo}. */
+@ExtendWith(NoOpTestExtension.class)
+class TaskManagersInfoTest extends RestResponseMarshallingTestBase<TaskManagersInfo> {
 
-	@Override
-	protected Class<TaskManagersInfo> getTestResponseClass() {
-		return TaskManagersInfo.class;
-	}
+    @Override
+    protected Class<TaskManagersInfo> getTestResponseClass() {
+        return TaskManagersInfo.class;
+    }
 
-	@Override
-	protected TaskManagersInfo getTestResponseInstance() throws Exception {
-		final TaskManagerInfo taskManagerInfo1 = createRandomTaskManagerInfo();
-		final TaskManagerInfo taskManagerInfo2 = createRandomTaskManagerInfo();
+    @Override
+    protected TaskManagersInfo getTestResponseInstance() throws Exception {
+        final TaskManagerInfo taskManagerInfo1 = createRandomTaskManagerInfo();
+        final TaskManagerInfo taskManagerInfo2 = createRandomTaskManagerInfo();
 
-		return new TaskManagersInfo(Arrays.asList(taskManagerInfo1, taskManagerInfo2));
-	}
+        return new TaskManagersInfo(Arrays.asList(taskManagerInfo1, taskManagerInfo2));
+    }
 }

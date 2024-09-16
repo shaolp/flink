@@ -23,11 +23,11 @@ import org.apache.flink.core.fs.UnsupportedFileSystemSchemeException;
 
 import java.net.URI;
 
-import static org.junit.Assert.fail;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * A class with tests that require to be run in a Hadoop-free environment, to test
- * proper error handling when no Hadoop classes are available.
+ * A class with tests that require to be run in a Hadoop-free environment, to test proper error
+ * handling when no Hadoop classes are available.
  *
  * <p>This class must be dynamically loaded in a Hadoop-free class loader.
  */
@@ -35,32 +35,23 @@ import static org.junit.Assert.fail;
 @SuppressWarnings("unused")
 public class HadoopFreeTests {
 
-	public static void test() throws Exception {
-		// make sure no Hadoop FS classes are in the classpath
-		try {
-			Class.forName("org.apache.hadoop.fs.FileSystem");
-			fail("Cannot run test when Hadoop classes are in the classpath");
-		}
-		catch (ClassNotFoundException ignored) {}
+    public static void test() throws Exception {
+        // make sure no Hadoop FS classes are in the classpath
+        assertThatThrownBy(() -> Class.forName("org.apache.hadoop.fs.FileSystem"))
+                .describedAs("Cannot run test when Hadoop classes are in the classpath")
+                .isInstanceOf(ClassNotFoundException.class);
 
-		try {
-			Class.forName("org.apache.hadoop.conf.Configuration");
-			fail("Cannot run test when Hadoop classes are in the classpath");
-		}
-		catch (ClassNotFoundException ignored) {}
+        assertThatThrownBy(() -> Class.forName("org.apache.hadoop.conf.Configuration"))
+                .describedAs("Cannot run test when Hadoop classes are in the classpath")
+                .isInstanceOf(ClassNotFoundException.class);
 
-		// this method should complete without a linkage error
-		final HadoopFsFactory factory = new HadoopFsFactory();
+        // this method should complete without a linkage error
+        final HadoopFsFactory factory = new HadoopFsFactory();
 
-		// this method should also complete without a linkage error
-		factory.configure(new Configuration());
+        // this method should also complete without a linkage error
+        factory.configure(new Configuration());
 
-		try {
-			factory.create(new URI("hdfs://somehost:9000/root/dir"));
-			fail("This statement should fail with an exception");
-		}
-		catch (UnsupportedFileSystemSchemeException e) {
-			// expected
-		}
-	}
+        assertThatThrownBy(() -> factory.create(new URI("hdfs://somehost:9000/root/dir")))
+                .isInstanceOf(UnsupportedFileSystemSchemeException.class);
+    }
 }

@@ -22,95 +22,88 @@ import org.apache.flink.runtime.io.PullingAsyncDataInput;
 import org.apache.flink.runtime.io.network.NettyShuffleEnvironment;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionType;
 
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
-import org.junit.runners.Parameterized.Parameter;
-import org.junit.runners.Parameterized.Parameters;
+import org.junit.jupiter.api.BeforeEach;
 
-import java.util.Arrays;
-import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * Test base for {@link InputGate}.
- */
-@RunWith(Parameterized.class)
-public abstract class InputGateTestBase {
+/** Test base for {@link InputGate}. */
+abstract class InputGateTestBase {
 
-	@Parameter
-	public boolean enableCreditBasedFlowControl;
+    int gateIndex;
 
-	@Parameters(name = "Credit-based = {0}")
-	public static List<Boolean> parameters() {
-		return Arrays.asList(Boolean.TRUE, Boolean.FALSE);
-	}
+    @BeforeEach
+    void resetGateIndex() {
+        gateIndex = 0;
+    }
 
-	protected void testIsAvailable(
-			InputGate inputGateToTest,
-			SingleInputGate inputGateToNotify,
-			TestInputChannel inputChannelWithNewData) throws Exception {
+    protected void testIsAvailable(
+            InputGate inputGateToTest,
+            SingleInputGate inputGateToNotify,
+            TestInputChannel inputChannelWithNewData)
+            throws Exception {
 
-		assertFalse(inputGateToTest.isAvailable().isDone());
-		assertFalse(inputGateToTest.pollNext().isPresent());
+        assertThat(inputGateToTest.getAvailableFuture()).isNotDone();
+        assertThat(inputGateToTest.pollNext()).isNotPresent();
 
-		CompletableFuture<?> isAvailable = inputGateToTest.isAvailable();
+        CompletableFuture<?> future = inputGateToTest.getAvailableFuture();
 
-		assertFalse(inputGateToTest.isAvailable().isDone());
-		assertFalse(inputGateToTest.pollNext().isPresent());
+        assertThat(inputGateToTest.getAvailableFuture()).isNotDone();
+        assertThat(inputGateToTest.pollNext()).isNotPresent();
 
-		assertEquals(isAvailable, inputGateToTest.isAvailable());
+        assertThat(inputGateToTest.getAvailableFuture()).isEqualTo(future);
 
-		inputChannelWithNewData.readBuffer();
-		inputGateToNotify.notifyChannelNonEmpty(inputChannelWithNewData);
+        inputChannelWithNewData.readBuffer();
+        inputGateToNotify.notifyChannelNonEmpty(inputChannelWithNewData);
 
-		assertTrue(isAvailable.isDone());
-		assertTrue(inputGateToTest.isAvailable().isDone());
-		assertEquals(PullingAsyncDataInput.AVAILABLE, inputGateToTest.isAvailable());
-	}
+        assertThat(future).isDone();
+        assertThat(inputGateToTest.getAvailableFuture())
+                .isDone()
+                .isEqualTo(PullingAsyncDataInput.AVAILABLE);
+    }
 
-	protected void testIsAvailableAfterFinished(
-		InputGate inputGateToTest,
-		Runnable endOfPartitionEvent) throws Exception {
+    protected void testIsAvailableAfterFinished(
+            InputGate inputGateToTest, Runnable endOfPartitionEvent) throws Exception {
 
-		CompletableFuture<?> available = inputGateToTest.isAvailable();
-		assertFalse(available.isDone());
-		assertFalse(inputGateToTest.pollNext().isPresent());
+        CompletableFuture<?> available = inputGateToTest.getAvailableFuture();
+        assertThat(available).isNotDone();
+        assertThat(inputGateToTest.pollNext()).isNotPresent();
 
-		endOfPartitionEvent.run();
+        endOfPartitionEvent.run();
 
-		assertTrue(inputGateToTest.pollNext().isPresent()); // EndOfPartitionEvent
+        assertThat(inputGateToTest.pollNext()).isNotEmpty(); // EndOfPartitionEvent
 
-		assertTrue(available.isDone());
-		assertTrue(inputGateToTest.isAvailable().isDone());
-		assertEquals(PullingAsyncDataInput.AVAILABLE, inputGateToTest.isAvailable());
-	}
+        assertThat(available).isDone();
+        assertThat(inputGateToTest.getAvailableFuture()).isDone();
+        assertThat(inputGateToTest.getAvailableFuture()).isEqualTo(PullingAsyncDataInput.AVAILABLE);
+    }
 
-	protected SingleInputGate createInputGate() {
-		return createInputGate(2);
-	}
+    protected SingleInputGate createInputGate() {
+        return createInputGate(2);
+    }
 
-	protected SingleInputGate createInputGate(int numberOfInputChannels) {
-		return createInputGate(null, numberOfInputChannels, ResultPartitionType.PIPELINED);
-	}
+    protected SingleInputGate createInputGate(int numberOfInputChannels) {
+        return createInputGate(null, numberOfInputChannels, ResultPartitionType.PIPELINED);
+    }
 
-	protected SingleInputGate createInputGate(
-		NettyShuffleEnvironment environment, int numberOfInputChannels, ResultPartitionType partitionType) {
+    protected SingleInputGate createInputGate(
+            NettyShuffleEnvironment environment,
+            int numberOfInputChannels,
+            ResultPartitionType partitionType) {
 
-		SingleInputGateBuilder builder = new SingleInputGateBuilder()
-			.setNumberOfChannels(numberOfInputChannels)
-			.setResultPartitionType(partitionType)
-			.setIsCreditBased(enableCreditBasedFlowControl);
+        SingleInputGateBuilder builder =
+                new SingleInputGateBuilder()
+                        .setNumberOfChannels(numberOfInputChannels)
+                        .setSingleInputGateIndex(gateIndex++)
+                        .setResultPartitionType(partitionType);
 
-		if (environment != null) {
-			builder = builder.setupBufferPoolFactory(environment);
-		}
+        if (environment != null) {
+            builder = builder.setupBufferPoolFactory(environment);
+        }
 
-		SingleInputGate inputGate = builder.build();
-		assertEquals(partitionType, inputGate.getConsumedPartitionType());
-		return inputGate;
-	}
+        SingleInputGate inputGate = builder.build();
+        assertThat(inputGate.getConsumedPartitionType()).isEqualTo(partitionType);
+        return inputGate;
+    }
 }

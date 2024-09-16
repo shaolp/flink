@@ -22,41 +22,96 @@ import org.apache.flink.runtime.state.metainfo.StateMetaInfoSnapshot;
 
 import javax.annotation.Nonnull;
 
-/**
- * Base class for all registered state in state backends.
- */
+import java.util.Objects;
+
+/** Base class for all registered state in state backends. */
 public abstract class RegisteredStateMetaInfoBase {
 
-	/** The name of the state */
-	@Nonnull
-	protected final String name;
+    /** The name of the state */
+    @Nonnull protected final String name;
 
-	public RegisteredStateMetaInfoBase(@Nonnull String name) {
-		this.name = name;
-	}
+    public RegisteredStateMetaInfoBase(@Nonnull String name) {
+        this.name = name;
+    }
 
-	@Nonnull
-	public String getName() {
-		return name;
-	}
+    @Nonnull
+    public String getName() {
+        return name;
+    }
 
-	@Nonnull
-	public abstract StateMetaInfoSnapshot snapshot();
+    @Nonnull
+    public abstract StateMetaInfoSnapshot snapshot();
 
-	public static RegisteredStateMetaInfoBase fromMetaInfoSnapshot(@Nonnull StateMetaInfoSnapshot snapshot) {
+    /**
+     * create a new metadata object with Lazy serializer provider using existing one as a snapshot.
+     * Sometimes metadata was just created or updated, but its StateSerializerProvider will not
+     * allow further updates. So this method could replace it with a new one that contains a fresh
+     * LazilyRegisteredStateSerializerProvider.
+     */
+    @Nonnull
+    public abstract RegisteredStateMetaInfoBase withSerializerUpgradesAllowed();
 
-		final StateMetaInfoSnapshot.BackendStateType backendStateType = snapshot.getBackendStateType();
-		switch (backendStateType) {
-			case KEY_VALUE:
-				return new RegisteredKeyValueStateBackendMetaInfo<>(snapshot);
-			case OPERATOR:
-				return new RegisteredOperatorStateBackendMetaInfo<>(snapshot);
-			case BROADCAST:
-				return new RegisteredBroadcastStateBackendMetaInfo<>(snapshot);
-			case PRIORITY_QUEUE:
-				return new RegisteredPriorityQueueStateBackendMetaInfo<>(snapshot);
-			default:
-				throw new IllegalArgumentException("Unknown backend state type: " + backendStateType);
-		}
-	}
+    public static RegisteredStateMetaInfoBase fromMetaInfoSnapshot(
+            @Nonnull StateMetaInfoSnapshot snapshot) {
+
+        final StateMetaInfoSnapshot.BackendStateType backendStateType =
+                snapshot.getBackendStateType();
+        switch (backendStateType) {
+            case KEY_VALUE:
+                return new RegisteredKeyValueStateBackendMetaInfo<>(snapshot);
+            case OPERATOR:
+                return new RegisteredOperatorStateBackendMetaInfo<>(snapshot);
+            case BROADCAST:
+                return new RegisteredBroadcastStateBackendMetaInfo<>(snapshot);
+            case PRIORITY_QUEUE:
+                return new RegisteredPriorityQueueStateBackendMetaInfo<>(snapshot);
+            default:
+                throw new IllegalArgumentException(
+                        "Unknown backend state type: " + backendStateType);
+        }
+    }
+
+    /** Returns a wrapper that can be used as a key in {@link java.util.Map}. */
+    public final Key asMapKey() {
+        return new Key(this);
+    }
+
+    /**
+     * Wrapper class that can be used to represent the wrapped {@link RegisteredStateMetaInfoBase}
+     * as key in a {@link java.util.Map}.
+     */
+    public static final class Key {
+        private final RegisteredStateMetaInfoBase registeredStateMetaInfoBase;
+
+        private Key(RegisteredStateMetaInfoBase metaInfoBase) {
+            this.registeredStateMetaInfoBase = metaInfoBase;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+            Key that = (Key) o;
+            return Objects.equals(
+                            registeredStateMetaInfoBase.getName(),
+                            that.registeredStateMetaInfoBase.getName())
+                    && Objects.equals(
+                            registeredStateMetaInfoBase.getClass(),
+                            that.registeredStateMetaInfoBase.getClass());
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(
+                    registeredStateMetaInfoBase.getName(), registeredStateMetaInfoBase.getClass());
+        }
+
+        public RegisteredStateMetaInfoBase getRegisteredStateMetaInfoBase() {
+            return registeredStateMetaInfoBase;
+        }
+    }
 }

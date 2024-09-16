@@ -19,56 +19,177 @@
 package org.apache.flink.runtime.state.heap;
 
 import org.apache.flink.api.common.state.StateDescriptor;
+import org.apache.flink.api.common.typeutils.base.FloatSerializer;
+import org.apache.flink.api.common.typeutils.base.IntSerializer;
 import org.apache.flink.core.memory.ByteArrayOutputStreamWithPos;
+import org.apache.flink.core.memory.DataOutputView;
 import org.apache.flink.core.memory.DataOutputViewStreamWrapper;
+import org.apache.flink.runtime.state.InternalKeyContext;
+import org.apache.flink.runtime.state.InternalKeyContextImpl;
+import org.apache.flink.runtime.state.KeyGroupRange;
 import org.apache.flink.runtime.state.RegisteredKeyValueStateBackendMetaInfo;
 import org.apache.flink.runtime.state.StateSnapshot;
+import org.apache.flink.runtime.testutils.statemigration.TestType;
+import org.apache.flink.util.Preconditions;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.util.concurrent.ThreadLocalRandom;
 
-/**
- * Test for {@link CopyOnWriteStateTable}.
- */
-public class CopyOnWriteStateTableTest {
+import static org.assertj.core.api.Assertions.assertThat;
 
-	/**
-	 * This tests that serializers used for snapshots are duplicates of the ones used in
-	 * processing to avoid race conditions in stateful serializers.
-	 */
-	@Test
-	public void testSerializerDuplicationInSnapshot() throws IOException {
+/** Test for {@link CopyOnWriteStateTable}. */
+class CopyOnWriteStateTableTest {
 
-		final TestDuplicateSerializer namespaceSerializer = new TestDuplicateSerializer();
-		final TestDuplicateSerializer stateSerializer = new TestDuplicateSerializer();
-		final TestDuplicateSerializer keySerializer = new TestDuplicateSerializer();
+    /**
+     * This tests that Whether serializers are consistent between {@link StateTable} and {@link
+     * StateMap}.
+     */
+    @Test
+    void testSerializerAfterMetaInfoChanged() {
+        RegisteredKeyValueStateBackendMetaInfo<Integer, TestType> originalMetaInfo =
+                new RegisteredKeyValueStateBackendMetaInfo<>(
+                        StateDescriptor.Type.VALUE,
+                        "test",
+                        IntSerializer.INSTANCE,
+                        new TestType.V1TestTypeSerializer());
+        InternalKeyContext<Integer> mockKeyContext =
+                new InternalKeyContextImpl<>(KeyGroupRange.of(0, 9), 10);
+        CopyOnWriteStateTable<Integer, Integer, TestType> table =
+                new CopyOnWriteStateTable<>(
+                        mockKeyContext, originalMetaInfo, IntSerializer.INSTANCE);
 
-		RegisteredKeyValueStateBackendMetaInfo<Integer, Integer> metaInfo =
-			new RegisteredKeyValueStateBackendMetaInfo<>(
-				StateDescriptor.Type.VALUE,
-				"test",
-				namespaceSerializer,
-				stateSerializer);
+        RegisteredKeyValueStateBackendMetaInfo<Integer, TestType> newMetaInfo =
+                new RegisteredKeyValueStateBackendMetaInfo<>(
+                        StateDescriptor.Type.VALUE,
+                        "test",
+                        IntSerializer.INSTANCE,
+                        new TestType.V2TestTypeSerializer());
+        table.setMetaInfo(newMetaInfo);
+        Preconditions.checkState(table.getState().length > 0);
+        for (StateMap<?, ?, ?> stateEntries : table.getState()) {
+            assertThat(((CopyOnWriteStateMap<?, ?, ?>) stateEntries).getStateSerializer())
+                    .isEqualTo(table.getStateSerializer());
+        }
+    }
 
-		InternalKeyContext<Integer> mockKeyContext = new MockInternalKeyContext<>();
-		CopyOnWriteStateTable<Integer, Integer, Integer> table =
-			new CopyOnWriteStateTable<>(mockKeyContext, metaInfo, keySerializer);
+    /**
+     * This tests that serializers used for snapshots are duplicates of the ones used in processing
+     * to avoid race conditions in stateful serializers.
+     */
+    @Test
+    void testSerializerDuplicationInSnapshot() throws IOException {
 
-		table.put(0, 0, 0, 0);
-		table.put(1, 0, 0, 1);
-		table.put(2, 0, 1, 2);
+        final TestDuplicateSerializer namespaceSerializer = new TestDuplicateSerializer();
+        final TestDuplicateSerializer stateSerializer = new TestDuplicateSerializer();
+        final TestDuplicateSerializer keySerializer = new TestDuplicateSerializer();
 
+        RegisteredKeyValueStateBackendMetaInfo<Integer, Integer> metaInfo =
+                new RegisteredKeyValueStateBackendMetaInfo<>(
+                        StateDescriptor.Type.VALUE, "test", namespaceSerializer, stateSerializer);
 
-		final CopyOnWriteStateTableSnapshot<Integer, Integer, Integer> snapshot = table.stateSnapshot();
+        InternalKeyContext<Integer> mockKeyContext = new MockInternalKeyContext<>();
+        CopyOnWriteStateTable<Integer, Integer, Integer> table =
+                new CopyOnWriteStateTable<>(mockKeyContext, metaInfo, keySerializer);
 
-		final StateSnapshot.StateKeyGroupWriter partitionedSnapshot = snapshot.getKeyGroupWriter();
-		namespaceSerializer.disable();
-		keySerializer.disable();
-		stateSerializer.disable();
+        table.put(0, 0, 0, 0);
+        table.put(1, 0, 0, 1);
+        table.put(2, 0, 1, 2);
 
-		partitionedSnapshot.writeStateInKeyGroup(
-			new DataOutputViewStreamWrapper(
-				new ByteArrayOutputStreamWithPos(1024)), 0);
-	}
+        final CopyOnWriteStateTableSnapshot<Integer, Integer, Integer> snapshot =
+                table.stateSnapshot();
+
+        final StateSnapshot.StateKeyGroupWriter partitionedSnapshot = snapshot.getKeyGroupWriter();
+        namespaceSerializer.disable();
+        keySerializer.disable();
+        stateSerializer.disable();
+
+        partitionedSnapshot.writeStateInKeyGroup(
+                new DataOutputViewStreamWrapper(new ByteArrayOutputStreamWithPos(1024)), 0);
+    }
+
+    /** This tests that resource can be released for a successful snapshot. */
+    @Test
+    void testReleaseForSuccessfulSnapshot() throws IOException {
+        int numberOfKeyGroups = 10;
+        CopyOnWriteStateTable<Integer, Integer, Float> table =
+                createStateTableForSnapshotRelease(numberOfKeyGroups);
+
+        ByteArrayOutputStreamWithPos byteArrayOutputStreamWithPos =
+                new ByteArrayOutputStreamWithPos();
+        DataOutputView dataOutputView =
+                new DataOutputViewStreamWrapper(byteArrayOutputStreamWithPos);
+
+        CopyOnWriteStateTableSnapshot<Integer, Integer, Float> snapshot = table.stateSnapshot();
+        for (int group = 0; group < numberOfKeyGroups; group++) {
+            snapshot.writeStateInKeyGroup(dataOutputView, group);
+            // resource used by one key group should be released after the snapshot is successful
+            assertThat(isResourceReleasedForKeyGroup(table, group)).isTrue();
+        }
+        snapshot.release();
+        verifyResourceIsReleasedForAllKeyGroup(table, 1);
+    }
+
+    /** This tests that resource can be released for a failed snapshot. */
+    @Test
+    void testReleaseForFailedSnapshot() throws IOException {
+        int numberOfKeyGroups = 10;
+        CopyOnWriteStateTable<Integer, Integer, Float> table =
+                createStateTableForSnapshotRelease(numberOfKeyGroups);
+
+        ByteArrayOutputStreamWithPos byteArrayOutputStreamWithPos =
+                new ByteArrayOutputStreamWithPos();
+        DataOutputView dataOutputView =
+                new DataOutputViewStreamWrapper(byteArrayOutputStreamWithPos);
+
+        CopyOnWriteStateTableSnapshot<Integer, Integer, Float> snapshot = table.stateSnapshot();
+        // only snapshot part of key groups to simulate a failed snapshot
+        for (int group = 0; group < numberOfKeyGroups / 2; group++) {
+            snapshot.writeStateInKeyGroup(dataOutputView, group);
+            assertThat(isResourceReleasedForKeyGroup(table, group)).isTrue();
+        }
+        for (int group = numberOfKeyGroups / 2; group < numberOfKeyGroups; group++) {
+            assertThat(isResourceReleasedForKeyGroup(table, group)).isFalse();
+        }
+        snapshot.release();
+        verifyResourceIsReleasedForAllKeyGroup(table, 2);
+    }
+
+    private CopyOnWriteStateTable<Integer, Integer, Float> createStateTableForSnapshotRelease(
+            int numberOfKeyGroups) {
+        RegisteredKeyValueStateBackendMetaInfo<Integer, Float> metaInfo =
+                new RegisteredKeyValueStateBackendMetaInfo<>(
+                        StateDescriptor.Type.VALUE,
+                        "test",
+                        IntSerializer.INSTANCE,
+                        FloatSerializer.INSTANCE);
+
+        MockInternalKeyContext<Integer> mockKeyContext =
+                new MockInternalKeyContext<>(0, numberOfKeyGroups - 1, numberOfKeyGroups);
+        CopyOnWriteStateTable<Integer, Integer, Float> table =
+                new CopyOnWriteStateTable<>(mockKeyContext, metaInfo, IntSerializer.INSTANCE);
+
+        ThreadLocalRandom random = ThreadLocalRandom.current();
+        for (int i = 0; i < 1000; i++) {
+            mockKeyContext.setCurrentKeyAndKeyGroup(i);
+            table.put(random.nextInt(), random.nextFloat());
+        }
+
+        return table;
+    }
+
+    private void verifyResourceIsReleasedForAllKeyGroup(
+            CopyOnWriteStateTable table, int snapshotVersion) {
+        StateMap[] stateMaps = table.getState();
+        for (StateMap map : stateMaps) {
+            assertThat(((CopyOnWriteStateMap) map).getSnapshotVersions().contains(snapshotVersion))
+                    .isFalse();
+        }
+    }
+
+    private boolean isResourceReleasedForKeyGroup(CopyOnWriteStateTable table, int keyGroup) {
+        CopyOnWriteStateMap stateMap = (CopyOnWriteStateMap) table.getMapForKeyGroup(keyGroup);
+        return !stateMap.getSnapshotVersions().contains(1);
+    }
 }

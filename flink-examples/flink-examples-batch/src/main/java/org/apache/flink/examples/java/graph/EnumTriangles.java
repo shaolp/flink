@@ -32,26 +32,32 @@ import org.apache.flink.examples.java.graph.util.EnumTrianglesDataTypes.Edge;
 import org.apache.flink.examples.java.graph.util.EnumTrianglesDataTypes.Triad;
 import org.apache.flink.util.Collector;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
+import static org.apache.flink.examples.java.util.DataSetDeprecationInfo.DATASET_DEPRECATION_INFO;
+
 /**
- * Triangle enumeration is a pre-processing step to find closely connected parts in graphs.
- * A triangle consists of three edges that connect three vertices with each other.
+ * Triangle enumeration is a pre-processing step to find closely connected parts in graphs. A
+ * triangle consists of three edges that connect three vertices with each other.
  *
- * <p>The algorithm works as follows:
- * It groups all edges that share a common vertex and builds triads, i.e., triples of vertices
- * that are connected by two edges. Finally, all triads are filtered for which no third edge exists
- * that closes the triangle.
+ * <p>The algorithm works as follows: It groups all edges that share a common vertex and builds
+ * triads, i.e., triples of vertices that are connected by two edges. Finally, all triads are
+ * filtered for which no third edge exists that closes the triangle.
  *
  * <p>Input files are plain text files and must be formatted as follows:
+ *
  * <ul>
- * <li>Edges are represented as pairs for vertex IDs which are separated by space
- * characters. Edges are separated by new-line characters.<br>
- * For example <code>"1 2\n2 12\n1 12\n42 63"</code> gives four (undirected) edges (1)-(2), (2)-(12), (1)-(12), and (42)-(63)
- * that include a triangle
+ *   <li>Edges are represented as pairs for vertex IDs which are separated by space characters.
+ *       Edges are separated by new-line characters.<br>
+ *       For example <code>"1 2\n2 12\n1 12\n42 63"</code> gives four (undirected) edges (1)-(2),
+ *       (2)-(12), (1)-(12), and (42)-(63) that include a triangle
  * </ul>
+ *
  * <pre>
  *     (1)
  *     /  \
@@ -59,143 +65,161 @@ import java.util.List;
  * </pre>
  *
  * <p>Usage: <code>EnumTriangleBasic --edges &lt;path&gt; --output &lt;path&gt;</code><br>
- * If no parameters are provided, the program is run with default data from {@link EnumTrianglesData}.
+ * If no parameters are provided, the program is run with default data from {@link
+ * EnumTrianglesData}.
  *
  * <p>This example shows how to use:
+ *
  * <ul>
- * <li>Custom Java objects which extend Tuple
- * <li>Group Sorting
+ *   <li>Custom Java objects which extend Tuple
+ *   <li>Group Sorting
  * </ul>
+ *
+ * <p>Note: All Flink DataSet APIs are deprecated since Flink 1.18 and will be removed in a future
+ * Flink major version. You can still build your application in DataSet, but you should move to
+ * either the DataStream and/or Table API. This class is retained for testing purposes.
  */
 @SuppressWarnings("serial")
 public class EnumTriangles {
 
-	// *************************************************************************
-	//     PROGRAM
-	// *************************************************************************
+    private static final Logger LOGGER = LoggerFactory.getLogger(EnumTriangles.class);
 
-	public static void main(String[] args) throws Exception {
+    // *************************************************************************
+    //     PROGRAM
+    // *************************************************************************
 
-		// Checking input parameters
-		final ParameterTool params = ParameterTool.fromArgs(args);
+    public static void main(String[] args) throws Exception {
 
-		// set up execution environment
-		final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
+        LOGGER.warn(DATASET_DEPRECATION_INFO);
 
-		// make parameters available in the web interface
-		env.getConfig().setGlobalJobParameters(params);
+        // Checking input parameters
+        final ParameterTool params = ParameterTool.fromArgs(args);
 
-		// read input data
-		DataSet<Edge> edges;
-		if (params.has("edges")) {
-			edges = env.readCsvFile(params.get("edges"))
-					.fieldDelimiter(" ")
-					.includeFields(true, true)
-					.types(Integer.class, Integer.class)
-					.map(new TupleEdgeConverter());
-		} else {
-			System.out.println("Executing EnumTriangles example with default edges data set.");
-			System.out.println("Use --edges to specify file input.");
-			edges = EnumTrianglesData.getDefaultEdgeDataSet(env);
-		}
+        // set up execution environment
+        final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
 
-		// project edges by vertex id
-		DataSet<Edge> edgesById = edges
-				.map(new EdgeByIdProjector());
+        // make parameters available in the web interface
+        env.getConfig().setGlobalJobParameters(params);
 
-		DataSet<Triad> triangles = edgesById
-				// build triads
-				.groupBy(Edge.V1).sortGroup(Edge.V2, Order.ASCENDING).reduceGroup(new TriadBuilder())
-				// filter triads
-				.join(edgesById).where(Triad.V2, Triad.V3).equalTo(Edge.V1, Edge.V2).with(new TriadFilter());
+        // read input data
+        DataSet<Edge> edges;
+        if (params.has("edges")) {
+            edges =
+                    env.readCsvFile(params.get("edges"))
+                            .fieldDelimiter(" ")
+                            .includeFields(true, true)
+                            .types(Integer.class, Integer.class)
+                            .map(new TupleEdgeConverter());
+        } else {
+            System.out.println("Executing EnumTriangles example with default edges data set.");
+            System.out.println("Use --edges to specify file input.");
+            edges = EnumTrianglesData.getDefaultEdgeDataSet(env);
+        }
 
-		// emit result
-		if (params.has("output")) {
-			triangles.writeAsCsv(params.get("output"), "\n", ",");
-			// execute program
-			env.execute("Basic Triangle Enumeration Example");
-		} else {
-			System.out.println("Printing result to stdout. Use --output to specify output path.");
-			triangles.print();
-		}
-	}
+        // project edges by vertex id
+        DataSet<Edge> edgesById = edges.map(new EdgeByIdProjector());
 
-	// *************************************************************************
-	//     USER FUNCTIONS
-	// *************************************************************************
+        DataSet<Triad> triangles =
+                edgesById
+                        // build triads
+                        .groupBy(Edge.V1)
+                        .sortGroup(Edge.V2, Order.ASCENDING)
+                        .reduceGroup(new TriadBuilder())
+                        // filter triads
+                        .join(edgesById)
+                        .where(Triad.V2, Triad.V3)
+                        .equalTo(Edge.V1, Edge.V2)
+                        .with(new TriadFilter());
 
-	/** Converts a Tuple2 into an Edge. */
-	@ForwardedFields("0;1")
-	public static class TupleEdgeConverter implements MapFunction<Tuple2<Integer, Integer>, Edge> {
-		private final Edge outEdge = new Edge();
+        // emit result
+        if (params.has("output")) {
+            triangles.writeAsCsv(params.get("output"), "\n", ",");
+            // execute program
+            env.execute("Basic Triangle Enumeration Example");
+        } else {
+            System.out.println("Printing result to stdout. Use --output to specify output path.");
+            triangles.print();
+        }
+    }
 
-		@Override
-		public Edge map(Tuple2<Integer, Integer> t) throws Exception {
-			outEdge.copyVerticesFromTuple2(t);
-			return outEdge;
-		}
-	}
+    // *************************************************************************
+    //     USER FUNCTIONS
+    // *************************************************************************
 
-	/** Projects an edge (pair of vertices) such that the id of the first is smaller than the id of the second. */
-	private static class EdgeByIdProjector implements MapFunction<Edge, Edge> {
+    /** Converts a Tuple2 into an Edge. */
+    @ForwardedFields("0;1")
+    public static class TupleEdgeConverter implements MapFunction<Tuple2<Integer, Integer>, Edge> {
+        private final Edge outEdge = new Edge();
 
-		@Override
-		public Edge map(Edge inEdge) throws Exception {
+        @Override
+        public Edge map(Tuple2<Integer, Integer> t) throws Exception {
+            outEdge.copyVerticesFromTuple2(t);
+            return outEdge;
+        }
+    }
 
-			// flip vertices if necessary
-			if (inEdge.getFirstVertex() > inEdge.getSecondVertex()) {
-				inEdge.flipVertices();
-			}
+    /**
+     * Projects an edge (pair of vertices) such that the id of the first is smaller than the id of
+     * the second.
+     */
+    private static class EdgeByIdProjector implements MapFunction<Edge, Edge> {
 
-			return inEdge;
-		}
-	}
+        @Override
+        public Edge map(Edge inEdge) throws Exception {
 
-	/**
-	 *  Builds triads (triples of vertices) from pairs of edges that share a vertex.
-	 *  The first vertex of a triad is the shared vertex, the second and third vertex are ordered by vertexId.
-	 *  Assumes that input edges share the first vertex and are in ascending order of the second vertex.
-	 */
-	@ForwardedFields("0")
-	private static class TriadBuilder implements GroupReduceFunction<Edge, Triad> {
-		private final List<Integer> vertices = new ArrayList<Integer>();
-		private final Triad outTriad = new Triad();
+            // flip vertices if necessary
+            if (inEdge.getFirstVertex() > inEdge.getSecondVertex()) {
+                inEdge.flipVertices();
+            }
 
-		@Override
-		public void reduce(Iterable<Edge> edgesIter, Collector<Triad> out) throws Exception {
+            return inEdge;
+        }
+    }
 
-			final Iterator<Edge> edges = edgesIter.iterator();
+    /**
+     * Builds triads (triples of vertices) from pairs of edges that share a vertex. The first vertex
+     * of a triad is the shared vertex, the second and third vertex are ordered by vertexId. Assumes
+     * that input edges share the first vertex and are in ascending order of the second vertex.
+     */
+    @ForwardedFields("0")
+    private static class TriadBuilder implements GroupReduceFunction<Edge, Triad> {
+        private final List<Integer> vertices = new ArrayList<Integer>();
+        private final Triad outTriad = new Triad();
 
-			// clear vertex list
-			vertices.clear();
+        @Override
+        public void reduce(Iterable<Edge> edgesIter, Collector<Triad> out) throws Exception {
 
-			// read first edge
-			Edge firstEdge = edges.next();
-			outTriad.setFirstVertex(firstEdge.getFirstVertex());
-			vertices.add(firstEdge.getSecondVertex());
+            final Iterator<Edge> edges = edgesIter.iterator();
 
-			// build and emit triads
-			while (edges.hasNext()) {
-				Integer higherVertexId = edges.next().getSecondVertex();
+            // clear vertex list
+            vertices.clear();
 
-				// combine vertex with all previously read vertices
-				for (Integer lowerVertexId : vertices) {
-					outTriad.setSecondVertex(lowerVertexId);
-					outTriad.setThirdVertex(higherVertexId);
-					out.collect(outTriad);
-				}
-				vertices.add(higherVertexId);
-			}
-		}
-	}
+            // read first edge
+            Edge firstEdge = edges.next();
+            outTriad.setFirstVertex(firstEdge.getFirstVertex());
+            vertices.add(firstEdge.getSecondVertex());
 
-	/** Filters triads (three vertices connected by two edges) without a closing third edge. */
-	private static class TriadFilter implements JoinFunction<Triad, Edge, Triad> {
+            // build and emit triads
+            while (edges.hasNext()) {
+                Integer higherVertexId = edges.next().getSecondVertex();
 
-		@Override
-		public Triad join(Triad triad, Edge edge) throws Exception {
-			return triad;
-		}
-	}
+                // combine vertex with all previously read vertices
+                for (Integer lowerVertexId : vertices) {
+                    outTriad.setSecondVertex(lowerVertexId);
+                    outTriad.setThirdVertex(higherVertexId);
+                    out.collect(outTriad);
+                }
+                vertices.add(higherVertexId);
+            }
+        }
+    }
 
+    /** Filters triads (three vertices connected by two edges) without a closing third edge. */
+    private static class TriadFilter implements JoinFunction<Triad, Edge, Triad> {
+
+        @Override
+        public Triad join(Triad triad, Edge edge) throws Exception {
+            return triad;
+        }
+    }
 }

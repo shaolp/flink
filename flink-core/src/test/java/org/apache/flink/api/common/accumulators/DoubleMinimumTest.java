@@ -18,65 +18,66 @@
 
 package org.apache.flink.api.common.accumulators;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import static org.junit.Assert.assertEquals;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 
-public class DoubleMinimumTest {
+class DoubleMinimumTest {
 
-	@Test
-	public void testGet() {
-		DoubleMinimum min = new DoubleMinimum();
-		assertEquals(Double.POSITIVE_INFINITY, min.getLocalValue(), 0.0);
-	}
+    @Test
+    void testGet() {
+        DoubleMinimum min = new DoubleMinimum();
+        assertThat(min.getLocalValue()).isCloseTo(Double.POSITIVE_INFINITY, within(0.0));
+    }
 
-	@Test
-	public void testResetLocal() {
-		DoubleMinimum min = new DoubleMinimum();
-		double value = 13.57902468;
+    @Test
+    void testResetLocal() {
+        DoubleMinimum min = new DoubleMinimum();
+        double value = 13.57902468;
 
-		min.add(value);
-		assertEquals(value, min.getLocalValue(), 0.0);
+        min.add(value);
+        assertThat(min.getLocalValue()).isCloseTo(value, within(0.0));
 
-		min.resetLocal();
-		assertEquals(Double.POSITIVE_INFINITY, min.getLocalValue(), 0.0);
-	}
+        min.resetLocal();
+        assertThat(min.getLocalValue()).isCloseTo(Double.POSITIVE_INFINITY, within(0.0));
+    }
 
-	@Test
-	public void testAdd() {
-		DoubleMinimum min = new DoubleMinimum();
+    @Test
+    void testAdd() {
+        DoubleMinimum min = new DoubleMinimum();
 
-		min.add(1234.5768);
-		min.add(9876.5432);
-		min.add(-987.6543);
-		min.add(-123.4567);
+        min.add(1234.5768);
+        min.add(9876.5432);
+        min.add(-987.6543);
+        min.add(-123.4567);
 
-		assertEquals(-987.6543, min.getLocalValue(), 0.0);
-	}
+        assertThat(min.getLocalValue()).isCloseTo(-987.6543, within(0.0));
+    }
 
-	@Test
-	public void testMerge() {
-		DoubleMinimum min1 = new DoubleMinimum();
-		min1.add(1234.5768);
+    @Test
+    void testMerge() {
+        DoubleMinimum min1 = new DoubleMinimum();
+        min1.add(1234.5768);
 
-		DoubleMinimum min2 = new DoubleMinimum();
-		min2.add(5678.9012);
+        DoubleMinimum min2 = new DoubleMinimum();
+        min2.add(5678.9012);
 
-		min2.merge(min1);
-		assertEquals(1234.5768, min2.getLocalValue(), 0.0);
+        min2.merge(min1);
+        assertThat(min2.getLocalValue()).isCloseTo(1234.5768, within(0.0));
 
-		min1.merge(min2);
-		assertEquals(1234.5768, min1.getLocalValue(), 0.0);
-	}
+        min1.merge(min2);
+        assertThat(min1.getLocalValue()).isCloseTo(1234.5768, within(0.0));
+    }
 
-	@Test
-	public void testClone() {
-		DoubleMinimum min = new DoubleMinimum();
-		double value = 3.14159265359;
+    @Test
+    void testClone() {
+        DoubleMinimum min = new DoubleMinimum();
+        double value = 3.14159265359;
 
-		min.add(value);
+        min.add(value);
 
-		DoubleMinimum clone = min.clone();
-		assertEquals(value, clone.getLocalValue(), 0.0);
-	}
+        DoubleMinimum clone = min.clone();
+        assertThat(clone.getLocalValue()).isCloseTo(value, within(0.0));
+    }
 }

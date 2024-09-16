@@ -21,101 +21,106 @@ package org.apache.flink.runtime.scheduler;
 
 import org.apache.flink.runtime.jobgraph.JobVertexID;
 import org.apache.flink.runtime.scheduler.strategy.ExecutionVertexID;
-import org.apache.flink.util.TestLogger;
 
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.Set;
 
-import static org.hamcrest.Matchers.containsInAnyOrder;
-import static org.hamcrest.Matchers.containsString;
-import static org.hamcrest.Matchers.empty;
-import static org.hamcrest.Matchers.is;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/**
- * Tests for {@link ExecutionVertexVersioner}.
- */
-public class ExecutionVertexVersionerTest extends TestLogger {
+/** Tests for {@link ExecutionVertexVersioner}. */
+class ExecutionVertexVersionerTest {
 
-	private static final ExecutionVertexID TEST_EXECUTION_VERTEX_ID1 = new ExecutionVertexID(new JobVertexID(), 0);
-	private static final ExecutionVertexID TEST_EXECUTION_VERTEX_ID2 = new ExecutionVertexID(new JobVertexID(), 0);
-	private static final Collection<ExecutionVertexID> TEST_ALL_EXECUTION_VERTEX_IDS = Arrays.asList(
-		TEST_EXECUTION_VERTEX_ID1,
-		TEST_EXECUTION_VERTEX_ID2);
+    private static final ExecutionVertexID TEST_EXECUTION_VERTEX_ID1 =
+            new ExecutionVertexID(new JobVertexID(), 0);
+    private static final ExecutionVertexID TEST_EXECUTION_VERTEX_ID2 =
+            new ExecutionVertexID(new JobVertexID(), 0);
+    private static final Collection<ExecutionVertexID> TEST_ALL_EXECUTION_VERTEX_IDS =
+            Arrays.asList(TEST_EXECUTION_VERTEX_ID1, TEST_EXECUTION_VERTEX_ID2);
 
-	private ExecutionVertexVersioner executionVertexVersioner;
+    private ExecutionVertexVersioner executionVertexVersioner;
 
-	@Before
-	public void setUp() {
-		executionVertexVersioner = new ExecutionVertexVersioner();
-	}
+    @BeforeEach
+    private void setUp() {
+        executionVertexVersioner = new ExecutionVertexVersioner();
+    }
 
-	@Test
-	public void isModifiedReturnsFalseIfVertexUnmodified() {
-		final ExecutionVertexVersion executionVertexVersion =
-			executionVertexVersioner.recordModification(TEST_EXECUTION_VERTEX_ID1);
-		assertFalse(executionVertexVersioner.isModified(executionVertexVersion));
-	}
+    @Test
+    void isModifiedReturnsFalseIfVertexUnmodified() {
+        final ExecutionVertexVersion executionVertexVersion =
+                executionVertexVersioner.recordModification(TEST_EXECUTION_VERTEX_ID1);
+        assertThat(executionVertexVersioner.isModified(executionVertexVersion)).isFalse();
+    }
 
-	@Test
-	public void isModifiedReturnsTrueIfVertexIsModified() {
-		final ExecutionVertexVersion executionVertexVersion =
-			executionVertexVersioner.recordModification(TEST_EXECUTION_VERTEX_ID1);
-		executionVertexVersioner.recordModification(TEST_EXECUTION_VERTEX_ID1);
-		assertTrue(executionVertexVersioner.isModified(executionVertexVersion));
-	}
+    @Test
+    void isModifiedReturnsTrueIfVertexIsModified() {
+        final ExecutionVertexVersion executionVertexVersion =
+                executionVertexVersioner.recordModification(TEST_EXECUTION_VERTEX_ID1);
+        executionVertexVersioner.recordModification(TEST_EXECUTION_VERTEX_ID1);
+        assertThat(executionVertexVersioner.isModified(executionVertexVersion)).isTrue();
+    }
 
-	@Test
-	public void throwsExceptionIfVertexWasNeverModified() {
-		try {
-			executionVertexVersioner.isModified(new ExecutionVertexVersion(TEST_EXECUTION_VERTEX_ID1, 0));
-			fail("Expected exception not thrown");
-		} catch (final IllegalStateException e) {
-			assertThat(e.getMessage(), containsString("Execution vertex "
-				+ TEST_EXECUTION_VERTEX_ID1 + " does not have a recorded version"));
-		}
-	}
+    @Test
+    void throwsExceptionIfVertexWasNeverModified() {
+        assertThatThrownBy(
+                        () ->
+                                executionVertexVersioner.isModified(
+                                        new ExecutionVertexVersion(TEST_EXECUTION_VERTEX_ID1, 0)))
+                .withFailMessage("Expected exception not thrown")
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining(
+                        "Execution vertex "
+                                + TEST_EXECUTION_VERTEX_ID1
+                                + " does not have a recorded version");
+    }
 
-	@Test
-	public void getUnmodifiedVerticesAllVerticesModified() {
-		final Set<ExecutionVertexVersion> executionVertexVersions = new HashSet<>(
-			executionVertexVersioner.recordVertexModifications(TEST_ALL_EXECUTION_VERTEX_IDS).values());
-		executionVertexVersioner.recordVertexModifications(TEST_ALL_EXECUTION_VERTEX_IDS);
+    @Test
+    void getUnmodifiedVerticesAllVerticesModified() {
+        final Set<ExecutionVertexVersion> executionVertexVersions =
+                new HashSet<>(
+                        executionVertexVersioner
+                                .recordVertexModifications(TEST_ALL_EXECUTION_VERTEX_IDS)
+                                .values());
+        executionVertexVersioner.recordVertexModifications(TEST_ALL_EXECUTION_VERTEX_IDS);
 
-		final Set<ExecutionVertexID> unmodifiedExecutionVertices =
-			executionVertexVersioner.getUnmodifiedExecutionVertices(executionVertexVersions);
+        final Set<ExecutionVertexID> unmodifiedExecutionVertices =
+                executionVertexVersioner.getUnmodifiedExecutionVertices(executionVertexVersions);
 
-		assertThat(unmodifiedExecutionVertices, is(empty()));
-	}
+        assertThat(unmodifiedExecutionVertices).isEmpty();
+    }
 
-	@Test
-	public void getUnmodifiedVerticesNoVertexModified() {
-		final Set<ExecutionVertexVersion> executionVertexVersions = new HashSet<>(
-			executionVertexVersioner.recordVertexModifications(TEST_ALL_EXECUTION_VERTEX_IDS).values());
+    @Test
+    void getUnmodifiedVerticesNoVertexModified() {
+        final Set<ExecutionVertexVersion> executionVertexVersions =
+                new HashSet<>(
+                        executionVertexVersioner
+                                .recordVertexModifications(TEST_ALL_EXECUTION_VERTEX_IDS)
+                                .values());
 
-		final Set<ExecutionVertexID> unmodifiedExecutionVertices =
-			executionVertexVersioner.getUnmodifiedExecutionVertices(executionVertexVersions);
+        final Set<ExecutionVertexID> unmodifiedExecutionVertices =
+                executionVertexVersioner.getUnmodifiedExecutionVertices(executionVertexVersions);
 
-		assertThat(unmodifiedExecutionVertices, containsInAnyOrder(TEST_EXECUTION_VERTEX_ID1, TEST_EXECUTION_VERTEX_ID2));
-	}
+        assertThat(unmodifiedExecutionVertices)
+                .contains(TEST_EXECUTION_VERTEX_ID1, TEST_EXECUTION_VERTEX_ID2);
+    }
 
-	@Test
-	public void getUnmodifiedVerticesPartOfVerticesModified() {
-		final Set<ExecutionVertexVersion> executionVertexVersions = new HashSet<>(
-			executionVertexVersioner.recordVertexModifications(TEST_ALL_EXECUTION_VERTEX_IDS).values());
-		executionVertexVersioner.recordModification(TEST_EXECUTION_VERTEX_ID1);
+    @Test
+    void getUnmodifiedVerticesPartOfVerticesModified() {
+        final Set<ExecutionVertexVersion> executionVertexVersions =
+                new HashSet<>(
+                        executionVertexVersioner
+                                .recordVertexModifications(TEST_ALL_EXECUTION_VERTEX_IDS)
+                                .values());
+        executionVertexVersioner.recordModification(TEST_EXECUTION_VERTEX_ID1);
 
-		final Set<ExecutionVertexID> unmodifiedExecutionVertices =
-			executionVertexVersioner.getUnmodifiedExecutionVertices(executionVertexVersions);
+        final Set<ExecutionVertexID> unmodifiedExecutionVertices =
+                executionVertexVersioner.getUnmodifiedExecutionVertices(executionVertexVersions);
 
-		assertThat(unmodifiedExecutionVertices, containsInAnyOrder(TEST_EXECUTION_VERTEX_ID2));
-	}
+        assertThat(unmodifiedExecutionVertices).contains(TEST_EXECUTION_VERTEX_ID2);
+    }
 }

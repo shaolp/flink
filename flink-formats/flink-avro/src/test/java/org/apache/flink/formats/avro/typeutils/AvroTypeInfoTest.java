@@ -18,32 +18,30 @@
 
 package org.apache.flink.formats.avro.typeutils;
 
-import org.apache.flink.api.common.ExecutionConfig;
+import org.apache.flink.api.common.serialization.SerializerConfigImpl;
 import org.apache.flink.api.common.typeutils.TypeInformationTestBase;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.formats.avro.generated.Address;
 import org.apache.flink.formats.avro.generated.User;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import static org.junit.Assert.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * Test for {@link AvroTypeInfo}.
- */
-public class AvroTypeInfoTest extends TypeInformationTestBase<AvroTypeInfo<?>> {
+/** Test for {@link AvroTypeInfo}. */
+class AvroTypeInfoTest extends TypeInformationTestBase<AvroTypeInfo<?>> {
 
-	@Override
-	protected AvroTypeInfo<?>[] getTestData() {
-		return new AvroTypeInfo<?>[] {
-			new AvroTypeInfo<>(Address.class),
-			new AvroTypeInfo<>(User.class),
-		};
-	}
+    @Override
+    protected AvroTypeInfo<?>[] getTestData() {
+        return new AvroTypeInfo<?>[] {
+            new AvroTypeInfo<>(Address.class), new AvroTypeInfo<>(User.class),
+        };
+    }
 
-	@Test
-	public void testAvroByDefault() {
-		final TypeSerializer<User> serializer = new AvroTypeInfo<>(User.class).createSerializer(new ExecutionConfig());
-		assertTrue(serializer instanceof AvroSerializer);
-	}
+    @Test
+    void testAvroByDefault() {
+        final TypeSerializer<User> serializer =
+                new AvroTypeInfo<>(User.class).createSerializer(new SerializerConfigImpl());
+        assertThat(serializer).isInstanceOf(AvroSerializer.class);
+    }
 }

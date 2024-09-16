@@ -20,291 +20,310 @@ package org.apache.flink.runtime.state;
 
 import org.apache.flink.core.fs.FSDataInputStream;
 import org.apache.flink.runtime.testutils.CommonTestUtils;
-import org.apache.flink.util.TestLogger;
 
 import org.apache.commons.io.IOUtils;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import javax.annotation.Nullable;
 
 import java.io.IOException;
 import java.util.Random;
 
-public class DuplicatingCheckpointOutputStreamTest extends TestLogger {
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-	/**
-	 * Test that all writes are duplicated to both streams and that the state reflects what was written.
-	 */
-	@Test
-	public void testDuplicatedWrite() throws Exception {
-		int streamCapacity = 1024 * 1024;
-		TestMemoryCheckpointOutputStream primaryStream = new TestMemoryCheckpointOutputStream(streamCapacity);
-		TestMemoryCheckpointOutputStream secondaryStream = new TestMemoryCheckpointOutputStream(streamCapacity);
-		TestMemoryCheckpointOutputStream referenceStream = new TestMemoryCheckpointOutputStream(streamCapacity);
-		DuplicatingCheckpointOutputStream duplicatingStream =
-			new DuplicatingCheckpointOutputStream(primaryStream, secondaryStream, 64);
-		Random random = new Random(42);
-		for (int i = 0; i < 500; ++i) {
-			int choice = random.nextInt(3);
-			if (choice == 0) {
-				int val = random.nextInt();
-				referenceStream.write(val);
-				duplicatingStream.write(val);
-			} else {
-				byte[] bytes = new byte[random.nextInt(128)];
-				random.nextBytes(bytes);
-				if (choice == 1) {
-					referenceStream.write(bytes);
-					duplicatingStream.write(bytes);
-				} else {
-					int off = bytes.length > 0 ? random.nextInt(bytes.length) : 0;
-					int len = bytes.length > 0 ? random.nextInt(bytes.length - off) : 0;
-					referenceStream.write(bytes, off, len);
-					duplicatingStream.write(bytes, off, len);
-				}
-			}
-			Assert.assertEquals(referenceStream.getPos(), duplicatingStream.getPos());
-		}
+class DuplicatingCheckpointOutputStreamTest {
 
-		StreamStateHandle refStateHandle = referenceStream.closeAndGetHandle();
-		StreamStateHandle primaryStateHandle = duplicatingStream.closeAndGetPrimaryHandle();
-		StreamStateHandle secondaryStateHandle = duplicatingStream.closeAndGetSecondaryHandle();
+    /**
+     * Test that all writes are duplicated to both streams and that the state reflects what was
+     * written.
+     */
+    @Test
+    void testDuplicatedWrite() throws Exception {
+        int streamCapacity = 1024 * 1024;
+        TestMemoryCheckpointOutputStream primaryStream =
+                new TestMemoryCheckpointOutputStream(streamCapacity);
+        TestMemoryCheckpointOutputStream secondaryStream =
+                new TestMemoryCheckpointOutputStream(streamCapacity);
+        TestMemoryCheckpointOutputStream referenceStream =
+                new TestMemoryCheckpointOutputStream(streamCapacity);
+        DuplicatingCheckpointOutputStream duplicatingStream =
+                new DuplicatingCheckpointOutputStream(primaryStream, secondaryStream, 64);
+        Random random = new Random(42);
+        for (int i = 0; i < 500; ++i) {
+            int choice = random.nextInt(3);
+            if (choice == 0) {
+                int val = random.nextInt();
+                referenceStream.write(val);
+                duplicatingStream.write(val);
+            } else {
+                byte[] bytes = new byte[random.nextInt(128)];
+                random.nextBytes(bytes);
+                if (choice == 1) {
+                    referenceStream.write(bytes);
+                    duplicatingStream.write(bytes);
+                } else {
+                    int off = bytes.length > 0 ? random.nextInt(bytes.length) : 0;
+                    int len = bytes.length > 0 ? random.nextInt(bytes.length - off) : 0;
+                    referenceStream.write(bytes, off, len);
+                    duplicatingStream.write(bytes, off, len);
+                }
+            }
+            assertThat(duplicatingStream.getPos()).isEqualTo(referenceStream.getPos());
+        }
 
-		Assert.assertTrue(CommonTestUtils.isStreamContentEqual(
-			refStateHandle.openInputStream(),
-			primaryStateHandle.openInputStream()));
+        StreamStateHandle refStateHandle = referenceStream.closeAndGetHandle();
+        StreamStateHandle primaryStateHandle = duplicatingStream.closeAndGetPrimaryHandle();
+        StreamStateHandle secondaryStateHandle = duplicatingStream.closeAndGetSecondaryHandle();
 
-		Assert.assertTrue(CommonTestUtils.isStreamContentEqual(
-			refStateHandle.openInputStream(),
-			secondaryStateHandle.openInputStream()));
+        assertThat(
+                        CommonTestUtils.isStreamContentEqual(
+                                refStateHandle.openInputStream(),
+                                primaryStateHandle.openInputStream()))
+                .isTrue();
 
-		refStateHandle.discardState();
-		primaryStateHandle.discardState();
-		secondaryStateHandle.discardState();
-	}
+        assertThat(
+                        CommonTestUtils.isStreamContentEqual(
+                                refStateHandle.openInputStream(),
+                                secondaryStateHandle.openInputStream()))
+                .isTrue();
 
-	/**
-	 * This is the first of a set of tests that check that exceptions from the secondary stream do not impact that we
-	 * can create a result for the first stream.
-	 */
-	@Test
-	public void testSecondaryWriteFail() throws Exception {
-		DuplicatingCheckpointOutputStream duplicatingStream = createDuplicatingStreamWithFailingSecondary();
-		testFailingSecondaryStream(duplicatingStream, () -> {
-			for (int i = 0; i < 128; i++) {
-				duplicatingStream.write(42);
-			}
-		});
-	}
+        refStateHandle.discardState();
+        primaryStateHandle.discardState();
+        secondaryStateHandle.discardState();
+    }
 
-	@Test
-	public void testFailingSecondaryWriteArrayFail() throws Exception {
-		DuplicatingCheckpointOutputStream duplicatingStream = createDuplicatingStreamWithFailingSecondary();
-		testFailingSecondaryStream(duplicatingStream, () -> duplicatingStream.write(new byte[512]));
-	}
+    /**
+     * This is the first of a set of tests that check that exceptions from the secondary stream do
+     * not impact that we can create a result for the first stream.
+     */
+    @Test
+    void testSecondaryWriteFail() throws Exception {
+        DuplicatingCheckpointOutputStream duplicatingStream =
+                createDuplicatingStreamWithFailingSecondary();
+        testFailingSecondaryStream(
+                duplicatingStream,
+                () -> {
+                    for (int i = 0; i < 128; i++) {
+                        duplicatingStream.write(42);
+                    }
+                });
+    }
 
-	@Test
-	public void testFailingSecondaryWriteArrayOffsFail() throws Exception {
-		DuplicatingCheckpointOutputStream duplicatingStream = createDuplicatingStreamWithFailingSecondary();
-		testFailingSecondaryStream(duplicatingStream, () -> duplicatingStream.write(new byte[512], 20, 130));
-	}
+    @Test
+    void testFailingSecondaryWriteArrayFail() throws Exception {
+        DuplicatingCheckpointOutputStream duplicatingStream =
+                createDuplicatingStreamWithFailingSecondary();
+        testFailingSecondaryStream(duplicatingStream, () -> duplicatingStream.write(new byte[512]));
+    }
 
-	@Test
-	public void testFailingSecondaryFlush() throws Exception {
-		DuplicatingCheckpointOutputStream duplicatingStream = createDuplicatingStreamWithFailingSecondary();
-		testFailingSecondaryStream(duplicatingStream, duplicatingStream::flush);
-	}
+    @Test
+    void testFailingSecondaryWriteArrayOffsFail() throws Exception {
+        DuplicatingCheckpointOutputStream duplicatingStream =
+                createDuplicatingStreamWithFailingSecondary();
+        testFailingSecondaryStream(
+                duplicatingStream, () -> duplicatingStream.write(new byte[512], 20, 130));
+    }
 
-	@Test
-	public void testFailingSecondarySync() throws Exception {
-		DuplicatingCheckpointOutputStream duplicatingStream = createDuplicatingStreamWithFailingSecondary();
-		testFailingSecondaryStream(duplicatingStream, duplicatingStream::sync);
-	}
+    @Test
+    void testFailingSecondaryFlush() throws Exception {
+        DuplicatingCheckpointOutputStream duplicatingStream =
+                createDuplicatingStreamWithFailingSecondary();
+        testFailingSecondaryStream(duplicatingStream, duplicatingStream::flush);
+    }
 
-	/**
-	 * This is the first of a set of tests that check that exceptions from the primary stream are immediately reported.
-	 */
-	@Test
-	public void testPrimaryWriteFail() throws Exception {
-		DuplicatingCheckpointOutputStream duplicatingStream = createDuplicatingStreamWithFailingPrimary();
-		testFailingPrimaryStream(duplicatingStream, () -> {
-			for (int i = 0; i < 128; i++) {
-				duplicatingStream.write(42);
-			}
-		});
-	}
+    @Test
+    void testFailingSecondarySync() throws Exception {
+        DuplicatingCheckpointOutputStream duplicatingStream =
+                createDuplicatingStreamWithFailingSecondary();
+        testFailingSecondaryStream(duplicatingStream, duplicatingStream::sync);
+    }
 
-	@Test
-	public void testFailingPrimaryWriteArrayFail() throws Exception {
-		DuplicatingCheckpointOutputStream duplicatingStream = createDuplicatingStreamWithFailingPrimary();
-		testFailingPrimaryStream(duplicatingStream, () -> duplicatingStream.write(new byte[512]));
-	}
+    /**
+     * This is the first of a set of tests that check that exceptions from the primary stream are
+     * immediately reported.
+     */
+    @Test
+    void testPrimaryWriteFail() throws Exception {
+        DuplicatingCheckpointOutputStream duplicatingStream =
+                createDuplicatingStreamWithFailingPrimary();
+        testFailingPrimaryStream(
+                duplicatingStream,
+                () -> {
+                    for (int i = 0; i < 128; i++) {
+                        duplicatingStream.write(42);
+                    }
+                });
+    }
 
-	@Test
-	public void testFailingPrimaryWriteArrayOffsFail() throws Exception {
-		DuplicatingCheckpointOutputStream duplicatingStream = createDuplicatingStreamWithFailingPrimary();
-		testFailingPrimaryStream(duplicatingStream, () -> duplicatingStream.write(new byte[512], 20, 130));
-	}
+    @Test
+    void testFailingPrimaryWriteArrayFail() throws Exception {
+        DuplicatingCheckpointOutputStream duplicatingStream =
+                createDuplicatingStreamWithFailingPrimary();
+        testFailingPrimaryStream(duplicatingStream, () -> duplicatingStream.write(new byte[512]));
+    }
 
-	@Test
-	public void testFailingPrimaryFlush() throws Exception {
-		DuplicatingCheckpointOutputStream duplicatingStream = createDuplicatingStreamWithFailingPrimary();
-		testFailingPrimaryStream(duplicatingStream, duplicatingStream::flush);
-	}
+    @Test
+    void testFailingPrimaryWriteArrayOffsFail() throws Exception {
+        DuplicatingCheckpointOutputStream duplicatingStream =
+                createDuplicatingStreamWithFailingPrimary();
+        testFailingPrimaryStream(
+                duplicatingStream, () -> duplicatingStream.write(new byte[512], 20, 130));
+    }
 
-	@Test
-	public void testFailingPrimarySync() throws Exception {
-		DuplicatingCheckpointOutputStream duplicatingStream = createDuplicatingStreamWithFailingPrimary();
-		testFailingPrimaryStream(duplicatingStream, duplicatingStream::sync);
-	}
+    @Test
+    void testFailingPrimaryFlush() throws Exception {
+        DuplicatingCheckpointOutputStream duplicatingStream =
+                createDuplicatingStreamWithFailingPrimary();
+        testFailingPrimaryStream(duplicatingStream, duplicatingStream::flush);
+    }
 
-	/**
-	 * Tests that an exception from interacting with the secondary stream does not effect duplicating to the primary
-	 * stream, but is reflected later when we want the secondary state handle.
-	 */
-	private void testFailingSecondaryStream(
-		DuplicatingCheckpointOutputStream duplicatingStream,
-		StreamTestMethod testMethod) throws Exception {
+    @Test
+    void testFailingPrimarySync() throws Exception {
+        DuplicatingCheckpointOutputStream duplicatingStream =
+                createDuplicatingStreamWithFailingPrimary();
+        testFailingPrimaryStream(duplicatingStream, duplicatingStream::sync);
+    }
 
-		testMethod.call();
+    /**
+     * Tests that an exception from interacting with the secondary stream does not effect
+     * duplicating to the primary stream, but is reflected later when we want the secondary state
+     * handle.
+     */
+    private void testFailingSecondaryStream(
+            DuplicatingCheckpointOutputStream duplicatingStream, StreamTestMethod testMethod)
+            throws Exception {
 
-		duplicatingStream.write(42);
+        testMethod.call();
 
-		FailingCheckpointOutStream secondary =
-			(FailingCheckpointOutStream) duplicatingStream.getSecondaryOutputStream();
+        duplicatingStream.write(42);
 
-		Assert.assertTrue(secondary.isClosed());
+        FailingCheckpointOutStream secondary =
+                (FailingCheckpointOutStream) duplicatingStream.getSecondaryOutputStream();
 
-		long pos = duplicatingStream.getPos();
-		StreamStateHandle primaryHandle = duplicatingStream.closeAndGetPrimaryHandle();
+        assertThat(secondary.isClosed()).isTrue();
 
-		if (primaryHandle != null) {
-			Assert.assertEquals(pos, primaryHandle.getStateSize());
-		}
+        long pos = duplicatingStream.getPos();
+        StreamStateHandle primaryHandle = duplicatingStream.closeAndGetPrimaryHandle();
 
-		try {
-			duplicatingStream.closeAndGetSecondaryHandle();
-			Assert.fail();
-		} catch (IOException ioEx) {
-			Assert.assertEquals(ioEx.getCause(), duplicatingStream.getSecondaryStreamException());
-		}
-	}
+        if (primaryHandle != null) {
+            assertThat(primaryHandle.getStateSize()).isEqualTo(pos);
+        }
 
-	/**
-	 * Test that a failing primary stream brings up an exception.
-	 */
-	private void testFailingPrimaryStream(
-		DuplicatingCheckpointOutputStream duplicatingStream,
-		StreamTestMethod testMethod) throws Exception {
-		try {
-			testMethod.call();
-			Assert.fail();
-		} catch (IOException ignore) {
-		} finally {
-			IOUtils.closeQuietly(duplicatingStream);
-		}
-	}
+        assertThatThrownBy(duplicatingStream::closeAndGetSecondaryHandle)
+                .isInstanceOf(IOException.class)
+                .hasCause(duplicatingStream.getSecondaryStreamException());
+    }
 
-	/**
-	 * Tests that in case of unaligned stream positions, the secondary stream is closed and the primary still works.
-	 * This is important because some code may rely on seeking to stream offsets in the created state files and if the
-	 * streams are not aligned this code could fail.
-	 */
-	@Test
-	public void testUnalignedStreamsException() throws IOException {
-		int streamCapacity = 1024 * 1024;
-		TestMemoryCheckpointOutputStream primaryStream = new TestMemoryCheckpointOutputStream(streamCapacity);
-		TestMemoryCheckpointOutputStream secondaryStream = new TestMemoryCheckpointOutputStream(streamCapacity);
+    /** Test that a failing primary stream brings up an exception. */
+    private void testFailingPrimaryStream(
+            DuplicatingCheckpointOutputStream duplicatingStream, StreamTestMethod testMethod)
+            throws Exception {
+        try {
+            assertThatThrownBy(testMethod::call).isInstanceOf(IOException.class);
+        } finally {
+            IOUtils.closeQuietly(duplicatingStream);
+        }
+    }
 
-		primaryStream.write(42);
+    /**
+     * Tests that in case of unaligned stream positions, the secondary stream is closed and the
+     * primary still works. This is important because some code may rely on seeking to stream
+     * offsets in the created state files and if the streams are not aligned this code could fail.
+     */
+    @Test
+    void testUnalignedStreamsException() throws IOException {
+        int streamCapacity = 1024 * 1024;
+        TestMemoryCheckpointOutputStream primaryStream =
+                new TestMemoryCheckpointOutputStream(streamCapacity);
+        TestMemoryCheckpointOutputStream secondaryStream =
+                new TestMemoryCheckpointOutputStream(streamCapacity);
 
-		DuplicatingCheckpointOutputStream stream =
-			new DuplicatingCheckpointOutputStream(primaryStream, secondaryStream);
+        primaryStream.write(42);
 
-		Assert.assertNotNull(stream.getSecondaryStreamException());
-		Assert.assertTrue(secondaryStream.isClosed());
+        DuplicatingCheckpointOutputStream stream =
+                new DuplicatingCheckpointOutputStream(primaryStream, secondaryStream);
 
-		stream.write(23);
+        assertThat(stream.getSecondaryStreamException()).isNotNull();
+        assertThat(secondaryStream.isClosed()).isTrue();
 
-		try {
-			stream.closeAndGetSecondaryHandle();
-			Assert.fail();
-		} catch (IOException ignore) {
-			Assert.assertEquals(ignore.getCause(), stream.getSecondaryStreamException());
-		}
+        stream.write(23);
 
-		StreamStateHandle primaryHandle = stream.closeAndGetPrimaryHandle();
+        assertThatThrownBy(stream::closeAndGetSecondaryHandle)
+                .isInstanceOf(IOException.class)
+                .hasCause(stream.getSecondaryStreamException());
 
-		try (FSDataInputStream inputStream = primaryHandle.openInputStream();) {
-			Assert.assertEquals(42, inputStream.read());
-			Assert.assertEquals(23, inputStream.read());
-			Assert.assertEquals(-1, inputStream.read());
-		}
-	}
+        StreamStateHandle primaryHandle = stream.closeAndGetPrimaryHandle();
 
-	/**
-	 * Helper
-	 */
-	private DuplicatingCheckpointOutputStream createDuplicatingStreamWithFailingSecondary() throws IOException {
-		int streamCapacity = 1024 * 1024;
-		TestMemoryCheckpointOutputStream primaryStream = new TestMemoryCheckpointOutputStream(streamCapacity);
-		FailingCheckpointOutStream failSecondaryStream = new FailingCheckpointOutStream();
-		return new DuplicatingCheckpointOutputStream(primaryStream, failSecondaryStream, 64);
-	}
+        try (FSDataInputStream inputStream = primaryHandle.openInputStream(); ) {
+            assertThat(inputStream.read()).isEqualTo(42);
+            assertThat(inputStream.read()).isEqualTo(23);
+            assertThat(inputStream.read()).isEqualTo(-1);
+        }
+    }
 
-	private DuplicatingCheckpointOutputStream createDuplicatingStreamWithFailingPrimary() throws IOException {
-		int streamCapacity = 1024 * 1024;
-		FailingCheckpointOutStream failPrimaryStream = new FailingCheckpointOutStream();
-		TestMemoryCheckpointOutputStream secondary = new TestMemoryCheckpointOutputStream(streamCapacity);
-		return new DuplicatingCheckpointOutputStream(failPrimaryStream, secondary, 64);
-	}
+    /** Helper */
+    private DuplicatingCheckpointOutputStream createDuplicatingStreamWithFailingSecondary()
+            throws IOException {
+        int streamCapacity = 1024 * 1024;
+        TestMemoryCheckpointOutputStream primaryStream =
+                new TestMemoryCheckpointOutputStream(streamCapacity);
+        FailingCheckpointOutStream failSecondaryStream = new FailingCheckpointOutStream();
+        return new DuplicatingCheckpointOutputStream(primaryStream, failSecondaryStream, 64);
+    }
 
-	/**
-	 * Stream that throws {@link IOException} on all relevant methods under test.
-	 */
-	private static class FailingCheckpointOutStream extends CheckpointStreamFactory.CheckpointStateOutputStream {
+    private DuplicatingCheckpointOutputStream createDuplicatingStreamWithFailingPrimary()
+            throws IOException {
+        int streamCapacity = 1024 * 1024;
+        FailingCheckpointOutStream failPrimaryStream = new FailingCheckpointOutStream();
+        TestMemoryCheckpointOutputStream secondary =
+                new TestMemoryCheckpointOutputStream(streamCapacity);
+        return new DuplicatingCheckpointOutputStream(failPrimaryStream, secondary, 64);
+    }
 
-		private boolean closed = false;
+    /** Stream that throws {@link IOException} on all relevant methods under test. */
+    private static class FailingCheckpointOutStream extends CheckpointStateOutputStream {
 
-		@Nullable
-		@Override
-		public StreamStateHandle closeAndGetHandle() throws IOException {
-			throw new IOException();
-		}
+        private boolean closed = false;
 
-		@Override
-		public long getPos() throws IOException {
-			return 0;
-		}
+        @Nullable
+        @Override
+        public StreamStateHandle closeAndGetHandle() throws IOException {
+            throw new IOException();
+        }
 
-		@Override
-		public void write(int b) throws IOException {
-			throw new IOException();
-		}
+        @Override
+        public long getPos() throws IOException {
+            return 0;
+        }
 
-		@Override
-		public void flush() throws IOException {
-			throw new IOException();
-		}
+        @Override
+        public void write(int b) throws IOException {
+            throw new IOException();
+        }
 
-		@Override
-		public void sync() throws IOException {
-			throw new IOException();
-		}
+        @Override
+        public void flush() throws IOException {
+            throw new IOException();
+        }
 
-		@Override
-		public void close() throws IOException {
-			this.closed = true;
-		}
+        @Override
+        public void sync() throws IOException {
+            throw new IOException();
+        }
 
-		public boolean isClosed() {
-			return closed;
-		}
-	}
+        @Override
+        public void close() throws IOException {
+            this.closed = true;
+        }
 
-	@FunctionalInterface
-	private interface StreamTestMethod {
-		void call() throws IOException;
-	}
+        public boolean isClosed() {
+            return closed;
+        }
+    }
+
+    @FunctionalInterface
+    private interface StreamTestMethod {
+        void call() throws IOException;
+    }
 }

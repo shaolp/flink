@@ -20,167 +20,174 @@ package org.apache.flink.runtime.taskmanager;
 
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.core.testutils.OneShotLatch;
+import org.apache.flink.runtime.checkpoint.CheckpointException;
 import org.apache.flink.runtime.checkpoint.CheckpointMetrics;
+import org.apache.flink.runtime.checkpoint.SubTaskInitializationMetrics;
 import org.apache.flink.runtime.checkpoint.TaskStateSnapshot;
 import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
 
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Mock for interface {@link CheckpointResponder} for unit testing.
- */
+/** Mock for interface {@link CheckpointResponder} for unit testing. */
 public class TestCheckpointResponder implements CheckpointResponder {
 
-	private final List<AcknowledgeReport> acknowledgeReports;
-	private final List<DeclineReport> declineReports;
+    private final List<AcknowledgeReport> acknowledgeReports;
+    private final List<DeclineReport> declineReports;
 
-	private OneShotLatch acknowledgeLatch;
-	private OneShotLatch declinedLatch;
+    private OneShotLatch acknowledgeLatch;
+    private OneShotLatch declinedLatch;
 
-	public TestCheckpointResponder() {
-		this.acknowledgeReports = new ArrayList<>();
-		this.declineReports = new ArrayList<>();
-	}
+    public TestCheckpointResponder() {
+        this.acknowledgeReports = new ArrayList<>();
+        this.declineReports = new ArrayList<>();
+    }
 
-	@Override
-	public void acknowledgeCheckpoint(
-		JobID jobID,
-		ExecutionAttemptID executionAttemptID,
-		long checkpointId,
-		CheckpointMetrics checkpointMetrics,
-		TaskStateSnapshot subtaskState) {
+    @Override
+    public void acknowledgeCheckpoint(
+            JobID jobID,
+            ExecutionAttemptID executionAttemptID,
+            long checkpointId,
+            CheckpointMetrics checkpointMetrics,
+            TaskStateSnapshot subtaskState) {
 
-		AcknowledgeReport acknowledgeReport = new AcknowledgeReport(
-			jobID,
-			executionAttemptID,
-			checkpointId,
-			checkpointMetrics,
-			subtaskState);
+        AcknowledgeReport acknowledgeReport =
+                new AcknowledgeReport(
+                        jobID, executionAttemptID, checkpointId, checkpointMetrics, subtaskState);
 
-		acknowledgeReports.add(acknowledgeReport);
+        acknowledgeReports.add(acknowledgeReport);
 
-		if (acknowledgeLatch != null) {
-			acknowledgeLatch.trigger();
-		}
-	}
+        if (acknowledgeLatch != null) {
+            acknowledgeLatch.trigger();
+        }
+    }
 
-	@Override
-	public void declineCheckpoint(
-		JobID jobID,
-		ExecutionAttemptID executionAttemptID,
-		long checkpointId,
-		Throwable cause) {
+    @Override
+    public void reportCheckpointMetrics(
+            JobID jobID,
+            ExecutionAttemptID executionAttemptID,
+            long checkpointId,
+            CheckpointMetrics checkpointMetrics) {}
 
-		DeclineReport declineReport = new DeclineReport(
-			jobID,
-			executionAttemptID,
-			checkpointId,
-			cause);
+    @Override
+    public void reportInitializationMetrics(
+            JobID jobId,
+            ExecutionAttemptID executionAttemptId,
+            SubTaskInitializationMetrics initializationMetrics) {}
 
-		declineReports.add(declineReport);
+    @Override
+    public void declineCheckpoint(
+            JobID jobID,
+            ExecutionAttemptID executionAttemptID,
+            long checkpointId,
+            CheckpointException checkpointException) {
 
-		if (declinedLatch != null) {
-			declinedLatch.trigger();
-		}
-	}
+        DeclineReport declineReport =
+                new DeclineReport(jobID, executionAttemptID, checkpointId, checkpointException);
 
-	public static abstract class AbstractReport {
+        declineReports.add(declineReport);
 
-		private final JobID jobID;
-		private final ExecutionAttemptID executionAttemptID;
-		private final long checkpointId;
+        if (declinedLatch != null) {
+            declinedLatch.trigger();
+        }
+    }
 
-		AbstractReport(JobID jobID, ExecutionAttemptID executionAttemptID, long checkpointId) {
-			this.jobID = jobID;
-			this.executionAttemptID = executionAttemptID;
-			this.checkpointId = checkpointId;
-		}
+    public abstract static class AbstractReport {
 
-		public JobID getJobID() {
-			return jobID;
-		}
+        private final JobID jobID;
+        private final ExecutionAttemptID executionAttemptID;
+        private final long checkpointId;
 
-		public ExecutionAttemptID getExecutionAttemptID() {
-			return executionAttemptID;
-		}
+        AbstractReport(JobID jobID, ExecutionAttemptID executionAttemptID, long checkpointId) {
+            this.jobID = jobID;
+            this.executionAttemptID = executionAttemptID;
+            this.checkpointId = checkpointId;
+        }
 
-		public long getCheckpointId() {
-			return checkpointId;
-		}
-	}
+        public JobID getJobID() {
+            return jobID;
+        }
 
-	public static class AcknowledgeReport extends AbstractReport {
+        public ExecutionAttemptID getExecutionAttemptID() {
+            return executionAttemptID;
+        }
 
-		private final CheckpointMetrics checkpointMetrics;
-		private final TaskStateSnapshot subtaskState;
+        public long getCheckpointId() {
+            return checkpointId;
+        }
+    }
 
-		public AcknowledgeReport(
-			JobID jobID,
-			ExecutionAttemptID executionAttemptID,
-			long checkpointId,
-			CheckpointMetrics checkpointMetrics,
-			TaskStateSnapshot subtaskState) {
+    public static class AcknowledgeReport extends AbstractReport {
 
-			super(jobID, executionAttemptID, checkpointId);
-			this.checkpointMetrics = checkpointMetrics;
-			this.subtaskState = subtaskState;
-		}
+        private final CheckpointMetrics checkpointMetrics;
+        private final TaskStateSnapshot subtaskState;
 
-		public CheckpointMetrics getCheckpointMetrics() {
-			return checkpointMetrics;
-		}
+        public AcknowledgeReport(
+                JobID jobID,
+                ExecutionAttemptID executionAttemptID,
+                long checkpointId,
+                CheckpointMetrics checkpointMetrics,
+                TaskStateSnapshot subtaskState) {
 
-		public TaskStateSnapshot getSubtaskState() {
-			return subtaskState;
-		}
-	}
+            super(jobID, executionAttemptID, checkpointId);
+            this.checkpointMetrics = checkpointMetrics;
+            this.subtaskState = subtaskState;
+        }
 
-	public static class DeclineReport extends AbstractReport {
+        public CheckpointMetrics getCheckpointMetrics() {
+            return checkpointMetrics;
+        }
 
-		public final Throwable cause;
+        public TaskStateSnapshot getSubtaskState() {
+            return subtaskState;
+        }
+    }
 
-		public DeclineReport(
-			JobID jobID,
-			ExecutionAttemptID executionAttemptID,
-			long checkpointId,
-			Throwable cause) {
+    public static class DeclineReport extends AbstractReport {
 
-			super(jobID, executionAttemptID, checkpointId);
-			this.cause = cause;
-		}
+        public final CheckpointException cause;
 
-		public Throwable getCause() {
-			return cause;
-		}
-	}
+        public DeclineReport(
+                JobID jobID,
+                ExecutionAttemptID executionAttemptID,
+                long checkpointId,
+                CheckpointException cause) {
 
-	public List<AcknowledgeReport> getAcknowledgeReports() {
-		return acknowledgeReports;
-	}
+            super(jobID, executionAttemptID, checkpointId);
+            this.cause = cause;
+        }
 
-	public List<DeclineReport> getDeclineReports() {
-		return declineReports;
-	}
+        public CheckpointException getCause() {
+            return cause;
+        }
+    }
 
-	public OneShotLatch getAcknowledgeLatch() {
-		return acknowledgeLatch;
-	}
+    public List<AcknowledgeReport> getAcknowledgeReports() {
+        return acknowledgeReports;
+    }
 
-	public void setAcknowledgeLatch(OneShotLatch acknowledgeLatch) {
-		this.acknowledgeLatch = acknowledgeLatch;
-	}
+    public List<DeclineReport> getDeclineReports() {
+        return declineReports;
+    }
 
-	public OneShotLatch getDeclinedLatch() {
-		return declinedLatch;
-	}
+    public OneShotLatch getAcknowledgeLatch() {
+        return acknowledgeLatch;
+    }
 
-	public void setDeclinedLatch(OneShotLatch declinedLatch) {
-		this.declinedLatch = declinedLatch;
-	}
+    public void setAcknowledgeLatch(OneShotLatch acknowledgeLatch) {
+        this.acknowledgeLatch = acknowledgeLatch;
+    }
 
-	public void clear() {
-		acknowledgeReports.clear();
-		declineReports.clear();
-	}
+    public OneShotLatch getDeclinedLatch() {
+        return declinedLatch;
+    }
+
+    public void setDeclinedLatch(OneShotLatch declinedLatch) {
+        this.declinedLatch = declinedLatch;
+    }
+
+    public void clear() {
+        acknowledgeReports.clear();
+        declineReports.clear();
+    }
 }

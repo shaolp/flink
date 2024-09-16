@@ -19,167 +19,254 @@
 package org.apache.flink.runtime.io.network.netty;
 
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.runtime.clusterframework.types.ResourceID;
+import org.apache.flink.runtime.io.network.ConnectionID;
 import org.apache.flink.util.NetUtils;
 
+import org.apache.flink.shaded.netty4.io.netty.buffer.ByteBuf;
 import org.apache.flink.shaded.netty4.io.netty.channel.Channel;
+import org.apache.flink.shaded.netty4.io.netty.channel.ChannelHandler;
+import org.apache.flink.shaded.netty4.io.netty.channel.embedded.EmbeddedChannel;
 
+import java.net.BindException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
+import static org.apache.flink.runtime.io.network.netty.NettyMessage.BufferResponse;
+import static org.apache.flink.runtime.io.network.netty.NettyMessage.ErrorResponse;
+import static org.apache.flink.util.ExceptionUtils.findThrowableWithMessage;
 import static org.apache.flink.util.Preconditions.checkArgument;
 import static org.apache.flink.util.Preconditions.checkNotNull;
+import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * Test utility for Netty server and client setup.
- */
+/** Test utility for Netty server and client setup. */
 public class NettyTestUtil {
 
-	static final int DEFAULT_SEGMENT_SIZE = 1024;
+    static final int DEFAULT_SEGMENT_SIZE = 1024;
 
-	// ---------------------------------------------------------------------------------------------
-	// NettyServer and NettyClient
-	// ---------------------------------------------------------------------------------------------
+    // ---------------------------------------------------------------------------------------------
+    // NettyServer and NettyClient
+    // ---------------------------------------------------------------------------------------------
 
-	static NettyServer initServer(NettyConfig config, NettyProtocol protocol, NettyBufferPool bufferPool) throws Exception {
-		final NettyServer server = new NettyServer(config);
+    static NettyServer initServer(
+            NettyConfig config, NettyProtocol protocol, NettyBufferPool bufferPool)
+            throws Exception {
+        final NettyServer server = new NettyServer(config);
 
-		try {
-			server.init(protocol, bufferPool);
-		}
-		catch (Exception e) {
-			server.shutdown();
-			throw e;
-		}
+        try {
+            server.init(protocol, bufferPool);
+        } catch (Exception e) {
+            server.shutdown();
+            throw e;
+        }
 
-		return server;
-	}
+        return server;
+    }
 
-	static NettyServer initServer(
-			NettyConfig config,
-			NettyBufferPool bufferPool,
-			Function<SSLHandlerFactory, NettyServer.ServerChannelInitializer> channelInitializer) throws Exception {
-		final NettyServer server = new NettyServer(config);
+    static NettyServer initServer(
+            NettyConfig config,
+            NettyBufferPool bufferPool,
+            Function<SSLHandlerFactory, NettyServer.ServerChannelInitializer> channelInitializer)
+            throws Exception {
+        final NettyServer server = new NettyServer(config);
 
-		try {
-			server.init(bufferPool, channelInitializer);
-		}
-		catch (Exception e) {
-			server.shutdown();
-			throw e;
-		}
+        try {
+            server.init(bufferPool, channelInitializer);
+        } catch (Exception e) {
+            server.shutdown();
+            throw e;
+        }
 
-		return server;
-	}
+        return server;
+    }
 
-	static NettyClient initClient(NettyConfig config, NettyProtocol protocol, NettyBufferPool bufferPool) throws Exception {
-		final NettyClient client = new NettyClient(config);
+    static NettyClient initClient(
+            NettyConfig config, NettyProtocol protocol, NettyBufferPool bufferPool)
+            throws Exception {
+        final NettyClient client = new NettyClient(config);
 
-		try {
-			client.init(protocol, bufferPool);
-		}
-		catch (Exception e) {
-			client.shutdown();
-			throw e;
-		}
+        try {
+            client.init(protocol, bufferPool);
+        } catch (Exception e) {
+            client.shutdown();
+            throw e;
+        }
 
-		return client;
-	}
+        return client;
+    }
 
-	static NettyServerAndClient initServerAndClient(NettyProtocol protocol) throws Exception {
-		return initServerAndClient(protocol, createConfig());
-	}
+    static NettyServerAndClient initServerAndClient(NettyProtocol protocol) throws Exception {
+        // It is possible that between checking a port available and binding to the port something
+        // takes this port. So we initialize a server in the loop to decrease the probability of it.
+        int attempts = 42; // The arbitrary number of attempts to avoid an infinity loop.
+        while (true) {
+            try {
+                return initServerAndClient(protocol, createConfig());
+            } catch (Exception ex) {
+                if (!(ex instanceof BindException)
+                        && !findThrowableWithMessage(ex, "Address already in use").isPresent()) {
+                    throw ex;
+                }
 
-	static NettyServerAndClient initServerAndClient(NettyProtocol protocol, NettyConfig config)
-			throws Exception {
+                if (attempts-- < 0) {
+                    throw new Exception("Failed to initialize netty server and client", ex);
+                }
+            }
+        }
+    }
 
-		NettyBufferPool bufferPool = new NettyBufferPool(1);
+    static NettyServerAndClient initServerAndClient(NettyProtocol protocol, NettyConfig config)
+            throws Exception {
 
-		final NettyClient client = initClient(config, protocol, bufferPool);
-		final NettyServer server = initServer(config, protocol, bufferPool);
+        NettyBufferPool bufferPool = new NettyBufferPool(1);
 
-		return new NettyServerAndClient(server, client);
-	}
+        final NettyClient client = initClient(config, protocol, bufferPool);
+        final NettyServer server = initServer(config, protocol, bufferPool);
 
-	static Channel connect(NettyServerAndClient serverAndClient) throws Exception {
-		return connect(serverAndClient.client(), serverAndClient.server());
-	}
+        return new NettyServerAndClient(server, client);
+    }
 
-	static Channel connect(NettyClient client, NettyServer server) throws Exception {
-		final NettyConfig config = server.getConfig();
+    static Channel connect(NettyServerAndClient serverAndClient) throws Exception {
+        return connect(serverAndClient.client(), serverAndClient.server());
+    }
 
-		return client
-				.connect(new InetSocketAddress(config.getServerAddress(), config.getServerPort()))
-				.sync()
-				.channel();
-	}
+    static Channel connect(NettyClient client, NettyServer server) throws Exception {
+        final NettyConfig config = server.getConfig();
 
-	static void awaitClose(Channel ch) throws InterruptedException {
-		// Wait for the channel to be closed
-		while (ch.isActive()) {
-			ch.closeFuture().await(1, TimeUnit.SECONDS);
-		}
-	}
+        return client.connect(
+                        new InetSocketAddress(config.getServerAddress(), server.getListeningPort()))
+                .sync()
+                .channel();
+    }
 
-	static void shutdown(NettyServerAndClient serverAndClient) {
-		if (serverAndClient != null) {
-			if (serverAndClient.server() != null) {
-				serverAndClient.server().shutdown();
-			}
+    static void awaitClose(Channel ch) throws InterruptedException {
+        // Wait for the channel to be closed
+        while (ch.isActive()) {
+            ch.closeFuture().await(1, TimeUnit.SECONDS);
+        }
+    }
 
-			if (serverAndClient.client() != null) {
-				serverAndClient.client().shutdown();
-			}
-		}
-	}
+    static void shutdown(NettyServerAndClient serverAndClient) {
+        if (serverAndClient != null) {
+            if (serverAndClient.server() != null) {
+                serverAndClient.server().shutdown();
+            }
 
-	// ---------------------------------------------------------------------------------------------
-	// NettyConfig
-	// ---------------------------------------------------------------------------------------------
+            if (serverAndClient.client() != null) {
+                serverAndClient.client().shutdown();
+            }
+        }
+    }
 
-	static NettyConfig createConfig() throws Exception {
-		return createConfig(DEFAULT_SEGMENT_SIZE, new Configuration());
-	}
+    // ---------------------------------------------------------------------------------------------
+    // NettyConfig
+    // ---------------------------------------------------------------------------------------------
 
-	static NettyConfig createConfig(int segmentSize) throws Exception {
-		return createConfig(segmentSize, new Configuration());
-	}
+    static NettyConfig createConfig() throws Exception {
+        return createConfig(DEFAULT_SEGMENT_SIZE, new Configuration());
+    }
 
-	static NettyConfig createConfig(Configuration config) throws Exception {
-		return createConfig(DEFAULT_SEGMENT_SIZE, config);
-	}
+    static NettyConfig createConfig(int segmentSize) throws Exception {
+        return createConfig(segmentSize, new Configuration());
+    }
 
-	static NettyConfig createConfig(int segmentSize, Configuration config) throws Exception {
-		checkArgument(segmentSize > 0);
-		checkNotNull(config);
+    static NettyConfig createConfig(Configuration config) throws Exception {
+        return createConfig(DEFAULT_SEGMENT_SIZE, config);
+    }
 
-		return new NettyConfig(
-				InetAddress.getLocalHost(),
-				NetUtils.getAvailablePort(),
-				segmentSize,
-				1,
-				config);
-	}
+    static NettyConfig createConfig(int segmentSize, Configuration config) throws Exception {
+        checkArgument(segmentSize > 0);
+        checkNotNull(config);
 
-	// ------------------------------------------------------------------------
+        try (NetUtils.Port port = NetUtils.getAvailablePort()) {
+            return new NettyConfig(
+                    InetAddress.getLocalHost(), port.getPort(), segmentSize, 1, config);
+        }
+    }
 
-	static final class NettyServerAndClient {
+    // ---------------------------------------------------------------------------------------------
+    // Encoding & Decoding
+    // ---------------------------------------------------------------------------------------------
 
-		private final NettyServer server;
-		private final NettyClient client;
+    static <T extends NettyMessage> T encodeAndDecode(T msg, EmbeddedChannel channel) {
+        channel.writeOutbound(msg);
+        ByteBuf encoded;
+        boolean msgNotEmpty = false;
+        while ((encoded = channel.readOutbound()) != null) {
+            msgNotEmpty = channel.writeInbound(encoded);
+        }
+        assertThat(msgNotEmpty).isTrue();
 
-		NettyServerAndClient(NettyServer server, NettyClient client) {
-			this.server = checkNotNull(server);
-			this.client = checkNotNull(client);
-		}
+        return channel.readInbound();
+    }
 
-		NettyServer server() {
-			return server;
-		}
+    // ---------------------------------------------------------------------------------------------
+    // Message Verification
+    // ---------------------------------------------------------------------------------------------
 
-		NettyClient client() {
-			return client;
-		}
-	}
+    static void verifyErrorResponse(ErrorResponse expected, ErrorResponse actual) {
+        assertThat(actual.receiverId).isEqualTo(expected.receiverId);
+        assertThat(expected.cause).hasSameClassAs(actual.cause);
+        assertThat(expected.cause.getMessage()).isEqualTo(actual.cause.getMessage());
+
+        if (expected.receiverId == null) {
+            assertThat(actual.isFatalError()).isTrue();
+        }
+    }
+
+    static void verifyBufferResponseHeader(BufferResponse expected, BufferResponse actual) {
+        assertThat(expected.backlog).isEqualTo(actual.backlog);
+        assertThat(expected.sequenceNumber).isEqualTo(actual.sequenceNumber);
+        assertThat(expected.bufferSize).isEqualTo(actual.bufferSize);
+        assertThat(expected.receiverId).isEqualTo(actual.receiverId);
+        assertThat(expected.subpartitionId).isEqualTo(actual.subpartitionId);
+    }
+
+    // ------------------------------------------------------------------------
+
+    static final class NettyServerAndClient {
+
+        private final NettyServer server;
+        private final NettyClient client;
+
+        NettyServerAndClient(NettyServer server, NettyClient client) {
+            this.server = checkNotNull(server);
+            this.client = checkNotNull(client);
+        }
+
+        NettyServer server() {
+            return server;
+        }
+
+        NettyClient client() {
+            return client;
+        }
+
+        ConnectionID getConnectionID(ResourceID resourceID, int connectionIndex) {
+            return new ConnectionID(
+                    resourceID,
+                    new InetSocketAddress(
+                            server.getConfig().getServerAddress(), server.getListeningPort()),
+                    connectionIndex);
+        }
+    }
+
+    static final class NoOpProtocol extends NettyProtocol {
+
+        NoOpProtocol() {
+            super(null, null);
+        }
+
+        @Override
+        public ChannelHandler[] getServerChannelHandlers() {
+            return new ChannelHandler[0];
+        }
+
+        @Override
+        public ChannelHandler[] getClientChannelHandlers() {
+            return new ChannelHandler[0];
+        }
+    }
 }

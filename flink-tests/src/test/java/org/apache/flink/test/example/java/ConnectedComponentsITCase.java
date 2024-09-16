@@ -21,45 +21,52 @@ package org.apache.flink.test.example.java;
 
 import org.apache.flink.examples.java.graph.ConnectedComponents;
 import org.apache.flink.test.testdata.ConnectedComponentsData;
-import org.apache.flink.test.util.JavaProgramTestBase;
+import org.apache.flink.test.util.JavaProgramTestBaseJUnit4;
 
 import java.io.BufferedReader;
 
-/**
- * Test for {@link ConnectedComponents}.
- */
-public class ConnectedComponentsITCase extends JavaProgramTestBase {
+import static org.apache.flink.test.util.TestBaseUtils.getResultReader;
 
-	private static final long SEED = 0xBADC0FFEEBEEFL;
+/** Test for {@link ConnectedComponents}. */
+public class ConnectedComponentsITCase extends JavaProgramTestBaseJUnit4 {
 
-	private static final int NUM_VERTICES = 1000;
+    private static final long SEED = 0xBADC0FFEEBEEFL;
 
-	private static final int NUM_EDGES = 10000;
+    private static final int NUM_VERTICES = 1000;
 
-	private String verticesPath;
-	private String edgesPath;
-	private String resultPath;
+    private static final int NUM_EDGES = 10000;
 
-	@Override
-	protected void preSubmit() throws Exception {
-		verticesPath = createTempFile("vertices.txt", ConnectedComponentsData.getEnumeratingVertices(NUM_VERTICES));
-		edgesPath = createTempFile("edges.txt", ConnectedComponentsData.getRandomOddEvenEdges(NUM_EDGES, NUM_VERTICES, SEED));
-		resultPath = getTempFilePath("results");
-	}
+    private String verticesPath;
+    private String edgesPath;
+    private String resultPath;
 
-	@Override
-	protected void testProgram() throws Exception {
-		ConnectedComponents.main(
-				"--vertices", verticesPath,
-				"--edges", edgesPath,
-				"--output", resultPath,
-				"--iterations", "100");
-	}
+    @Override
+    protected void preSubmit() throws Exception {
+        verticesPath =
+                createTempFile(
+                        "vertices.txt",
+                        ConnectedComponentsData.getEnumeratingVertices(NUM_VERTICES));
+        edgesPath =
+                createTempFile(
+                        "edges.txt",
+                        ConnectedComponentsData.getRandomOddEvenEdges(
+                                NUM_EDGES, NUM_VERTICES, SEED));
+        resultPath = getTempFilePath("results");
+    }
 
-	@Override
-	protected void postSubmit() throws Exception {
-		for (BufferedReader reader : getResultReader(resultPath)) {
-			ConnectedComponentsData.checkOddEvenResult(reader);
-		}
-	}
+    @Override
+    protected void testProgram() throws Exception {
+        ConnectedComponents.main(
+                "--vertices", verticesPath,
+                "--edges", edgesPath,
+                "--output", resultPath,
+                "--iterations", "100");
+    }
+
+    @Override
+    protected void postSubmit() throws Exception {
+        for (BufferedReader reader : getResultReader(resultPath)) {
+            ConnectedComponentsData.checkOddEvenResult(reader);
+        }
+    }
 }

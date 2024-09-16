@@ -18,65 +18,60 @@
 
 package org.apache.flink.runtime.state.memory;
 
-import org.apache.flink.runtime.state.CheckpointStreamFactory.CheckpointStateOutputStream;
+import org.apache.flink.runtime.state.CheckpointStateOutputStream;
 import org.apache.flink.runtime.state.StreamStateHandle;
 import org.apache.flink.runtime.state.memory.MemCheckpointStreamFactory.MemoryCheckpointOutputStream;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.util.HashMap;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/**
- * Tests for the {@link MemoryCheckpointOutputStream}.
- */
-public class MemoryCheckpointOutputStreamTest {
+/** Tests for the {@link MemoryCheckpointOutputStream}. */
+class MemoryCheckpointOutputStreamTest {
 
-	@Test
-	public void testOversizedState() throws Exception {
-		HashMap<String, Integer> state = new HashMap<>();
-		state.put("hey there", 2);
-		state.put("the crazy brown fox stumbles over a sentence that does not contain every letter", 77);
+    @Test
+    void testOversizedState() throws Exception {
+        HashMap<String, Integer> state = new HashMap<>();
+        state.put("hey there", 2);
+        state.put(
+                "the crazy brown fox stumbles over a sentence that does not contain every letter",
+                77);
 
-		CheckpointStateOutputStream outStream = new MemoryCheckpointOutputStream(10);
-		ObjectOutputStream oos = new ObjectOutputStream(outStream);
+        CheckpointStateOutputStream outStream = new MemoryCheckpointOutputStream(10);
+        ObjectOutputStream oos = new ObjectOutputStream(outStream);
 
-		oos.writeObject(state);
-		oos.flush();
+        oos.writeObject(state);
+        oos.flush();
 
-		try {
-			outStream.closeAndGetHandle();
-			fail("this should cause an exception");
-		}
-		catch (IOException e) {
-			// that's what we expect
-		}
-	}
+        assertThatThrownBy(outStream::closeAndGetHandle).isInstanceOf(IOException.class);
+    }
 
-	@Test
-	public void testStateStream() throws Exception {
-		HashMap<String, Integer> state = new HashMap<>();
-		state.put("hey there", 2);
-		state.put("the crazy brown fox stumbles over a sentence that does not contain every letter", 77);
+    @Test
+    void testStateStream() throws Exception {
+        HashMap<String, Integer> state = new HashMap<>();
+        state.put("hey there", 2);
+        state.put(
+                "the crazy brown fox stumbles over a sentence that does not contain every letter",
+                77);
 
-		CheckpointStateOutputStream outStream = new MemoryCheckpointOutputStream(MemoryStateBackend.DEFAULT_MAX_STATE_SIZE);
-		ObjectOutputStream oos = new ObjectOutputStream(outStream);
-		oos.writeObject(state);
-		oos.flush();
+        CheckpointStateOutputStream outStream =
+                new MemoryCheckpointOutputStream(MemoryStateBackend.DEFAULT_MAX_STATE_SIZE);
+        ObjectOutputStream oos = new ObjectOutputStream(outStream);
+        oos.writeObject(state);
+        oos.flush();
 
-		StreamStateHandle handle = outStream.closeAndGetHandle();
-		assertNotNull(handle);
+        StreamStateHandle handle = outStream.closeAndGetHandle();
+        assertThat(handle).isNotNull();
 
-		try (ObjectInputStream ois = new ObjectInputStream(handle.openInputStream())) {
-			assertEquals(state, ois.readObject());
-			assertTrue(ois.available() <= 0);
-		}
-	}
+        try (ObjectInputStream ois = new ObjectInputStream(handle.openInputStream())) {
+            assertThat(ois.readObject()).isEqualTo(state);
+            assertThat(ois.available()).isLessThanOrEqualTo(0);
+        }
+    }
 }

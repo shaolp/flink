@@ -18,24 +18,29 @@
 
 package org.apache.flink.test.util;
 
+import org.apache.flink.client.program.MiniClusterClient;
+import org.apache.flink.runtime.client.JobStatusMessage;
 import org.apache.flink.runtime.testutils.MiniClusterResourceConfiguration;
+import org.apache.flink.test.junit5.InjectClusterClient;
+import org.apache.flink.test.junit5.MiniClusterExtension;
 import org.apache.flink.util.FileUtils;
 
-import org.junit.ClassRule;
-import org.junit.rules.TemporaryFolder;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.extension.RegisterExtension;
+import org.junit.jupiter.api.io.TempDir;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
 
 /**
- * Base class for unit tests that run multiple tests and want to reuse the same
- * Flink cluster. This saves a significant amount of time, since the startup and
- * shutdown of the Flink clusters (including actor systems, etc) usually dominates
- * the execution of the actual tests.
+ * Base class for unit tests that run multiple tests and want to reuse the same Flink cluster. This
+ * saves a significant amount of time, since the startup and shutdown of the Flink clusters
+ * (including actor systems, etc) usually dominates the execution of the actual tests.
  *
- * <p>To write a unit test against this test base, simply extend it and add
- * one or more regular test methods and retrieve the StreamExecutionEnvironment from
- * the context:
+ * <p>To write a unit test against this test base, simply extend it and add one or more regular test
+ * methods and retrieve the StreamExecutionEnvironment from the context:
  *
  * <pre>
  *   {@literal @}Test
@@ -54,46 +59,66 @@ import java.io.IOException;
  *
  * </pre>
  */
-public abstract class AbstractTestBase extends TestBaseUtils {
+public abstract class AbstractTestBase {
 
-	private static final int DEFAULT_PARALLELISM = 4;
+    private static final Logger LOG = LoggerFactory.getLogger(AbstractTestBase.class);
 
-	@ClassRule
-	public static MiniClusterWithClientResource miniClusterResource = new MiniClusterWithClientResource(
-		new MiniClusterResourceConfiguration.Builder()
-			.setNumberTaskManagers(1)
-			.setNumberSlotsPerTaskManager(DEFAULT_PARALLELISM)
-			.build());
+    private static final int DEFAULT_PARALLELISM = 4;
 
-	@ClassRule
-	public static final TemporaryFolder TEMPORARY_FOLDER = new TemporaryFolder();
+    @RegisterExtension
+    public static final MiniClusterExtension MINI_CLUSTER_EXTENSION =
+            new MiniClusterExtension(
+                    new MiniClusterResourceConfiguration.Builder()
+                            .setNumberTaskManagers(1)
+                            .setNumberSlotsPerTaskManager(DEFAULT_PARALLELISM)
+                            .build());
 
+    @TempDir protected File temporaryFolder;
 
-	// --------------------------------------------------------------------------------------------
-	//  Temporary File Utilities
-	// --------------------------------------------------------------------------------------------
+    @AfterEach
+    public final void cleanupRunningJobs(@InjectClusterClient MiniClusterClient clusterClient)
+            throws Exception {
+        if (!MINI_CLUSTER_EXTENSION.isRunning()) {
+            LOG.warn("Mini cluster is not running after the test!");
+            return;
+        }
 
-	public String getTempDirPath(String dirName) throws IOException {
-		File f = createAndRegisterTempFile(dirName);
-		return f.toURI().toString();
-	}
+        for (JobStatusMessage path : clusterClient.listJobs().get()) {
+            if (!path.getJobState().isTerminalState()) {
+                try {
+                    clusterClient.cancel(path.getJobId()).get();
+                } catch (Exception ignored) {
+                    // ignore exceptions when cancelling dangling jobs
+                }
+            }
+        }
+    }
 
-	public String getTempFilePath(String fileName) throws IOException {
-		File f = createAndRegisterTempFile(fileName);
-		return f.toURI().toString();
-	}
+    // --------------------------------------------------------------------------------------------
+    //  Temporary File Utilities
+    // --------------------------------------------------------------------------------------------
 
-	public String createTempFile(String fileName, String contents) throws IOException {
-		File f = createAndRegisterTempFile(fileName);
-		if (!f.getParentFile().exists()) {
-			f.getParentFile().mkdirs();
-		}
-		f.createNewFile();
-		FileUtils.writeFileUtf8(f, contents);
-		return f.toURI().toString();
-	}
+    public String getTempDirPath(String dirName) throws IOException {
+        File f = createAndRegisterTempFile(dirName);
+        return f.toURI().toString();
+    }
 
-	public File createAndRegisterTempFile(String fileName) throws IOException {
-		return new File(TEMPORARY_FOLDER.newFolder(), fileName);
-	}
+    public String getTempFilePath(String fileName) throws IOException {
+        File f = createAndRegisterTempFile(fileName);
+        return f.toURI().toString();
+    }
+
+    public String createTempFile(String fileName, String contents) throws IOException {
+        File f = createAndRegisterTempFile(fileName);
+        if (!f.getParentFile().exists()) {
+            f.getParentFile().mkdirs();
+        }
+        f.createNewFile();
+        FileUtils.writeFileUtf8(f, contents);
+        return f.toURI().toString();
+    }
+
+    public File createAndRegisterTempFile(String fileName) throws IOException {
+        return new File(temporaryFolder, fileName);
+    }
 }

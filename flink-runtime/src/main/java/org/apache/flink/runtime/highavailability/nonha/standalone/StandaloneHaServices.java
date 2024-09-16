@@ -21,8 +21,8 @@ package org.apache.flink.runtime.highavailability.nonha.standalone;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.runtime.highavailability.HighAvailabilityServices;
 import org.apache.flink.runtime.highavailability.nonha.AbstractNonHaServices;
-import org.apache.flink.runtime.leaderelection.LeaderElectionService;
-import org.apache.flink.runtime.leaderelection.StandaloneLeaderElectionService;
+import org.apache.flink.runtime.leaderelection.LeaderElection;
+import org.apache.flink.runtime.leaderelection.StandaloneLeaderElection;
 import org.apache.flink.runtime.leaderretrieval.LeaderRetrievalService;
 import org.apache.flink.runtime.leaderretrieval.StandaloneLeaderRetrievalService;
 
@@ -30,130 +30,125 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
 
 /**
  * An implementation of the {@link HighAvailabilityServices} for the non-high-availability case.
- * This implementation can be used for testing, and for cluster setups that do not
- * tolerate failures of the master processes (JobManager, ResourceManager).
- * 
+ * This implementation can be used for testing, and for cluster setups that do not tolerate failures
+ * of the master processes (JobManager, ResourceManager).
+ *
  * <p>This implementation has no dependencies on any external services. It returns a fix
  * pre-configured ResourceManager and JobManager, and stores checkpoints and metadata simply on the
  * heap or on a local file system and therefore in a storage without guarantees.
  */
 public class StandaloneHaServices extends AbstractNonHaServices {
 
-	/** The constant name of the ResourceManager RPC endpoint */
-	private static final String RESOURCE_MANAGER_RPC_ENDPOINT_NAME = "resource_manager";
+    /** The fix address of the ResourceManager. */
+    private final String resourceManagerAddress;
 
-	/** The fix address of the ResourceManager */
-	private final String resourceManagerAddress;
+    /** The fix address of the Dispatcher. */
+    private final String dispatcherAddress;
 
-	/** The fix address of the Dispatcher */
-	private final String dispatcherAddress;
+    private final String clusterRestEndpointAddress;
 
-	/** The fix address of the JobManager */
-	private final String jobManagerAddress;
+    /**
+     * Creates a new services class for the fix pre-defined leaders.
+     *
+     * @param resourceManagerAddress The fix address of the ResourceManager
+     * @param clusterRestEndpointAddress
+     */
+    public StandaloneHaServices(
+            String resourceManagerAddress,
+            String dispatcherAddress,
+            String clusterRestEndpointAddress) {
+        this.resourceManagerAddress =
+                checkNotNull(resourceManagerAddress, "resourceManagerAddress");
+        this.dispatcherAddress = checkNotNull(dispatcherAddress, "dispatcherAddress");
+        this.clusterRestEndpointAddress =
+                checkNotNull(clusterRestEndpointAddress, clusterRestEndpointAddress);
+    }
 
-	private final String clusterRestEndpointAddress;
+    // ------------------------------------------------------------------------
+    //  Services
+    // ------------------------------------------------------------------------
 
-	/**
-	 * Creates a new services class for the fix pre-defined leaders.
-	 *
-	 * @param resourceManagerAddress    The fix address of the ResourceManager
-	 * @param clusterRestEndpointAddress
-	 */
-	public StandaloneHaServices(
-			String resourceManagerAddress,
-			String dispatcherAddress,
-			String jobManagerAddress,
-			String clusterRestEndpointAddress) {
-		this.resourceManagerAddress = checkNotNull(resourceManagerAddress, "resourceManagerAddress");
-		this.dispatcherAddress = checkNotNull(dispatcherAddress, "dispatcherAddress");
-		this.jobManagerAddress = checkNotNull(jobManagerAddress, "jobManagerAddress");
-		this.clusterRestEndpointAddress = checkNotNull(clusterRestEndpointAddress, clusterRestEndpointAddress);
-	}
+    @Override
+    public LeaderRetrievalService getResourceManagerLeaderRetriever() {
+        synchronized (lock) {
+            checkNotShutdown();
 
-	// ------------------------------------------------------------------------
-	//  Services
-	// ------------------------------------------------------------------------
+            return new StandaloneLeaderRetrievalService(resourceManagerAddress, DEFAULT_LEADER_ID);
+        }
+    }
 
-	@Override
-	public LeaderRetrievalService getResourceManagerLeaderRetriever() {
-		synchronized (lock) {
-			checkNotShutdown();
+    @Override
+    public LeaderRetrievalService getDispatcherLeaderRetriever() {
+        synchronized (lock) {
+            checkNotShutdown();
 
-			return new StandaloneLeaderRetrievalService(resourceManagerAddress, DEFAULT_LEADER_ID);
-		}
+            return new StandaloneLeaderRetrievalService(dispatcherAddress, DEFAULT_LEADER_ID);
+        }
+    }
 
-	}
+    @Override
+    public LeaderElection getResourceManagerLeaderElection() {
+        synchronized (lock) {
+            checkNotShutdown();
 
-	@Override
-	public LeaderRetrievalService getDispatcherLeaderRetriever() {
-		synchronized (lock) {
-			checkNotShutdown();
+            return new StandaloneLeaderElection(DEFAULT_LEADER_ID);
+        }
+    }
 
-			return new StandaloneLeaderRetrievalService(dispatcherAddress, DEFAULT_LEADER_ID);
-		}
-	}
+    @Override
+    public LeaderElection getDispatcherLeaderElection() {
+        synchronized (lock) {
+            checkNotShutdown();
 
-	@Override
-	public LeaderElectionService getResourceManagerLeaderElectionService() {
-		synchronized (lock) {
-			checkNotShutdown();
+            return new StandaloneLeaderElection(DEFAULT_LEADER_ID);
+        }
+    }
 
-			return new StandaloneLeaderElectionService();
-		}
-	}
+    @Override
+    public LeaderRetrievalService getJobManagerLeaderRetriever(JobID jobID) {
+        synchronized (lock) {
+            checkNotShutdown();
 
-	@Override
-	public LeaderElectionService getDispatcherLeaderElectionService() {
-		synchronized (lock) {
-			checkNotShutdown();
+            return new StandaloneLeaderRetrievalService("UNKNOWN", DEFAULT_LEADER_ID);
+        }
+    }
 
-			return new StandaloneLeaderElectionService();
-		}
-	}
+    @Override
+    public LeaderRetrievalService getJobManagerLeaderRetriever(
+            JobID jobID, String defaultJobManagerAddress) {
+        synchronized (lock) {
+            checkNotShutdown();
 
-	@Override
-	public LeaderRetrievalService getJobManagerLeaderRetriever(JobID jobID) {
-		synchronized (lock) {
-			checkNotShutdown();
+            return new StandaloneLeaderRetrievalService(
+                    defaultJobManagerAddress, DEFAULT_LEADER_ID);
+        }
+    }
 
-			return new StandaloneLeaderRetrievalService(jobManagerAddress, DEFAULT_LEADER_ID);
-		}
-	}
+    @Override
+    public LeaderElection getJobManagerLeaderElection(JobID jobID) {
+        synchronized (lock) {
+            checkNotShutdown();
 
-	@Override
-	public LeaderRetrievalService getJobManagerLeaderRetriever(JobID jobID, String defaultJobManagerAddress) {
-		synchronized (lock) {
-			checkNotShutdown();
+            return new StandaloneLeaderElection(DEFAULT_LEADER_ID);
+        }
+    }
 
-			return new StandaloneLeaderRetrievalService(defaultJobManagerAddress, DEFAULT_LEADER_ID);
-		}
-	}
+    @Override
+    public LeaderRetrievalService getClusterRestEndpointLeaderRetriever() {
+        synchronized (lock) {
+            checkNotShutdown();
 
-	@Override
-	public LeaderElectionService getJobManagerLeaderElectionService(JobID jobID) {
-		synchronized (lock) {
-			checkNotShutdown();
+            return new StandaloneLeaderRetrievalService(
+                    clusterRestEndpointAddress, DEFAULT_LEADER_ID);
+        }
+    }
 
-			return new StandaloneLeaderElectionService();
-		}
-	}
+    @Override
+    public LeaderElection getClusterRestEndpointLeaderElection() {
+        synchronized (lock) {
+            checkNotShutdown();
 
-	@Override
-	public LeaderRetrievalService getClusterRestEndpointLeaderRetriever() {
-		synchronized (lock) {
-			checkNotShutdown();
-
-			return new StandaloneLeaderRetrievalService(clusterRestEndpointAddress, DEFAULT_LEADER_ID);
-		}
-	}
-
-	@Override
-	public LeaderElectionService getClusterRestEndpointLeaderElectionService() {
-		synchronized (lock) {
-			checkNotShutdown();
-
-			return new StandaloneLeaderElectionService();
-		}
-	}
-
+            return new StandaloneLeaderElection(DEFAULT_LEADER_ID);
+        }
+    }
 }

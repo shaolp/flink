@@ -18,6 +18,10 @@
 
 package org.apache.flink.table.operations.ddl;
 
+import org.apache.flink.annotation.Internal;
+import org.apache.flink.table.api.internal.TableResultImpl;
+import org.apache.flink.table.api.internal.TableResultInternal;
+import org.apache.flink.table.catalog.ObjectIdentifier;
 import org.apache.flink.table.operations.Operation;
 import org.apache.flink.table.operations.OperationUtils;
 
@@ -25,36 +29,50 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/**
- * Operation to describe a DROP TABLE statement.
- */
+/** Operation to describe a DROP TABLE statement. */
+@Internal
 public class DropTableOperation implements DropOperation {
-	private final String[] tableName;
-	private final boolean ifExists;
+    private final ObjectIdentifier tableIdentifier;
+    private final boolean ifExists;
+    private final boolean isTemporary;
 
-	public DropTableOperation(String[] tableName, boolean ifExists) {
-		this.tableName = tableName;
-		this.ifExists = ifExists;
-	}
+    public DropTableOperation(
+            ObjectIdentifier tableIdentifier, boolean ifExists, boolean isTemporary) {
+        this.tableIdentifier = tableIdentifier;
+        this.ifExists = ifExists;
+        this.isTemporary = isTemporary;
+    }
 
-	public String[] getTableName() {
-		return this.tableName;
-	}
+    public ObjectIdentifier getTableIdentifier() {
+        return this.tableIdentifier;
+    }
 
-	public boolean isIfExists() {
-		return this.ifExists;
-	}
+    public boolean isIfExists() {
+        return this.ifExists;
+    }
 
-	@Override
-	public String asSummaryString() {
-		Map<String, Object> params = new LinkedHashMap<>();
-		params.put("tableName", tableName);
-		params.put("IfExists", ifExists);
+    public boolean isTemporary() {
+        return isTemporary;
+    }
 
-		return OperationUtils.formatWithChildren(
-			"DROP TABLE",
-			params,
-			Collections.emptyList(),
-			Operation::asSummaryString);
-	}
+    @Override
+    public String asSummaryString() {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("identifier", tableIdentifier);
+        params.put("IfExists", ifExists);
+        params.put("isTemporary", isTemporary);
+
+        return OperationUtils.formatWithChildren(
+                "DROP TABLE", params, Collections.emptyList(), Operation::asSummaryString);
+    }
+
+    @Override
+    public TableResultInternal execute(Context ctx) {
+        if (isTemporary()) {
+            ctx.getCatalogManager().dropTemporaryTable(getTableIdentifier(), isIfExists());
+        } else {
+            ctx.getCatalogManager().dropTable(getTableIdentifier(), isIfExists());
+        }
+        return TableResultImpl.TABLE_RESULT_OK;
+    }
 }

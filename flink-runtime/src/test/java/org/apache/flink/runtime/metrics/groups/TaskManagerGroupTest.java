@@ -21,170 +21,172 @@ package org.apache.flink.runtime.metrics.groups;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.MetricOptions;
+import org.apache.flink.runtime.clusterframework.types.ResourceID;
 import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
-import org.apache.flink.runtime.metrics.MetricRegistryConfiguration;
 import org.apache.flink.runtime.metrics.MetricRegistryImpl;
+import org.apache.flink.runtime.metrics.MetricRegistryTestUtils;
 import org.apache.flink.runtime.metrics.dump.QueryScopeInfo;
 import org.apache.flink.runtime.metrics.util.DummyCharacterFilter;
 import org.apache.flink.util.AbstractID;
-import org.apache.flink.util.TestLogger;
 
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
-import java.io.IOException;
+import static org.apache.flink.runtime.executiongraph.ExecutionGraphTestUtils.createExecutionAttemptId;
+import static org.assertj.core.api.Assertions.assertThat;
 
-import static org.junit.Assert.assertArrayEquals;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+/** Tests for the {@link TaskManagerMetricGroup}. */
+class TaskManagerGroupTest {
 
-/**
- * Tests for the {@link TaskManagerMetricGroup}.
- */
-public class TaskManagerGroupTest extends TestLogger {
+    private MetricRegistryImpl registry;
 
-	private MetricRegistryImpl registry;
+    @BeforeEach
+    void setup() {
+        registry =
+                new MetricRegistryImpl(
+                        MetricRegistryTestUtils.defaultMetricRegistryConfiguration());
+    }
 
-	@Before
-	public void setup() {
-		registry = new MetricRegistryImpl(MetricRegistryConfiguration.defaultMetricRegistryConfiguration());
-	}
+    @AfterEach
+    void teardown() throws Exception {
+        if (registry != null) {
+            registry.closeAsync().get();
+        }
+    }
 
-	@After
-	public void teardown() throws Exception {
-		if (registry != null) {
-			registry.shutdown().get();
-		}
-	}
+    // ------------------------------------------------------------------------
+    //  adding and removing jobs
+    // ------------------------------------------------------------------------
 
-	// ------------------------------------------------------------------------
-	//  adding and removing jobs
-	// ------------------------------------------------------------------------
+    @Test
+    void addAndRemoveJobs() {
+        final TaskManagerMetricGroup group =
+                TaskManagerMetricGroup.createTaskManagerMetricGroup(
+                        registry, "localhost", ResourceID.generate());
 
-	@Test
-	public void addAndRemoveJobs() throws IOException {
-		final TaskManagerMetricGroup group = new TaskManagerMetricGroup(
-				registry, "localhost", new AbstractID().toString());
+        final JobID jid1 = new JobID();
+        final JobID jid2 = new JobID();
 
-		final JobID jid1 = new JobID();
-		final JobID jid2 = new JobID();
+        final String jobName1 = "testjob";
+        final String jobName2 = "anotherJob";
 
-		final String jobName1 = "testjob";
-		final String jobName2 = "anotherJob";
+        final JobVertexID vertex11 = new JobVertexID();
+        final JobVertexID vertex12 = new JobVertexID();
+        final JobVertexID vertex13 = new JobVertexID();
+        final JobVertexID vertex21 = new JobVertexID();
 
-		final JobVertexID vertex11 = new JobVertexID();
-		final JobVertexID vertex12 = new JobVertexID();
-		final JobVertexID vertex13 = new JobVertexID();
-		final JobVertexID vertex21 = new JobVertexID();
+        final ExecutionAttemptID execution11 = createExecutionAttemptId(vertex11, 17, 0);
+        final ExecutionAttemptID execution12 = createExecutionAttemptId(vertex12, 13, 1);
+        final ExecutionAttemptID execution13 = createExecutionAttemptId(vertex13, 0, 0);
+        final ExecutionAttemptID execution21 = createExecutionAttemptId(vertex21, 7, 2);
 
-		final ExecutionAttemptID execution11 = new ExecutionAttemptID();
-		final ExecutionAttemptID execution12 = new ExecutionAttemptID();
-		final ExecutionAttemptID execution13 = new ExecutionAttemptID();
-		final ExecutionAttemptID execution21 = new ExecutionAttemptID();
+        TaskMetricGroup tmGroup11 = group.addJob(jid1, jobName1).addTask(execution11, "test");
 
-		TaskMetricGroup tmGroup11 = group.addTaskForJob(
-			jid1, jobName1, vertex11, execution11, "test", 17, 0);
-		TaskMetricGroup tmGroup12 = group.addTaskForJob(
-			jid1, jobName1, vertex12, execution12, "test", 13, 1);
-		TaskMetricGroup tmGroup21 = group.addTaskForJob(
-			jid2, jobName2, vertex21, execution21, "test", 7, 2);
+        TaskMetricGroup tmGroup12 = group.addJob(jid1, jobName1).addTask(execution12, "test");
 
-		assertEquals(2, group.numRegisteredJobMetricGroups());
-		assertFalse(tmGroup11.parent().isClosed());
-		assertFalse(tmGroup12.parent().isClosed());
-		assertFalse(tmGroup21.parent().isClosed());
+        TaskMetricGroup tmGroup21 = group.addJob(jid2, jobName2).addTask(execution21, "test");
 
-		// close all for job 2 and one from job 1
-		tmGroup11.close();
-		tmGroup21.close();
-		assertTrue(tmGroup11.isClosed());
-		assertTrue(tmGroup21.isClosed());
+        assertThat(group.numRegisteredJobMetricGroups()).isEqualTo(2);
+        assertThat(tmGroup11.parent().isClosed()).isFalse();
+        assertThat(tmGroup12.parent().isClosed()).isFalse();
+        assertThat(tmGroup21.parent().isClosed()).isFalse();
 
-		// job 2 should be removed, job should still be there
-		assertFalse(tmGroup11.parent().isClosed());
-		assertFalse(tmGroup12.parent().isClosed());
-		assertTrue(tmGroup21.parent().isClosed());
-		assertEquals(1, group.numRegisteredJobMetricGroups());
+        // close all for job 2 and one from job 1
+        tmGroup11.close();
+        tmGroup21.close();
+        assertThat(tmGroup11.isClosed()).isTrue();
+        assertThat(tmGroup21.isClosed()).isTrue();
 
-		// add one more to job one
-		TaskMetricGroup tmGroup13 = group.addTaskForJob(
-			jid1, jobName1, vertex13, execution13, "test", 0, 0);
-		tmGroup12.close();
-		tmGroup13.close();
+        // job 2 should be removed, job should still be there
+        assertThat(tmGroup11.parent().isClosed()).isFalse();
+        assertThat(tmGroup12.parent().isClosed()).isFalse();
 
-		assertTrue(tmGroup11.parent().isClosed());
-		assertTrue(tmGroup12.parent().isClosed());
-		assertTrue(tmGroup13.parent().isClosed());
+        // should keep TaskManagerJobMetricGroup open - slot isn't released yet
+        assertThat(tmGroup21.parent().isClosed()).isFalse();
+        assertThat(group.numRegisteredJobMetricGroups()).isEqualTo(2);
 
-		assertEquals(0, group.numRegisteredJobMetricGroups());
-	}
+        // add one more to job one
 
-	@Test
-	public void testCloseClosesAll() throws IOException {
-		final TaskManagerMetricGroup group = new TaskManagerMetricGroup(
-			registry, "localhost", new AbstractID().toString());
+        TaskMetricGroup tmGroup13 = group.addJob(jid1, jobName1).addTask(execution13, "test");
+        assertThat(tmGroup11.parent())
+                .isSameAs(tmGroup13.parent()); // should use the same TaskManagerJobMetricGroup
+        tmGroup12.close();
+        tmGroup13.close();
+    }
 
-		final JobID jid1 = new JobID();
-		final JobID jid2 = new JobID();
+    @Test
+    void testCloseClosesAll() {
+        final TaskManagerMetricGroup group =
+                TaskManagerMetricGroup.createTaskManagerMetricGroup(
+                        registry, "localhost", new ResourceID(new AbstractID().toString()));
 
-		final String jobName1 = "testjob";
-		final String jobName2 = "anotherJob";
+        final JobID jid1 = new JobID();
+        final JobID jid2 = new JobID();
 
-		final JobVertexID vertex11 = new JobVertexID();
-		final JobVertexID vertex12 = new JobVertexID();
-		final JobVertexID vertex21 = new JobVertexID();
+        final String jobName1 = "testjob";
+        final String jobName2 = "anotherJob";
 
-		final ExecutionAttemptID execution11 = new ExecutionAttemptID();
-		final ExecutionAttemptID execution12 = new ExecutionAttemptID();
-		final ExecutionAttemptID execution21 = new ExecutionAttemptID();
+        final JobVertexID vertex11 = new JobVertexID();
+        final JobVertexID vertex12 = new JobVertexID();
+        final JobVertexID vertex21 = new JobVertexID();
 
-		TaskMetricGroup tmGroup11 = group.addTaskForJob(
-			jid1, jobName1, vertex11, execution11, "test", 17, 0);
-		TaskMetricGroup tmGroup12 = group.addTaskForJob(
-			jid1, jobName1, vertex12, execution12, "test", 13, 1);
-		TaskMetricGroup tmGroup21 = group.addTaskForJob(
-			jid2, jobName2, vertex21, execution21, "test", 7, 1);
+        final ExecutionAttemptID execution11 = createExecutionAttemptId(vertex11, 17, 0);
+        final ExecutionAttemptID execution12 = createExecutionAttemptId(vertex12, 13, 1);
+        final ExecutionAttemptID execution21 = createExecutionAttemptId(vertex21, 7, 1);
 
-		group.close();
+        TaskMetricGroup tmGroup11 = group.addJob(jid1, jobName1).addTask(execution11, "test");
 
-		assertTrue(tmGroup11.isClosed());
-		assertTrue(tmGroup12.isClosed());
-		assertTrue(tmGroup21.isClosed());
-	}
+        TaskMetricGroup tmGroup12 = group.addJob(jid1, jobName1).addTask(execution12, "test");
 
-	// ------------------------------------------------------------------------
-	//  scope name tests
-	// ------------------------------------------------------------------------
+        TaskMetricGroup tmGroup21 = group.addJob(jid2, jobName2).addTask(execution21, "test");
 
-	@Test
-	public void testGenerateScopeDefault() {
-		TaskManagerMetricGroup group = new TaskManagerMetricGroup(registry, "localhost", "id");
+        group.close();
 
-		assertArrayEquals(new String[]{"localhost", "taskmanager", "id"}, group.getScopeComponents());
-		assertEquals("localhost.taskmanager.id.name", group.getMetricIdentifier("name"));
-	}
+        assertThat(tmGroup11.isClosed()).isTrue();
+        assertThat(tmGroup12.isClosed()).isTrue();
+        assertThat(tmGroup21.isClosed()).isTrue();
+    }
 
-	@Test
-	public void testGenerateScopeCustom() throws Exception {
-		Configuration cfg = new Configuration();
-		cfg.setString(MetricOptions.SCOPE_NAMING_TM, "constant.<host>.foo.<host>");
-		MetricRegistryImpl registry = new MetricRegistryImpl(MetricRegistryConfiguration.fromConfiguration(cfg));
-		TaskManagerMetricGroup group = new TaskManagerMetricGroup(registry, "host", "id");
+    // ------------------------------------------------------------------------
+    //  scope name tests
+    // ------------------------------------------------------------------------
 
-		assertArrayEquals(new String[]{"constant", "host", "foo", "host"}, group.getScopeComponents());
-		assertEquals("constant.host.foo.host.name", group.getMetricIdentifier("name"));
-		registry.shutdown().get();
-	}
+    @Test
+    void testGenerateScopeDefault() {
+        TaskManagerMetricGroup group =
+                TaskManagerMetricGroup.createTaskManagerMetricGroup(
+                        registry, "localhost", new ResourceID("id"));
 
-	@Test
-	public void testCreateQueryServiceMetricInfo() {
-		TaskManagerMetricGroup tm = new TaskManagerMetricGroup(registry, "host", "id");
+        assertThat(group.getScopeComponents()).containsExactly("localhost", "taskmanager", "id");
+        assertThat(group.getMetricIdentifier("name")).isEqualTo("localhost.taskmanager.id.name");
+    }
 
-		QueryScopeInfo.TaskManagerQueryScopeInfo info = tm.createQueryServiceMetricInfo(new DummyCharacterFilter());
-		assertEquals("", info.scope);
-		assertEquals("id", info.taskManagerID);
-	}
+    @Test
+    void testGenerateScopeCustom() throws Exception {
+        Configuration cfg = new Configuration();
+        cfg.set(MetricOptions.SCOPE_NAMING_TM, "constant.<host>.foo.<host>");
+        MetricRegistryImpl registry =
+                new MetricRegistryImpl(MetricRegistryTestUtils.fromConfiguration(cfg));
+        TaskManagerMetricGroup group =
+                TaskManagerMetricGroup.createTaskManagerMetricGroup(
+                        registry, "host", new ResourceID("id"));
+
+        assertThat(group.getScopeComponents()).containsExactly("constant", "host", "foo", "host");
+        assertThat(group.getMetricIdentifier("name")).isEqualTo("constant.host.foo.host.name");
+        registry.closeAsync().get();
+    }
+
+    @Test
+    void testCreateQueryServiceMetricInfo() {
+        TaskManagerMetricGroup tm =
+                TaskManagerMetricGroup.createTaskManagerMetricGroup(
+                        registry, "host", new ResourceID("id"));
+
+        QueryScopeInfo.TaskManagerQueryScopeInfo info =
+                tm.createQueryServiceMetricInfo(new DummyCharacterFilter());
+        assertThat(info.scope).isEmpty();
+        assertThat(info.taskManagerID).isEqualTo("id");
+    }
 }

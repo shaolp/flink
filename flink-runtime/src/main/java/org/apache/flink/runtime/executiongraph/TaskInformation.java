@@ -23,69 +23,109 @@ import org.apache.flink.runtime.jobgraph.JobVertexID;
 import org.apache.flink.util.Preconditions;
 
 import java.io.Serializable;
+import java.util.Objects;
 
 /**
- * Container class for operator/task specific information which are stored at the
- * {@link ExecutionJobVertex}. This information is shared by all sub tasks of this operator.
+ * Container class for operator/task specific information which are stored at the {@link
+ * ExecutionJobVertex}. This information is shared by all sub tasks of this operator.
  */
 public class TaskInformation implements Serializable {
 
-	private static final long serialVersionUID = -9006218793155953789L;
+    private static final long serialVersionUID = -9006218793155953789L;
 
-	/** Job vertex id of the associated job vertex */
-	private final JobVertexID jobVertexId;
+    /** Job vertex id of the associated job vertex. */
+    private final JobVertexID jobVertexId;
 
-	/** Name of the task */
-	private final String taskName;
+    /** Name of the task. */
+    private final String taskName;
 
-	/** The number of subtasks for this operator */
-	private final int numberOfSubtasks;
+    /** The number of subtasks for this operator. */
+    private final int numberOfSubtasks;
 
-	/** The maximum parallelism == number of key groups */
-	private final int maxNumberOfSubtaks;
+    /** The maximum parallelism == number of key groups. */
+    private final int maxNumberOfSubtasks;
 
-	/** Class name of the invokable to run */
-	private final String invokableClassName;
+    /** Class name of the invokable to run. */
+    private final String invokableClassName;
 
-	/** Configuration for the task */
-	private final Configuration taskConfiguration;
+    /** Configuration for the task. */
+    private final Configuration taskConfiguration;
 
-	public TaskInformation(
-			JobVertexID jobVertexId,
-			String taskName,
-			int numberOfSubtasks,
-			int maxNumberOfSubtaks,
-			String invokableClassName,
-			Configuration taskConfiguration) {
-		this.jobVertexId = Preconditions.checkNotNull(jobVertexId);
-		this.taskName = Preconditions.checkNotNull(taskName);
-		this.numberOfSubtasks = Preconditions.checkNotNull(numberOfSubtasks);
-		this.maxNumberOfSubtaks = Preconditions.checkNotNull(maxNumberOfSubtaks);
-		this.invokableClassName = Preconditions.checkNotNull(invokableClassName);
-		this.taskConfiguration = Preconditions.checkNotNull(taskConfiguration);
-	}
+    public TaskInformation(
+            JobVertexID jobVertexId,
+            String taskName,
+            int numberOfSubtasks,
+            int maxNumberOfSubtasks,
+            String invokableClassName,
+            Configuration taskConfiguration) {
+        this.jobVertexId = Preconditions.checkNotNull(jobVertexId);
+        this.taskName = Preconditions.checkNotNull(taskName);
+        this.numberOfSubtasks = numberOfSubtasks;
+        this.maxNumberOfSubtasks = maxNumberOfSubtasks;
+        this.invokableClassName = Preconditions.checkNotNull(invokableClassName);
+        this.taskConfiguration = Preconditions.checkNotNull(taskConfiguration);
+    }
 
-	public JobVertexID getJobVertexId() {
-		return jobVertexId;
-	}
+    public JobVertexID getJobVertexId() {
+        return jobVertexId;
+    }
 
-	public String getTaskName() {
-		return taskName;
-	}
+    public String getTaskName() {
+        return taskName;
+    }
 
-	public int getNumberOfSubtasks() {
-		return numberOfSubtasks;
-	}
+    public int getNumberOfSubtasks() {
+        return numberOfSubtasks;
+    }
 
-	public int getMaxNumberOfSubtaks() {
-		return maxNumberOfSubtaks;
-	}
+    public int getMaxNumberOfSubtasks() {
+        return maxNumberOfSubtasks;
+    }
 
-	public String getInvokableClassName() {
-		return invokableClassName;
-	}
+    public String getInvokableClassName() {
+        return invokableClassName;
+    }
 
-	public Configuration getTaskConfiguration() {
-		return taskConfiguration;
-	}
+    public Configuration getTaskConfiguration() {
+        return taskConfiguration;
+    }
+
+    public TaskInformation deepCopy() {
+        return new TaskInformation(
+                getJobVertexId(),
+                getTaskName(),
+                getNumberOfSubtasks(),
+                getMaxNumberOfSubtasks(),
+                getInvokableClassName(),
+                // Return the new Configuration to avoid shared conf being changed.
+                new Configuration(getTaskConfiguration()));
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        TaskInformation that = (TaskInformation) o;
+        return numberOfSubtasks == that.numberOfSubtasks
+                && maxNumberOfSubtasks == that.maxNumberOfSubtasks
+                && Objects.equals(jobVertexId, that.jobVertexId)
+                && Objects.equals(taskName, that.taskName)
+                && Objects.equals(invokableClassName, that.invokableClassName)
+                && Objects.equals(taskConfiguration, that.taskConfiguration);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(
+                jobVertexId,
+                taskName,
+                numberOfSubtasks,
+                maxNumberOfSubtasks,
+                invokableClassName,
+                taskConfiguration);
+    }
 }

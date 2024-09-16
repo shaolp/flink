@@ -18,59 +18,116 @@
 
 package org.apache.flink.runtime.clusterframework;
 
-import org.apache.flink.util.TestLogger;
+import org.apache.flink.api.common.JobStatus;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import java.util.Arrays;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
-import static org.hamcrest.Matchers.contains;
-import static org.hamcrest.Matchers.equalTo;
-import static org.hamcrest.Matchers.is;
-import static org.hamcrest.Matchers.not;
-import static org.junit.Assert.assertThat;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/**
- * Tests for the {@link ApplicationStatus}.
- */
-public class ApplicationStatusTest extends TestLogger {
+/** Tests for the {@link ApplicationStatus}. */
+class ApplicationStatusTest {
 
-	private static final int SUCCESS_EXIT_CODE = 0;
+    private static final int SUCCESS_EXIT_CODE = 0;
 
-	@Test
-	public void succeededStatusMapsToSuccessExitCode() {
-		int exitCode = ApplicationStatus.SUCCEEDED.processExitCode();
-		assertThat(exitCode, is(equalTo(SUCCESS_EXIT_CODE)));
-	}
+    @Test
+    void succeededStatusMapsToSuccessExitCode() {
+        int exitCode = ApplicationStatus.SUCCEEDED.processExitCode();
+        assertThat(exitCode).isEqualTo(SUCCESS_EXIT_CODE);
+    }
 
-	@Test
-	public void cancelledStatusMapsToSuccessExitCode() {
-		int exitCode = ApplicationStatus.CANCELED.processExitCode();
-		assertThat(exitCode, is(equalTo(SUCCESS_EXIT_CODE)));
-	}
+    @Test
+    void cancelledStatusMapsToSuccessExitCode() {
+        int exitCode = ApplicationStatus.CANCELED.processExitCode();
+        assertThat(exitCode).isEqualTo(SUCCESS_EXIT_CODE);
+    }
 
-	@Test
-	public void notSucceededNorCancelledStatusMapsToNonSuccessExitCode() {
-		Iterable<Integer> exitCodes = exitCodes(notSucceededNorCancelledStatus());
-		assertThat(exitCodes, not(contains(SUCCESS_EXIT_CODE)));
-	}
+    @Test
+    void notSucceededNorCancelledStatusMapsToNonSuccessExitCode() {
+        Iterable<Integer> exitCodes = exitCodes(notSucceededNorCancelledStatus());
+        assertThat(exitCodes).doesNotContain(SUCCESS_EXIT_CODE);
+    }
 
-	private static Iterable<Integer> exitCodes(Iterable<ApplicationStatus> statuses) {
-		return StreamSupport.stream(statuses.spliterator(), false)
-			.map(ApplicationStatus::processExitCode)
-			.collect(Collectors.toList());
-	}
+    @Test
+    void testJobStatusFromSuccessApplicationStatus() {
+        assertThat(ApplicationStatus.SUCCEEDED.deriveJobStatus()).isEqualTo(JobStatus.FINISHED);
+    }
 
-	private static Iterable<ApplicationStatus> notSucceededNorCancelledStatus() {
-		return Arrays.stream(ApplicationStatus.values())
-			.filter(ApplicationStatusTest::isNotSucceededNorCancelled)
-			.collect(Collectors.toList());
-	}
+    @Test
+    void testJobStatusFromFailedApplicationStatus() {
+        assertThat(ApplicationStatus.FAILED.deriveJobStatus()).isEqualTo(JobStatus.FAILED);
+    }
 
-	private static boolean isNotSucceededNorCancelled(ApplicationStatus status) {
-		return status != ApplicationStatus.SUCCEEDED && status != ApplicationStatus.CANCELED;
-	}
+    @Test
+    void testJobStatusFromCancelledApplicationStatus() {
+        assertThat(ApplicationStatus.CANCELED.deriveJobStatus()).isEqualTo(JobStatus.CANCELED);
+    }
 
+    @Test
+    void testJobStatusFailsFromUnknownApplicationStatuses() {
+        assertThatThrownBy(ApplicationStatus.UNKNOWN::deriveJobStatus)
+                .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
+    void testSuccessApplicationStatusFromJobStatus() {
+        assertThat(ApplicationStatus.fromJobStatus(JobStatus.FINISHED))
+                .isEqualTo(ApplicationStatus.SUCCEEDED);
+    }
+
+    @Test
+    void testFailedApplicationStatusFromJobStatus() {
+        assertThat(ApplicationStatus.fromJobStatus(JobStatus.FAILED))
+                .isEqualTo(ApplicationStatus.FAILED);
+    }
+
+    @Test
+    void testCancelledApplicationStatusFromJobStatus() {
+        assertThat(ApplicationStatus.fromJobStatus(JobStatus.CANCELED))
+                .isEqualTo(ApplicationStatus.CANCELED);
+    }
+
+    @ParameterizedTest
+    @EnumSource(
+            value = JobStatus.class,
+            names = {
+                "INITIALIZING",
+                "CREATED",
+                "RUNNING",
+                "FAILING",
+                "CANCELLING",
+                "RESTARTING",
+                "SUSPENDED",
+                "RECONCILING"
+            })
+    public void testUnknownApplicationStatusFromJobStatus(JobStatus jobStatus) {
+        assertThat(ApplicationStatus.fromJobStatus(jobStatus)).isEqualTo(ApplicationStatus.UNKNOWN);
+    }
+
+    @Test
+    void testUnknownApplicationStatusForMissingJobStatus() {
+        assertThat(ApplicationStatus.fromJobStatus(null)).isEqualTo(ApplicationStatus.UNKNOWN);
+    }
+
+    private static Iterable<Integer> exitCodes(Iterable<ApplicationStatus> statuses) {
+        return StreamSupport.stream(statuses.spliterator(), false)
+                .map(ApplicationStatus::processExitCode)
+                .collect(Collectors.toList());
+    }
+
+    private static Iterable<ApplicationStatus> notSucceededNorCancelledStatus() {
+        return Arrays.stream(ApplicationStatus.values())
+                .filter(ApplicationStatusTest::isNotSucceededNorCancelled)
+                .collect(Collectors.toList());
+    }
+
+    private static boolean isNotSucceededNorCancelled(ApplicationStatus status) {
+        return status != ApplicationStatus.SUCCEEDED && status != ApplicationStatus.CANCELED;
+    }
 }

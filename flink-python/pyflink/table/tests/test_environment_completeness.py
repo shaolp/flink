@@ -16,13 +16,11 @@
 # limitations under the License.
 ################################################################################
 
-import unittest
-
-from pyflink.testing.test_case_utils import PythonAPICompletenessTestCase
+from pyflink.testing.test_case_utils import PythonAPICompletenessTestCase, PyFlinkTestCase
 from pyflink.table import TableEnvironment
 
 
-class EnvironmentAPICompletenessTests(PythonAPICompletenessTestCase, unittest.TestCase):
+class EnvironmentAPICompletenessTests(PythonAPICompletenessTestCase, PyFlinkTestCase):
     """
     Tests whether the Python :class:`TableEnvironment` is consistent with
     Java `org.apache.flink.table.api.TableEnvironment`.
@@ -37,12 +35,31 @@ class EnvironmentAPICompletenessTests(PythonAPICompletenessTestCase, unittest.Te
 
     @classmethod
     def excluded_methods(cls):
-        # registerFunction and listUserDefinedFunctions should be supported when UDFs supported.
-        # registerCatalog, getCatalog and listTables should be supported when catalog supported in
-        # python. getCompletionHints has been deprecated. It will be removed in the next release.
-        # TODO add TableEnvironment#create method with EnvironmentSettings as a parameter
-        return {'registerCatalog', 'getCatalog', 'registerFunction', 'listTables',
-                'getCompletionHints', 'create'}
+        # getCompletionHints has been deprecated. It will be removed in the next release.
+        return {
+            'getCompletionHints',
+            'fromValues',
+            # See FLINK-25986
+            'loadPlan',
+            'compilePlanSql',
+            'executePlan',
+            'explainPlan',
+            # See FLINK-32647
+            'createCatalog'}
+
+    @classmethod
+    def java_method_name(cls, python_method_name):
+        """
+        Due to 'from' is python keyword, so we use 'from_path'
+        in Python API corresponding 'from' in Java API.
+
+        :param python_method_name:
+        :return:
+        """
+        py_func_to_java_method_dict = {'from_path': 'from',
+                                       "from_descriptor": "from",
+                                       "create_java_function": "create_function"}
+        return py_func_to_java_method_dict.get(python_method_name, python_method_name)
 
 
 if __name__ == '__main__':

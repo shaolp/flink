@@ -19,68 +19,73 @@ package org.apache.flink.streaming.api.operators.async;
 
 import org.apache.flink.streaming.api.datastream.AsyncDataStream;
 import org.apache.flink.streaming.api.functions.async.AsyncFunction;
-import org.apache.flink.streaming.api.graph.StreamConfig;
+import org.apache.flink.streaming.api.functions.async.AsyncRetryStrategy;
+import org.apache.flink.streaming.api.operators.AbstractStreamOperatorFactory;
 import org.apache.flink.streaming.api.operators.ChainingStrategy;
 import org.apache.flink.streaming.api.operators.OneInputStreamOperatorFactory;
-import org.apache.flink.streaming.api.operators.Output;
 import org.apache.flink.streaming.api.operators.StreamOperator;
+import org.apache.flink.streaming.api.operators.StreamOperatorParameters;
 import org.apache.flink.streaming.api.operators.YieldingOperatorFactory;
-import org.apache.flink.streaming.runtime.tasks.StreamTask;
-import org.apache.flink.streaming.runtime.tasks.mailbox.execution.MailboxExecutor;
+
+import static org.apache.flink.streaming.util.retryable.AsyncRetryStrategies.NO_RETRY_STRATEGY;
 
 /**
  * The factory of {@link AsyncWaitOperator}.
  *
  * @param <OUT> The output type of the operator
  */
-public class AsyncWaitOperatorFactory<IN, OUT> implements OneInputStreamOperatorFactory<IN, OUT>, YieldingOperatorFactory<OUT> {
-	private final AsyncFunction<IN, OUT> asyncFunction;
-	private final long timeout;
-	private final int capacity;
-	private final AsyncDataStream.OutputMode outputMode;
-	private MailboxExecutor mailboxExecutor;
-	private ChainingStrategy strategy = ChainingStrategy.HEAD;
+public class AsyncWaitOperatorFactory<IN, OUT> extends AbstractStreamOperatorFactory<OUT>
+        implements OneInputStreamOperatorFactory<IN, OUT>, YieldingOperatorFactory<OUT> {
 
-	public AsyncWaitOperatorFactory(
-			AsyncFunction<IN, OUT> asyncFunction,
-			long timeout,
-			int capacity,
-			AsyncDataStream.OutputMode outputMode) {
-		this.asyncFunction = asyncFunction;
-		this.timeout = timeout;
-		this.capacity = capacity;
-		this.outputMode = outputMode;
-	}
+    private final AsyncFunction<IN, OUT> asyncFunction;
+    private final long timeout;
+    private final int capacity;
+    private final AsyncDataStream.OutputMode outputMode;
+    private final AsyncRetryStrategy<OUT> asyncRetryStrategy;
 
-	@Override
-	public void setMailboxExecutor(MailboxExecutor mailboxExecutor) {
-		this.mailboxExecutor = mailboxExecutor;
-	}
+    public AsyncWaitOperatorFactory(
+            AsyncFunction<IN, OUT> asyncFunction,
+            long timeout,
+            int capacity,
+            AsyncDataStream.OutputMode outputMode) {
+        this(asyncFunction, timeout, capacity, outputMode, NO_RETRY_STRATEGY);
+    }
 
-	@Override
-	public StreamOperator createStreamOperator(StreamTask containingTask, StreamConfig config, Output output) {
-		AsyncWaitOperator asyncWaitOperator = new AsyncWaitOperator(
-				asyncFunction,
-				timeout,
-				capacity,
-				outputMode,
-				mailboxExecutor);
-		asyncWaitOperator.setup(containingTask, config, output);
-		return asyncWaitOperator;
-	}
+    public AsyncWaitOperatorFactory(
+            AsyncFunction<IN, OUT> asyncFunction,
+            long timeout,
+            int capacity,
+            AsyncDataStream.OutputMode outputMode,
+            AsyncRetryStrategy<OUT> asyncRetryStrategy) {
+        this.asyncFunction = asyncFunction;
+        this.timeout = timeout;
+        this.capacity = capacity;
+        this.outputMode = outputMode;
+        this.chainingStrategy = ChainingStrategy.ALWAYS;
+        this.asyncRetryStrategy = asyncRetryStrategy;
+    }
 
-	@Override
-	public void setChainingStrategy(ChainingStrategy strategy) {
-		this.strategy = strategy;
-	}
+    @Override
+    public <T extends StreamOperator<OUT>> T createStreamOperator(
+            StreamOperatorParameters<OUT> parameters) {
+        AsyncWaitOperator asyncWaitOperator =
+                new AsyncWaitOperator(
+                        asyncFunction,
+                        timeout,
+                        capacity,
+                        outputMode,
+                        asyncRetryStrategy,
+                        processingTimeService,
+                        getMailboxExecutor());
+        asyncWaitOperator.setup(
+                parameters.getContainingTask(),
+                parameters.getStreamConfig(),
+                parameters.getOutput());
+        return (T) asyncWaitOperator;
+    }
 
-	@Override
-	public ChainingStrategy getChainingStrategy() {
-		return strategy;
-	}
-
-	@Override
-	public Class<? extends StreamOperator> getStreamOperatorClass(ClassLoader classLoader) {
-		return AsyncWaitOperator.class;
-	}
+    @Override
+    public Class<? extends StreamOperator> getStreamOperatorClass(ClassLoader classLoader) {
+        return AsyncWaitOperator.class;
+    }
 }

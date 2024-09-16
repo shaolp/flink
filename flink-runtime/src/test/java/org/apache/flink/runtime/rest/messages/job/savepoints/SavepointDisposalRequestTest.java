@@ -19,29 +19,32 @@
 package org.apache.flink.runtime.rest.messages.job.savepoints;
 
 import org.apache.flink.runtime.rest.messages.RestRequestMarshallingTestBase;
+import org.apache.flink.testutils.junit.extensions.parameterized.NoOpTestExtension;
 
-import org.hamcrest.Matchers;
-import org.junit.Assert;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.util.UUID;
 
-/**
- * Tests the un/marshalling of the {@link SavepointDisposalRequest}.
- */
-public class SavepointDisposalRequestTest extends RestRequestMarshallingTestBase<SavepointDisposalRequest> {
+import static org.assertj.core.api.Assertions.assertThat;
 
-	@Override
-	protected Class<SavepointDisposalRequest> getTestRequestClass() {
-		return SavepointDisposalRequest.class;
-	}
+/** Tests the un/marshalling of the {@link SavepointDisposalRequest}. */
+@ExtendWith(NoOpTestExtension.class)
+class SavepointDisposalRequestTest
+        extends RestRequestMarshallingTestBase<SavepointDisposalRequest> {
 
-	@Override
-	protected SavepointDisposalRequest getTestRequestInstance() {
-		return new SavepointDisposalRequest(UUID.randomUUID().toString());
-	}
+    @Override
+    protected Class<SavepointDisposalRequest> getTestRequestClass() {
+        return SavepointDisposalRequest.class;
+    }
 
-	@Override
-	protected void assertOriginalEqualsToUnmarshalled(SavepointDisposalRequest expected, SavepointDisposalRequest actual) {
-		Assert.assertThat(actual.getSavepointPath(), Matchers.is(Matchers.equalTo(expected.getSavepointPath())));
-	}
+    @Override
+    protected SavepointDisposalRequest getTestRequestInstance() {
+        return new SavepointDisposalRequest(UUID.randomUUID().toString());
+    }
+
+    @Override
+    protected void assertOriginalEqualsToUnmarshalled(
+            SavepointDisposalRequest expected, SavepointDisposalRequest actual) {
+        assertThat(actual.getSavepointPath()).isEqualTo(expected.getSavepointPath());
+    }
 }

@@ -18,56 +18,118 @@
 
 package org.apache.flink.runtime.io.network;
 
+import org.apache.flink.runtime.io.network.partition.PartitionNotFoundException;
+import org.apache.flink.runtime.io.network.partition.PartitionRequestListener;
+import org.apache.flink.runtime.io.network.partition.ResultPartition;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionID;
+import org.apache.flink.runtime.io.network.partition.ResultPartitionManager;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionProvider;
+import org.apache.flink.runtime.io.network.partition.ResultSubpartitionIndexSet;
+import org.apache.flink.runtime.io.network.partition.ResultSubpartitionView;
 import org.apache.flink.runtime.io.network.partition.consumer.InputChannel.BufferAndAvailability;
 import org.apache.flink.runtime.io.network.partition.consumer.InputChannelID;
+
+import javax.annotation.Nullable;
 
 import java.io.IOException;
 
 /**
- * Simple wrapper for the partition readerQueue iterator, which increments a
- * sequence number for each returned buffer and remembers the receiver ID.
+ * Simple wrapper for the partition readerQueue iterator, which increments a sequence number for
+ * each returned buffer and remembers the receiver ID.
  */
 public interface NetworkSequenceViewReader {
 
-	void requestSubpartitionView(
-		ResultPartitionProvider partitionProvider,
-		ResultPartitionID resultPartitionId,
-		int subPartitionIndex) throws IOException;
+    /**
+     * When the netty server receives the downstream task's partition request and the upstream task
+     * has registered its partition, it will process the partition request immediately, otherwise it
+     * will create a {@link PartitionRequestListener} for given {@link ResultPartitionID} in {@link
+     * ResultPartitionManager} and notify the listener when the upstream task registers its
+     * partition.
+     *
+     * @param partitionProvider the result partition provider
+     * @param resultPartitionId the result partition id
+     * @param subpartitionIndexSet the sub partition indexes
+     * @throws IOException the thrown exception
+     */
+    void requestSubpartitionViewOrRegisterListener(
+            ResultPartitionProvider partitionProvider,
+            ResultPartitionID resultPartitionId,
+            ResultSubpartitionIndexSet subpartitionIndexSet)
+            throws IOException;
 
-	BufferAndAvailability getNextBuffer() throws IOException, InterruptedException;
+    /**
+     * When the {@link ResultPartitionManager} registers {@link ResultPartition}, it will get the
+     * {@link PartitionRequestListener} via given {@link ResultPartitionID}, and create subpartition
+     * view reader for downstream task.
+     *
+     * @param partition the result partition
+     * @param subpartitionIndexSet the sub partition indexes
+     * @throws IOException the thrown exception
+     */
+    void notifySubpartitionsCreated(
+            ResultPartition partition, ResultSubpartitionIndexSet subpartitionIndexSet)
+            throws IOException;
 
-	/**
-	 * The credits from consumer are added in incremental way.
-	 *
-	 * @param creditDeltas The credit deltas
-	 */
-	void addCredit(int creditDeltas);
+    int peekNextBufferSubpartitionId() throws IOException;
 
-	/**
-	 * Checks whether this reader is available or not.
-	 *
-	 * @return True if the reader is available.
-	 */
-	boolean isAvailable();
+    @Nullable
+    BufferAndAvailability getNextBuffer() throws IOException;
 
-	boolean isRegisteredAsAvailable();
+    /** Returns true if the producer backlog need to be announced to the consumer. */
+    boolean needAnnounceBacklog();
 
-	/**
-	 * Updates the value to indicate whether the reader is enqueued in the pipeline or not.
-	 *
-	 * @param isRegisteredAvailable True if this reader is already enqueued in the pipeline.
-	 */
-	void setRegisteredAsAvailable(boolean isRegisteredAvailable);
+    /**
+     * The credits from consumer are added in incremental way.
+     *
+     * @param creditDeltas The credit deltas
+     */
+    void addCredit(int creditDeltas);
 
-	boolean isReleased();
+    /**
+     * Notify the id of required segment from consumer.
+     *
+     * @param subpartitionId The id of the corresponding subpartition.
+     * @param segmentId The id of required segment.
+     */
+    void notifyRequiredSegmentId(int subpartitionId, int segmentId);
 
-	void releaseAllResources() throws IOException;
+    /** Resumes data consumption after an exactly once checkpoint. */
+    void resumeConsumption();
 
-	Throwable getFailureCause();
+    /** Acknowledges all the user records are processed. */
+    void acknowledgeAllRecordsProcessed();
 
-	InputChannelID getReceiverId();
+    /**
+     * Checks whether this reader is available or not and returns the backlog at the same time.
+     *
+     * @return A boolean flag indicating whether the reader is available together with the backlog.
+     */
+    ResultSubpartitionView.AvailabilityWithBacklog getAvailabilityAndBacklog();
 
-	int getSequenceNumber();
+    boolean isRegisteredAsAvailable();
+
+    /**
+     * Updates the value to indicate whether the reader is enqueued in the pipeline or not.
+     *
+     * @param isRegisteredAvailable True if this reader is already enqueued in the pipeline.
+     */
+    void setRegisteredAsAvailable(boolean isRegisteredAvailable);
+
+    boolean isReleased();
+
+    void releaseAllResources() throws IOException;
+
+    Throwable getFailureCause();
+
+    InputChannelID getReceiverId();
+
+    void notifyNewBufferSize(int newBufferSize);
+
+    /**
+     * When the partition request from the given downstream task is timeout, it should notify the
+     * reader in netty server and send {@link PartitionNotFoundException} to the task.
+     *
+     * @param partitionRequestListener the timeout message of given {@link PartitionRequestListener}
+     */
+    void notifyPartitionRequestTimeout(PartitionRequestListener partitionRequestListener);
 }

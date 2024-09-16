@@ -27,52 +27,65 @@ import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.DataSet;
 
 /**
- * This operator represents the application of a "map" function on a data set, and the
- * result data set produced by the function.
+ * This operator represents the application of a "map" function on a data set, and the result data
+ * set produced by the function.
  *
  * @param <IN> The type of the data set consumed by the operator.
  * @param <OUT> The type of the data set created by the operator.
- *
  * @see org.apache.flink.api.common.functions.MapFunction
+ * @deprecated All Flink DataSet APIs are deprecated since Flink 1.18 and will be removed in a
+ *     future Flink major version. You can still build your application in DataSet, but you should
+ *     move to either the DataStream and/or Table API.
+ * @see <a href="https://cwiki.apache.org/confluence/pages/viewpage.action?pageId=158866741">
+ *     FLIP-131: Consolidate the user-facing Dataflow SDKs/APIs (and deprecate the DataSet API</a>
  */
+@Deprecated
 @Public
 public class MapOperator<IN, OUT> extends SingleInputUdfOperator<IN, OUT, MapOperator<IN, OUT>> {
 
-	protected final MapFunction<IN, OUT> function;
+    protected final MapFunction<IN, OUT> function;
 
-	protected final String defaultName;
+    protected final String defaultName;
 
-	public MapOperator(DataSet<IN> input, TypeInformation<OUT> resultType, MapFunction<IN, OUT> function, String defaultName) {
-		super(input, resultType);
+    public MapOperator(
+            DataSet<IN> input,
+            TypeInformation<OUT> resultType,
+            MapFunction<IN, OUT> function,
+            String defaultName) {
+        super(input, resultType);
 
-		this.defaultName = defaultName;
-		this.function = function;
-	}
+        this.defaultName = defaultName;
+        this.function = function;
+    }
 
-	@Override
-	protected MapFunction<IN, OUT> getFunction() {
-		return function;
-	}
+    @Override
+    protected MapFunction<IN, OUT> getFunction() {
+        return function;
+    }
 
-	@Override
-	protected MapOperatorBase<IN, OUT, MapFunction<IN, OUT>> translateToDataFlow(Operator<IN> input) {
+    @Override
+    protected MapOperatorBase<IN, OUT, MapFunction<IN, OUT>> translateToDataFlow(
+            Operator<IN> input) {
 
-		String name = getName() != null ? getName() : "Map at " + defaultName;
-		// create operator
-		MapOperatorBase<IN, OUT, MapFunction<IN, OUT>> po = new MapOperatorBase<IN, OUT, MapFunction<IN, OUT>>(function,
-				new UnaryOperatorInformation<IN, OUT>(getInputType(), getResultType()), name);
-		// set input
-		po.setInput(input);
-		// set parallelism
-		if (this.getParallelism() > 0) {
-			// use specified parallelism
-			po.setParallelism(this.getParallelism());
-		} else {
-			// if no parallelism has been specified, use parallelism of input operator to enable chaining
-			po.setParallelism(input.getParallelism());
-		}
+        String name = getName() != null ? getName() : "Map at " + defaultName;
+        // create operator
+        MapOperatorBase<IN, OUT, MapFunction<IN, OUT>> po =
+                new MapOperatorBase<IN, OUT, MapFunction<IN, OUT>>(
+                        function,
+                        new UnaryOperatorInformation<IN, OUT>(getInputType(), getResultType()),
+                        name);
+        // set input
+        po.setInput(input);
+        // set parallelism
+        if (this.getParallelism() > 0) {
+            // use specified parallelism
+            po.setParallelism(this.getParallelism());
+        } else {
+            // if no parallelism has been specified, use parallelism of input operator to enable
+            // chaining
+            po.setParallelism(input.getParallelism());
+        }
 
-		return po;
-	}
-
+        return po;
+    }
 }

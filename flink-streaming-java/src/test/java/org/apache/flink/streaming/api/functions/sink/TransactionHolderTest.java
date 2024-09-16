@@ -19,25 +19,22 @@ package org.apache.flink.streaming.api.functions.sink;
 
 import org.apache.flink.streaming.api.functions.sink.TwoPhaseCommitSinkFunction.TransactionHolder;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.equalTo;
+import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * Unit tests {@link TransactionHolder}.
- */
-public class TransactionHolderTest {
+/** Unit tests {@link TransactionHolder}. */
+class TransactionHolderTest {
 
-	@Test
-	public void testElapsedTime() {
-		final long elapsedTime = new TransactionHolder<>(new Object(), 0)
-			.elapsedTime(Clock.fixed(Instant.ofEpochMilli(1000), ZoneOffset.UTC));
-		assertThat(elapsedTime, equalTo(1000L));
-	}
-
+    @Test
+    void testElapsedTime() {
+        final long elapsedTime =
+                new TransactionHolder<>(new Object(), 0)
+                        .elapsedTime(Clock.fixed(Instant.ofEpochMilli(1000), ZoneOffset.UTC));
+        assertThat(elapsedTime).isEqualTo(1000L);
+    }
 }

@@ -28,34 +28,42 @@ import java.util.Iterator;
 
 /**
  * An input format that generates data in parallel through a {@link SplittableIterator}.
+ *
+ * @deprecated All Flink DataSet APIs are deprecated since Flink 1.18 and will be removed in a
+ *     future Flink major version. You can still build your application in DataSet, but you should
+ *     move to either the DataStream and/or Table API.
+ * @see <a href="https://cwiki.apache.org/confluence/pages/viewpage.action?pageId=158866741">
+ *     FLIP-131: Consolidate the user-facing Dataflow SDKs/APIs (and deprecate the DataSet API</a>
  */
+@Deprecated
 @PublicEvolving
 public class ParallelIteratorInputFormat<T> extends GenericInputFormat<T> {
 
-	private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = 1L;
 
-	private final SplittableIterator<T> source;
+    private final SplittableIterator<T> source;
 
-	private transient Iterator<T> splitIterator;
+    private transient Iterator<T> splitIterator;
 
-	public ParallelIteratorInputFormat(SplittableIterator<T> iterator) {
-		this.source = iterator;
-	}
+    public ParallelIteratorInputFormat(SplittableIterator<T> iterator) {
+        this.source = iterator;
+    }
 
-	@Override
-	public void open(GenericInputSplit split) throws IOException {
-		super.open(split);
+    @Override
+    public void open(GenericInputSplit split) throws IOException {
+        super.open(split);
 
-		this.splitIterator = this.source.getSplit(split.getSplitNumber(), split.getTotalNumberOfSplits());
-	}
+        this.splitIterator =
+                this.source.getSplit(split.getSplitNumber(), split.getTotalNumberOfSplits());
+    }
 
-	@Override
-	public boolean reachedEnd() {
-		return !this.splitIterator.hasNext();
-	}
+    @Override
+    public boolean reachedEnd() {
+        return !this.splitIterator.hasNext();
+    }
 
-	@Override
-	public T nextRecord(T reuse) {
-		return this.splitIterator.next();
-	}
+    @Override
+    public T nextRecord(T reuse) {
+        return this.splitIterator.next();
+    }
 }

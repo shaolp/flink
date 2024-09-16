@@ -20,28 +20,29 @@ package org.apache.flink.runtime.rest.handler.async;
 
 import org.apache.flink.runtime.rest.messages.RestResponseMarshallingTestBase;
 import org.apache.flink.runtime.rest.messages.TriggerId;
+import org.apache.flink.testutils.junit.extensions.parameterized.NoOpTestExtension;
 
-import static org.hamcrest.Matchers.equalTo;
-import static org.hamcrest.Matchers.is;
-import static org.junit.Assert.assertThat;
+import org.junit.jupiter.api.extension.ExtendWith;
 
-/**
- * Marshalling test for {@link TriggerResponse}.
- */
-public class TriggerResponseTest extends RestResponseMarshallingTestBase<TriggerResponse> {
+import static org.assertj.core.api.Assertions.assertThat;
 
-	@Override
-	protected Class<TriggerResponse> getTestResponseClass() {
-		return TriggerResponse.class;
-	}
+/** Marshalling test for {@link TriggerResponse}. */
+@ExtendWith(NoOpTestExtension.class)
+class TriggerResponseTest extends RestResponseMarshallingTestBase<TriggerResponse> {
 
-	@Override
-	protected TriggerResponse getTestResponseInstance() throws Exception {
-		return new TriggerResponse(new TriggerId());
-	}
+    @Override
+    protected Class<TriggerResponse> getTestResponseClass() {
+        return TriggerResponse.class;
+    }
 
-	@Override
-	protected void assertOriginalEqualsToUnmarshalled(TriggerResponse expected, TriggerResponse actual) {
-		assertThat(actual.getTriggerId(), is(equalTo(expected.getTriggerId())));
-	}
+    @Override
+    protected TriggerResponse getTestResponseInstance() throws Exception {
+        return new TriggerResponse(new TriggerId());
+    }
+
+    @Override
+    protected void assertOriginalEqualsToUnmarshalled(
+            TriggerResponse expected, TriggerResponse actual) {
+        assertThat(actual.getTriggerId()).isEqualTo(expected.getTriggerId());
+    }
 }

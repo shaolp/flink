@@ -19,68 +19,66 @@
 package org.apache.flink.runtime.messages.webmonitor;
 
 import org.apache.flink.api.common.JobID;
+import org.apache.flink.api.common.JobStatus;
 import org.apache.flink.runtime.execution.ExecutionState;
-import org.apache.flink.runtime.jobgraph.JobStatus;
 import org.apache.flink.runtime.rest.util.RestMapperUtils;
-import org.apache.flink.util.TestLogger;
 
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.core.JsonProcessingException;
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.JsonNode;
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.ObjectMapper;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 
-import static org.junit.Assert.assertEquals;
+import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * Tests for the {@link MultipleJobsDetails} class.
- */
-public class MultipleJobsDetailsTest extends TestLogger {
+/** Tests for the {@link MultipleJobsDetails} class. */
+class MultipleJobsDetailsTest {
 
-	/**
-	 * Tests that we can un/marshal {@link MultipleJobsDetails} objects.
-	 */
-	@Test
-	public void testMultipleJobsDetailsMarshalling() throws JsonProcessingException {
-		int[] verticesPerState = new int[ExecutionState.values().length];
+    /** Tests that we can un/marshal {@link MultipleJobsDetails} objects. */
+    @Test
+    void testMultipleJobsDetailsMarshalling() throws JsonProcessingException {
+        int[] verticesPerState = new int[ExecutionState.values().length];
 
-		for (int i = 0; i < verticesPerState.length; i++) {
-			verticesPerState[i] = i;
-		}
+        for (int i = 0; i < verticesPerState.length; i++) {
+            verticesPerState[i] = i;
+        }
 
-		final JobDetails running = new JobDetails(
-			new JobID(),
-			"running",
-			1L,
-			-1L,
-			9L,
-			JobStatus.RUNNING,
-			9L,
-			verticesPerState,
-			9);
+        final JobDetails running =
+                new JobDetails(
+                        new JobID(),
+                        "running",
+                        1L,
+                        -1L,
+                        9L,
+                        JobStatus.RUNNING,
+                        9L,
+                        verticesPerState,
+                        9);
 
-		final JobDetails finished = new JobDetails(
-			new JobID(),
-			"finished",
-			1L,
-			5L,
-			4L,
-			JobStatus.FINISHED,
-			8L,
-			verticesPerState,
-			4);
+        final JobDetails finished =
+                new JobDetails(
+                        new JobID(),
+                        "finished",
+                        1L,
+                        5L,
+                        4L,
+                        JobStatus.FINISHED,
+                        8L,
+                        verticesPerState,
+                        4);
 
-		final MultipleJobsDetails expected = new MultipleJobsDetails(
-			Arrays.asList(running, finished));
+        final MultipleJobsDetails expected =
+                new MultipleJobsDetails(Arrays.asList(running, finished));
 
-		final ObjectMapper objectMapper = RestMapperUtils.getStrictObjectMapper();
+        final ObjectMapper objectMapper = RestMapperUtils.getStrictObjectMapper();
 
-		final JsonNode marshalled = objectMapper.valueToTree(expected);
+        final JsonNode marshalled = objectMapper.valueToTree(expected);
 
-		final MultipleJobsDetails unmarshalled = objectMapper.treeToValue(marshalled, MultipleJobsDetails.class);
+        final MultipleJobsDetails unmarshalled =
+                objectMapper.treeToValue(marshalled, MultipleJobsDetails.class);
 
-		assertEquals(expected, unmarshalled);
-	}
+        assertThat(unmarshalled).isEqualTo(expected);
+    }
 }

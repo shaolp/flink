@@ -18,218 +18,168 @@
 
 package org.apache.flink.runtime.state;
 
-import org.apache.flink.configuration.Configuration;
-import org.apache.flink.configuration.CoreOptions;
-import org.apache.flink.core.fs.FileSystem;
-import org.apache.flink.core.fs.Path;
-import org.apache.flink.util.TestLogger;
+import org.apache.flink.util.FileUtils;
 
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.UUID;
 
-/**
- * Tests for the {@link SnapshotDirectory}.
- */
-public class SnapshotDirectoryTest extends TestLogger {
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-	private static TemporaryFolder temporaryFolder;
+/** Tests for the {@link SnapshotDirectory}. */
+class SnapshotDirectoryTest {
 
-	@BeforeClass
-	public static void beforeClass() throws IOException {
-		temporaryFolder = new TemporaryFolder();
-		temporaryFolder.create();
-	}
+    @TempDir private Path temporaryFolder;
 
-	@AfterClass
-	public static void afterClass() {
-		temporaryFolder.delete();
-	}
+    /** Tests if mkdirs for snapshot directories works. */
+    @Test
+    void mkdirs() throws Exception {
+        File folderRoot = temporaryFolder.toFile();
+        File newFolder = new File(folderRoot, String.valueOf(UUID.randomUUID()));
+        File innerNewFolder = new File(newFolder, String.valueOf(UUID.randomUUID()));
+        Path path = innerNewFolder.toPath();
 
-	/**
-	 * Tests if mkdirs for snapshot directories works.
-	 */
-	@Test
-	public void mkdirs() throws Exception {
-		File folderRoot = temporaryFolder.getRoot();
-		File newFolder = new File(folderRoot, String.valueOf(UUID.randomUUID()));
-		File innerNewFolder = new File(newFolder, String.valueOf(UUID.randomUUID()));
-		Path path = new Path(innerNewFolder.toURI());
+        assertThat(newFolder).doesNotExist();
+        assertThat(innerNewFolder).doesNotExist();
+        SnapshotDirectory snapshotDirectory = SnapshotDirectory.permanent(path);
+        assertThat(snapshotDirectory.exists()).isFalse();
+        assertThat(newFolder).doesNotExist();
+        assertThat(innerNewFolder).doesNotExist();
 
-		Assert.assertFalse(newFolder.isDirectory());
-		Assert.assertFalse(innerNewFolder.isDirectory());
-		SnapshotDirectory snapshotDirectory = SnapshotDirectory.permanent(path);
-		Assert.assertFalse(snapshotDirectory.exists());
-		Assert.assertFalse(newFolder.isDirectory());
-		Assert.assertFalse(innerNewFolder.isDirectory());
+        assertThat(snapshotDirectory.mkdirs()).isTrue();
+        assertThat(newFolder).isDirectory();
+        assertThat(innerNewFolder).isDirectory();
+        assertThat(snapshotDirectory.exists()).isTrue();
+    }
 
-		Assert.assertTrue(snapshotDirectory.mkdirs());
-		Assert.assertTrue(newFolder.isDirectory());
-		Assert.assertTrue(innerNewFolder.isDirectory());
-		Assert.assertTrue(snapshotDirectory.exists());
-	}
+    /** Tests if indication of directory existence works. */
+    @Test
+    void exists() throws Exception {
+        File folderRoot = temporaryFolder.toFile();
+        File folderA = new File(folderRoot, String.valueOf(UUID.randomUUID()));
 
-	/**
-	 * Tests if indication of directory existence works.
-	 */
-	@Test
-	public void exists() throws Exception {
-		File folderRoot = temporaryFolder.getRoot();
-		File folderA = new File(folderRoot, String.valueOf(UUID.randomUUID()));
+        assertThat(folderA).doesNotExist();
+        Path path = folderA.toPath();
+        SnapshotDirectory snapshotDirectory = SnapshotDirectory.permanent(path);
+        assertThat(snapshotDirectory.exists()).isFalse();
+        assertThat(folderA.mkdirs()).isTrue();
+        assertThat(snapshotDirectory.exists()).isTrue();
+        assertThat(folderA.delete()).isTrue();
+        assertThat(snapshotDirectory.exists()).isFalse();
+    }
 
-		Assert.assertFalse(folderA.isDirectory());
-		Path path = new Path(folderA.toURI());
-		SnapshotDirectory snapshotDirectory = SnapshotDirectory.permanent(path);
-		Assert.assertFalse(snapshotDirectory.exists());
-		Assert.assertTrue(folderA.mkdirs());
-		Assert.assertTrue(snapshotDirectory.exists());
-		Assert.assertTrue(folderA.delete());
-		Assert.assertFalse(snapshotDirectory.exists());
-	}
+    /** Tests listing of file statuses works like listing on the path directly. */
+    @Test
+    void listStatus() throws Exception {
+        File folderRoot = temporaryFolder.toFile();
+        File folderA = new File(folderRoot, String.valueOf(UUID.randomUUID()));
+        File folderB = new File(folderA, String.valueOf(UUID.randomUUID()));
+        assertThat(folderB.mkdirs()).isTrue();
+        File file = new File(folderA, "test.txt");
+        assertThat(file.createNewFile()).isTrue();
 
-	/**
-	 * Tests listing of file statuses works like listing on the path directly.
-	 */
-	@Test
-	public void listStatus() throws Exception {
-		File folderRoot = temporaryFolder.getRoot();
-		File folderA = new File(folderRoot, String.valueOf(UUID.randomUUID()));
-		File folderB = new File(folderA, String.valueOf(UUID.randomUUID()));
-		Assert.assertTrue(folderB.mkdirs());
-		File file = new File(folderA, "test.txt");
-		Assert.assertTrue(file.createNewFile());
+        Path path = folderA.toPath();
+        SnapshotDirectory snapshotDirectory = SnapshotDirectory.permanent(path);
+        assertThat(snapshotDirectory.exists()).isTrue();
 
-		Path path = new Path(folderA.toURI());
-		FileSystem fileSystem = path.getFileSystem();
-		SnapshotDirectory snapshotDirectory = SnapshotDirectory.permanent(path);
-		Assert.assertTrue(snapshotDirectory.exists());
+        assertThat(Arrays.toString(snapshotDirectory.listDirectory()))
+                .isEqualTo(Arrays.toString(snapshotDirectory.listDirectory()));
+        assertThat(Arrays.toString(snapshotDirectory.listDirectory()))
+                .isEqualTo(Arrays.toString(FileUtils.listDirectory(path)));
+    }
 
-		Assert.assertEquals(
-			Arrays.toString(fileSystem.listStatus(path)),
-			Arrays.toString(snapshotDirectory.listStatus()));
-	}
+    /**
+     * Tests that reporting the handle of a completed snapshot works as expected and that the
+     * directory for completed snapshot is not deleted by {@link #deleteIfNotCompeltedSnapshot()}.
+     */
+    @Test
+    void completeSnapshotAndGetHandle() throws Exception {
+        File folderRoot = temporaryFolder.toFile();
+        File folderA = new File(folderRoot, String.valueOf(UUID.randomUUID()));
+        assertThat(folderA.mkdirs()).isTrue();
+        Path folderAPath = folderA.toPath();
 
-	/**
-	 * Tests that reporting the handle of a completed snapshot works as expected and that the directory for completed
-	 * snapshot is not deleted by {@link #deleteIfNotCompeltedSnapshot()}.
-	 */
-	@Test
-	public void completeSnapshotAndGetHandle() throws Exception {
-		File folderRoot = temporaryFolder.getRoot();
-		File folderA = new File(folderRoot, String.valueOf(UUID.randomUUID()));
-		Assert.assertTrue(folderA.mkdirs());
-		Path folderAPath = new Path(folderA.toURI());
+        SnapshotDirectory snapshotDirectory = SnapshotDirectory.permanent(folderAPath);
 
-		SnapshotDirectory snapshotDirectory = SnapshotDirectory.permanent(folderAPath);
+        // check that completed checkpoint dirs are not deleted as incomplete.
+        DirectoryStateHandle handle = snapshotDirectory.completeSnapshotAndGetHandle();
+        assertThat(handle).isNotNull();
+        assertThat(snapshotDirectory.cleanup()).isTrue();
+        assertThat(folderA).isDirectory();
+        assertThat(handle.getDirectory()).isEqualTo(folderAPath);
+        handle.discardState();
 
-		// check that completed checkpoint dirs are not deleted as incomplete.
-		DirectoryStateHandle handle = snapshotDirectory.completeSnapshotAndGetHandle();
-		Assert.assertNotNull(handle);
-		Assert.assertTrue(snapshotDirectory.cleanup());
-		Assert.assertTrue(folderA.isDirectory());
-		Assert.assertEquals(folderAPath, handle.getDirectory());
-		handle.discardState();
+        assertThat(folderA).doesNotExist();
+        assertThat(folderA.mkdirs()).isTrue();
 
-		Assert.assertFalse(folderA.isDirectory());
-		Assert.assertTrue(folderA.mkdirs());
-		snapshotDirectory = SnapshotDirectory.permanent(folderAPath);
-		Assert.assertTrue(snapshotDirectory.cleanup());
-		try {
-			snapshotDirectory.completeSnapshotAndGetHandle();
-			Assert.fail();
-		} catch (IOException ignore) {
-		}
-	}
+        SnapshotDirectory newSnapshotDirectory = SnapshotDirectory.permanent(folderAPath);
+        assertThat(newSnapshotDirectory.cleanup()).isTrue();
+        assertThatThrownBy(newSnapshotDirectory::completeSnapshotAndGetHandle)
+                .isInstanceOf(IOException.class);
+    }
 
-	/**
-	 * Tests that snapshot director behaves correct for delete calls. Completed snapshots should not be deleted,
-	 * only ongoing snapshots can.
-	 */
-	@Test
-	public void deleteIfNotCompeltedSnapshot() throws Exception {
-		File folderRoot = temporaryFolder.getRoot();
-		File folderA = new File(folderRoot, String.valueOf(UUID.randomUUID()));
-		File folderB = new File(folderA, String.valueOf(UUID.randomUUID()));
-		Assert.assertTrue(folderB.mkdirs());
-		File file = new File(folderA, "test.txt");
-		Assert.assertTrue(file.createNewFile());
-		Path folderAPath = new Path(folderA.toURI());
-		SnapshotDirectory snapshotDirectory = SnapshotDirectory.permanent(folderAPath);
-		Assert.assertTrue(snapshotDirectory.cleanup());
-		Assert.assertFalse(folderA.isDirectory());
-		Assert.assertTrue(folderA.mkdirs());
-		Assert.assertTrue(file.createNewFile());
-		snapshotDirectory = SnapshotDirectory.permanent(folderAPath);
-		snapshotDirectory.completeSnapshotAndGetHandle();
-		Assert.assertTrue(snapshotDirectory.cleanup());
-		Assert.assertTrue(folderA.isDirectory());
-		Assert.assertTrue(file.exists());
-	}
+    /**
+     * Tests that snapshot director behaves correct for delete calls. Completed snapshots should not
+     * be deleted, only ongoing snapshots can.
+     */
+    @Test
+    void deleteIfNotCompeltedSnapshot() throws Exception {
+        File folderRoot = temporaryFolder.toFile();
+        File folderA = new File(folderRoot, String.valueOf(UUID.randomUUID()));
+        File folderB = new File(folderA, String.valueOf(UUID.randomUUID()));
+        assertThat(folderB.mkdirs()).isTrue();
+        File file = new File(folderA, "test.txt");
+        assertThat(file.createNewFile()).isTrue();
+        Path folderAPath = folderA.toPath();
+        SnapshotDirectory snapshotDirectory = SnapshotDirectory.permanent(folderAPath);
+        assertThat(snapshotDirectory.cleanup()).isTrue();
+        assertThat(folderA).doesNotExist();
+        assertThat(folderA.mkdirs()).isTrue();
+        assertThat(file.createNewFile()).isTrue();
+        snapshotDirectory = SnapshotDirectory.permanent(folderAPath);
+        snapshotDirectory.completeSnapshotAndGetHandle();
+        assertThat(snapshotDirectory.cleanup()).isTrue();
+        assertThat(folderA).isDirectory();
+        assertThat(file).exists();
+    }
 
-	/**
-	 * This test checks that completing or deleting the snapshot influence the #isSnapshotOngoing() flag.
-	 */
-	@Test
-	public void isSnapshotOngoing() throws Exception {
-		File folderRoot = temporaryFolder.getRoot();
-		File folderA = new File(folderRoot, String.valueOf(UUID.randomUUID()));
-		Assert.assertTrue(folderA.mkdirs());
-		Path pathA = new Path(folderA.toURI());
-		SnapshotDirectory snapshotDirectory = SnapshotDirectory.permanent(pathA);
-		Assert.assertFalse(snapshotDirectory.isSnapshotCompleted());
-		Assert.assertNotNull(snapshotDirectory.completeSnapshotAndGetHandle());
-		Assert.assertTrue(snapshotDirectory.isSnapshotCompleted());
-		snapshotDirectory = SnapshotDirectory.permanent(pathA);
-		Assert.assertFalse(snapshotDirectory.isSnapshotCompleted());
-		snapshotDirectory.cleanup();
-		Assert.assertFalse(snapshotDirectory.isSnapshotCompleted());
-	}
+    /**
+     * This test checks that completing or deleting the snapshot influence the #isSnapshotOngoing()
+     * flag.
+     */
+    @Test
+    void isSnapshotOngoing() throws Exception {
+        File folderRoot = temporaryFolder.toFile();
+        File folderA = new File(folderRoot, String.valueOf(UUID.randomUUID()));
+        assertThat(folderA.mkdirs()).isTrue();
+        Path pathA = folderA.toPath();
+        SnapshotDirectory snapshotDirectory = SnapshotDirectory.permanent(pathA);
+        assertThat(snapshotDirectory.isSnapshotCompleted()).isFalse();
+        assertThat(snapshotDirectory.completeSnapshotAndGetHandle()).isNotNull();
+        assertThat(snapshotDirectory.isSnapshotCompleted()).isTrue();
+        snapshotDirectory = SnapshotDirectory.permanent(pathA);
+        assertThat(snapshotDirectory.isSnapshotCompleted()).isFalse();
+        snapshotDirectory.cleanup();
+        assertThat(snapshotDirectory.isSnapshotCompleted()).isFalse();
+    }
 
-	/**
-	 * Tests that temporary directories have the right behavior on completion and deletion.
-	 */
-	@Test
-	public void temporary() throws Exception {
-		File folderRoot = temporaryFolder.getRoot();
-		File folder = new File(folderRoot, String.valueOf(UUID.randomUUID()));
-		Assert.assertTrue(folder.mkdirs());
-		SnapshotDirectory tmpSnapshotDirectory = SnapshotDirectory.temporary(folder);
-		// temporary snapshot directories should not return a handle, because they will be deleted.
-		Assert.assertNull(tmpSnapshotDirectory.completeSnapshotAndGetHandle());
-		// check that the directory is deleted even after we called #completeSnapshotAndGetHandle.
-		Assert.assertTrue(tmpSnapshotDirectory.cleanup());
-		Assert.assertFalse(folder.exists());
-	}
-
-	/**
-	 * Tests that we always use the local file system even if we have specified a different default
-	 * file system. See FLINK-12042.
-	 */
-	@Test
-	public void testLocalFileSystemIsUsedForTemporary() throws Exception {
-		// ensure that snapshot directory will always use the local file system instead of the default file system
-		Configuration configuration = new Configuration();
-		configuration.setString(CoreOptions.DEFAULT_FILESYSTEM_SCHEME, "nonexistfs:///");
-		FileSystem.initialize(configuration);
-
-		final File folderRoot = temporaryFolder.getRoot();
-
-		try {
-			File folderB = new File(folderRoot, String.valueOf(UUID.randomUUID()));
-			// only pass the path and leave the scheme missing
-			SnapshotDirectory snapshotDirectoryB = SnapshotDirectory.temporary(folderB);
-			Assert.assertEquals(snapshotDirectoryB.getFileSystem(), FileSystem.getLocalFileSystem());
-		} finally {
-			// restore the FileSystem configuration
-			FileSystem.initialize(new Configuration());
-		}
-	}
-
+    /** Tests that temporary directories have the right behavior on completion and deletion. */
+    @Test
+    void temporary() throws Exception {
+        File folderRoot = temporaryFolder.toFile();
+        File folder = new File(folderRoot, String.valueOf(UUID.randomUUID()));
+        assertThat(folder.mkdirs()).isTrue();
+        SnapshotDirectory tmpSnapshotDirectory = SnapshotDirectory.temporary(folder);
+        // temporary snapshot directories should not return a handle, because they will be deleted.
+        assertThat(tmpSnapshotDirectory.completeSnapshotAndGetHandle()).isNull();
+        // check that the directory is deleted even after we called #completeSnapshotAndGetHandle.
+        assertThat(tmpSnapshotDirectory.cleanup()).isTrue();
+        assertThat(folder).doesNotExist();
+    }
 }

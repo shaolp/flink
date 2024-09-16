@@ -19,14 +19,24 @@
 package org.apache.flink.runtime.instance;
 
 import org.apache.flink.util.AbstractID;
+import org.apache.flink.util.StringUtils;
 
 public class SlotSharingGroupId extends AbstractID {
-	private static final long serialVersionUID = 8837647978345422042L;
+    private static final long serialVersionUID = 8837647978345422042L;
 
-	public SlotSharingGroupId(long lowerPart, long upperPart) {
-		super(lowerPart, upperPart);
-	}
+    public SlotSharingGroupId() {
+        super();
+    }
 
-	public SlotSharingGroupId() {
-	}
+    public SlotSharingGroupId(long lowerPart, long upperPart) {
+        super(lowerPart, upperPart);
+    }
+
+    public SlotSharingGroupId(byte[] bytes) {
+        super(bytes);
+    }
+
+    public static SlotSharingGroupId fromHexString(String hexString) {
+        return new SlotSharingGroupId(StringUtils.hexStringToByte(hexString));
+    }
 }

@@ -18,32 +18,39 @@
 
 package org.apache.flink.runtime.checkpoint;
 
-import org.junit.Test;
+import org.apache.flink.core.execution.SavepointFormatType;
 
-import static org.junit.Assert.assertEquals;
+import org.junit.jupiter.api.Test;
 
-public class RestoredCheckpointStatsTest {
+import static org.assertj.core.api.Assertions.assertThat;
 
-	/**
-	 * Tests simple access to restore properties.
-	 */
-	@Test
-	public void testSimpleAccess() throws Exception {
-		long checkpointId = Integer.MAX_VALUE + 1L;
-		long triggerTimestamp = Integer.MAX_VALUE + 1L;
-		CheckpointProperties props = new CheckpointProperties(true, CheckpointType.SAVEPOINT, false, false, true, false, true);
-		long restoreTimestamp = Integer.MAX_VALUE + 1L;
-		String externalPath = "external-path";
+class RestoredCheckpointStatsTest {
 
-		RestoredCheckpointStats restored = new RestoredCheckpointStats(
-				checkpointId,
-				props,
-				restoreTimestamp,
-			externalPath);
+    /** Tests simple access to restore properties. */
+    @Test
+    void testSimpleAccess() {
+        long checkpointId = Integer.MAX_VALUE + 1L;
+        CheckpointProperties props =
+                new CheckpointProperties(
+                        true,
+                        SavepointType.savepoint(SavepointFormatType.CANONICAL),
+                        false,
+                        false,
+                        true,
+                        false,
+                        true,
+                        false);
+        long restoreTimestamp = Integer.MAX_VALUE + 1L;
+        String externalPath = "external-path";
 
-		assertEquals(checkpointId, restored.getCheckpointId());
-		assertEquals(props, restored.getProperties());
-		assertEquals(restoreTimestamp, restored.getRestoreTimestamp());
-		assertEquals(externalPath, restored.getExternalPath());
-	}
+        RestoredCheckpointStats restored =
+                new RestoredCheckpointStats(
+                        checkpointId, props, restoreTimestamp, externalPath, 42);
+
+        assertThat(restored.getCheckpointId()).isEqualTo(checkpointId);
+        assertThat(restored.getProperties()).isEqualTo(props);
+        assertThat(restored.getRestoreTimestamp()).isEqualTo(restoreTimestamp);
+        assertThat(restored.getExternalPath()).isEqualTo(externalPath);
+        assertThat(restored.getStateSize()).isEqualTo(42);
+    }
 }

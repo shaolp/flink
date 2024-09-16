@@ -28,155 +28,170 @@ import org.apache.flink.runtime.state.filesystem.FsStateBackend;
 import org.apache.flink.runtime.state.ttl.StateBackendTestContext;
 import org.apache.flink.runtime.state.ttl.TtlStateTestBase;
 import org.apache.flink.runtime.state.ttl.TtlTimeProvider;
+import org.apache.flink.testutils.junit.utils.TempDirUtils;
 import org.apache.flink.util.FlinkRuntimeException;
 import org.apache.flink.util.TernaryBoolean;
 
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
+import org.junit.jupiter.api.TestTemplate;
+import org.junit.jupiter.api.io.TempDir;
 import org.rocksdb.RocksDBException;
 
 import java.io.IOException;
+import java.nio.file.Path;
 
-import static org.apache.flink.contrib.streaming.state.RocksDBOptions.TTL_COMPACT_FILTER_ENABLED;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotEquals;
+import static org.assertj.core.api.Assertions.assertThat;
 
 /** Base test suite for rocksdb state TTL. */
 public abstract class RocksDBTtlStateTestBase extends TtlStateTestBase {
-	@Rule
-	public final TemporaryFolder tempFolder = new TemporaryFolder();
+    @TempDir private Path tempFolder;
 
-	@Override
-	protected StateBackendTestContext createStateBackendTestContext(TtlTimeProvider timeProvider) {
-		return new StateBackendTestContext(timeProvider) {
-			@Override
-			protected StateBackend createStateBackend() {
-				return RocksDBTtlStateTestBase.this.createStateBackend();
-			}
-		};
-	}
+    @Override
+    protected StateBackendTestContext createStateBackendTestContext(TtlTimeProvider timeProvider) {
+        return new StateBackendTestContext(timeProvider) {
+            @Override
+            protected StateBackend createStateBackend() {
+                return RocksDBTtlStateTestBase.this.createStateBackend();
+            }
+        };
+    }
 
-	abstract StateBackend createStateBackend();
+    abstract StateBackend createStateBackend();
 
-	StateBackend createStateBackend(TernaryBoolean enableIncrementalCheckpointing) {
-		String dbPath;
-		String checkpointPath;
-		try {
-			dbPath = tempFolder.newFolder().getAbsolutePath();
-			checkpointPath = tempFolder.newFolder().toURI().toString();
-		} catch (IOException e) {
-			throw new FlinkRuntimeException("Failed to init rocksdb test state backend");
-		}
-		RocksDBStateBackend backend = new RocksDBStateBackend(new FsStateBackend(checkpointPath), enableIncrementalCheckpointing);
-		Configuration config = new Configuration();
-		config.setBoolean(TTL_COMPACT_FILTER_ENABLED, true);
-		backend = backend.configure(config, Thread.currentThread().getContextClassLoader());
-		backend.setDbStoragePath(dbPath);
-		return backend;
-	}
+    StateBackend createStateBackend(TernaryBoolean enableIncrementalCheckpointing) {
+        String dbPath;
+        String checkpointPath;
+        try {
+            dbPath = TempDirUtils.newFolder(tempFolder).getAbsolutePath();
+            checkpointPath = TempDirUtils.newFolder(tempFolder).toURI().toString();
+        } catch (IOException e) {
+            throw new FlinkRuntimeException("Failed to init rocksdb test state backend");
+        }
+        RocksDBStateBackend backend =
+                new RocksDBStateBackend(
+                        new FsStateBackend(checkpointPath), enableIncrementalCheckpointing);
+        Configuration config = new Configuration();
+        backend = backend.configure(config, Thread.currentThread().getContextClassLoader());
+        backend.setDbStoragePath(dbPath);
+        return backend;
+    }
 
-	@Test
-	public void testCompactFilter() throws Exception {
-		testCompactFilter(false, false);
-	}
+    @TestTemplate
+    public void testCompactFilter() throws Exception {
+        testCompactFilter(false, false);
+    }
 
-	@Test
-	public void testCompactFilterWithSnapshot() throws Exception {
-		testCompactFilter(true, false);
-	}
+    @TestTemplate
+    public void testCompactFilterWithSnapshot() throws Exception {
+        testCompactFilter(true, false);
+    }
 
-	@Test
-	public void testCompactFilterWithSnapshotAndRescalingAfterRestore() throws Exception {
-		testCompactFilter(true, true);
-	}
+    @TestTemplate
+    public void testCompactFilterWithSnapshotAndRescalingAfterRestore() throws Exception {
+        testCompactFilter(true, true);
+    }
 
-	@SuppressWarnings("resource")
-	private void testCompactFilter(boolean takeSnapshot, boolean rescaleAfterRestore) throws Exception {
-		int numberOfKeyGroupsAfterRestore = StateBackendTestContext.NUMBER_OF_KEY_GROUPS;
-		if (rescaleAfterRestore) {
-			numberOfKeyGroupsAfterRestore *= 2;
-		}
+    @SuppressWarnings("resource")
+    private void testCompactFilter(boolean takeSnapshot, boolean rescaleAfterRestore)
+            throws Exception {
+        int numberOfKeyGroupsAfterRestore = StateBackendTestContext.NUMBER_OF_KEY_GROUPS;
+        if (rescaleAfterRestore) {
+            numberOfKeyGroupsAfterRestore *= 2;
+        }
 
-		StateDescriptor<?, ?> stateDesc = initTest(getConfBuilder(TTL)
-			.cleanupInBackground()
-			.setStateVisibility(StateTtlConfig.StateVisibility.ReturnExpiredIfNotCleanedUp)
-			.build());
+        StateDescriptor<?, ?> stateDesc =
+                initTest(
+                        getConfBuilder(TTL)
+                                .setStateVisibility(
+                                        StateTtlConfig.StateVisibility.ReturnExpiredIfNotCleanedUp)
+                                .build());
 
-		if (takeSnapshot) {
-			takeAndRestoreSnapshot(numberOfKeyGroupsAfterRestore);
-		}
+        if (takeSnapshot) {
+            takeAndRestoreSnapshot(numberOfKeyGroupsAfterRestore);
+        }
 
-		setTimeAndCompact(stateDesc, 0L);
+        setTimeAndCompact(stateDesc, 0L);
 
-		sbetc.setCurrentKey("k1");
-		ctx().update(ctx().updateEmpty);
-		checkUnexpiredOriginalAvailable();
+        sbetc.setCurrentKey("k1");
+        ctx().update(ctx().updateEmpty);
+        checkUnexpiredOriginalAvailable();
 
-		sbetc.setCurrentKey("k2");
-		ctx().update(ctx().updateEmpty);
-		checkUnexpiredOriginalAvailable();
+        sbetc.setCurrentKey("k2");
+        ctx().update(ctx().updateEmpty);
+        checkUnexpiredOriginalAvailable();
 
-		if (takeSnapshot) {
-			takeAndRestoreSnapshot(numberOfKeyGroupsAfterRestore);
-		}
+        if (takeSnapshot) {
+            takeAndRestoreSnapshot(numberOfKeyGroupsAfterRestore);
+        }
 
-		setTimeAndCompact(stateDesc, 50L);
+        setTimeAndCompact(stateDesc, 50L);
 
-		sbetc.setCurrentKey("k1");
-		checkUnexpiredOriginalAvailable();
-		assertEquals(UNEXPIRED_AVAIL, ctx().getUpdateEmpty, ctx().get());
+        sbetc.setCurrentKey("k1");
+        checkUnexpiredOriginalAvailable();
+        assertThat(ctx().get()).withFailMessage(UNEXPIRED_AVAIL).isEqualTo(ctx().getUpdateEmpty);
 
-		ctx().update(ctx().updateUnexpired);
-		checkUnexpiredOriginalAvailable();
+        ctx().update(ctx().updateUnexpired);
+        checkUnexpiredOriginalAvailable();
 
-		sbetc.setCurrentKey("k2");
-		checkUnexpiredOriginalAvailable();
-		assertEquals(UNEXPIRED_AVAIL, ctx().getUpdateEmpty, ctx().get());
+        sbetc.setCurrentKey("k2");
+        checkUnexpiredOriginalAvailable();
+        assertThat(ctx().get()).withFailMessage(UNEXPIRED_AVAIL).isEqualTo(ctx().getUpdateEmpty);
 
-		ctx().update(ctx().updateUnexpired);
-		checkUnexpiredOriginalAvailable();
+        ctx().update(ctx().updateUnexpired);
+        checkUnexpiredOriginalAvailable();
 
-		if (takeSnapshot) {
-			takeAndRestoreSnapshot(numberOfKeyGroupsAfterRestore);
-		}
+        if (takeSnapshot) {
+            takeAndRestoreSnapshot(numberOfKeyGroupsAfterRestore);
+        }
 
-		// compaction which should not touch unexpired data
-		// and merge list element with different expiration time
-		setTimeAndCompact(stateDesc, 80L);
-		// expire oldest data
-		setTimeAndCompact(stateDesc, 120L);
+        // compaction which should not touch unexpired data
+        // and merge list element with different expiration time
+        setTimeAndCompact(stateDesc, 80L);
+        // expire oldest data
+        setTimeAndCompact(stateDesc, 120L);
 
-		sbetc.setCurrentKey("k1");
-		checkUnexpiredOriginalAvailable();
-		assertEquals(UPDATED_UNEXPIRED_AVAIL, ctx().getUnexpired, ctx().get());
+        sbetc.setCurrentKey("k1");
+        checkUnexpiredOriginalAvailable();
+        assertThat(ctx().get())
+                .withFailMessage(UPDATED_UNEXPIRED_AVAIL)
+                .isEqualTo(ctx().getUnexpired);
 
-		sbetc.setCurrentKey("k2");
-		checkUnexpiredOriginalAvailable();
-		assertEquals(UPDATED_UNEXPIRED_AVAIL, ctx().getUnexpired, ctx().get());
+        sbetc.setCurrentKey("k2");
+        checkUnexpiredOriginalAvailable();
+        assertThat(ctx().get())
+                .withFailMessage(UPDATED_UNEXPIRED_AVAIL)
+                .isEqualTo(ctx().getUnexpired);
 
-		if (takeSnapshot) {
-			takeAndRestoreSnapshot(numberOfKeyGroupsAfterRestore);
-		}
+        if (takeSnapshot) {
+            takeAndRestoreSnapshot(numberOfKeyGroupsAfterRestore);
+        }
 
-		setTimeAndCompact(stateDesc, 170L);
-		sbetc.setCurrentKey("k1");
-		assertEquals("Expired original state should be unavailable", ctx().emptyValue, ctx().getOriginal());
-		assertEquals(EXPIRED_UNAVAIL, ctx().emptyValue, ctx().get());
+        setTimeAndCompact(stateDesc, 170L);
+        sbetc.setCurrentKey("k1");
+        assertThat(ctx().isOriginalEmptyValue())
+                .withFailMessage("Expired original state should be unavailable")
+                .isTrue();
+        assertThat(ctx().get()).withFailMessage(EXPIRED_UNAVAIL).isEqualTo(ctx().emptyValue);
 
-		sbetc.setCurrentKey("k2");
-		assertEquals("Expired original state should be unavailable", ctx().emptyValue, ctx().getOriginal());
-		assertEquals("Expired state should be unavailable", ctx().emptyValue, ctx().get());
-	}
+        sbetc.setCurrentKey("k2");
+        assertThat(ctx().isOriginalEmptyValue())
+                .withFailMessage("Expired original state should be unavailable")
+                .isTrue();
+        assertThat(ctx().get())
+                .withFailMessage("Expired state should be unavailable")
+                .isEqualTo(ctx().emptyValue);
+    }
 
-	private void checkUnexpiredOriginalAvailable() throws Exception {
-		assertNotEquals("Unexpired original state should be available", ctx().emptyValue, ctx().getOriginal());
-	}
+    private void checkUnexpiredOriginalAvailable() throws Exception {
+        assertThat(ctx().getOriginal())
+                .withFailMessage("Unexpired original state should be available")
+                .isNotEqualTo(ctx().emptyValue);
+    }
 
-	private void setTimeAndCompact(StateDescriptor<?, ?> stateDesc, long ts) throws RocksDBException {
-		@SuppressWarnings("resource")
-		RocksDBKeyedStateBackend<String> keyedBackend = sbetc.getKeyedStateBackend();
-		timeProvider.time = ts;
-		keyedBackend.compactState(stateDesc);
-	}
+    private void setTimeAndCompact(StateDescriptor<?, ?> stateDesc, long ts)
+            throws RocksDBException {
+        @SuppressWarnings("resource")
+        RocksDBKeyedStateBackend<String> keyedBackend = sbetc.getKeyedStateBackend();
+        timeProvider.time = ts;
+        keyedBackend.compactState(stateDesc);
+    }
 }

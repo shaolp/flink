@@ -18,21 +18,34 @@
 
 package org.apache.flink.api.common.io;
 
+import org.junit.jupiter.api.Test;
+
+import java.io.IOException;
 import java.io.InputStream;
+import java.util.concurrent.atomic.AtomicBoolean;
 
-import org.junit.Test;
+import static org.assertj.core.api.Assertions.assertThat;
 
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
+class InputStreamFSInputWrapperTest {
 
-public class InputStreamFSInputWrapperTest {
+    @Test
+    void testClose() throws Exception {
+        final AtomicBoolean closeCalled = new AtomicBoolean(false);
+        InputStream mockedInputStream =
+                new InputStream() {
+                    @Override
+                    public int read() {
+                        return 0;
+                    }
 
-	@Test
-	public void testClose() throws Exception {
-		InputStream mockedInputStream = mock(InputStream.class);
-		InputStreamFSInputWrapper wrapper = new InputStreamFSInputWrapper(mockedInputStream);
-		wrapper.close();
-		verify(mockedInputStream).close();
-	}
-
+                    @Override
+                    public void close() throws IOException {
+                        closeCalled.set(true);
+                        super.close();
+                    }
+                };
+        InputStreamFSInputWrapper wrapper = new InputStreamFSInputWrapper(mockedInputStream);
+        wrapper.close();
+        assertThat(closeCalled).isTrue();
+    }
 }

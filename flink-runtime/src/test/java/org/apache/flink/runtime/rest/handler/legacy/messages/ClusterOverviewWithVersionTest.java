@@ -19,28 +19,22 @@
 package org.apache.flink.runtime.rest.handler.legacy.messages;
 
 import org.apache.flink.runtime.rest.messages.RestResponseMarshallingTestBase;
+import org.apache.flink.testutils.junit.extensions.parameterized.NoOpTestExtension;
 
-/**
- * Tests for the {@link ClusterOverviewWithVersion}.
- */
-public class ClusterOverviewWithVersionTest extends RestResponseMarshallingTestBase<ClusterOverviewWithVersion> {
+import org.junit.jupiter.api.extension.ExtendWith;
 
-	@Override
-	protected Class<ClusterOverviewWithVersion> getTestResponseClass() {
-		return ClusterOverviewWithVersion.class;
-	}
+/** Tests for the {@link ClusterOverviewWithVersion}. */
+@ExtendWith(NoOpTestExtension.class)
+class ClusterOverviewWithVersionTest
+        extends RestResponseMarshallingTestBase<ClusterOverviewWithVersion> {
 
-	@Override
-	protected ClusterOverviewWithVersion getTestResponseInstance() {
-		return new ClusterOverviewWithVersion(
-			1,
-			3,
-			3,
-			7,
-			4,
-			2,
-			0,
-			"version",
-			"commit");
-	}
+    @Override
+    protected Class<ClusterOverviewWithVersion> getTestResponseClass() {
+        return ClusterOverviewWithVersion.class;
+    }
+
+    @Override
+    protected ClusterOverviewWithVersion getTestResponseInstance() {
+        return new ClusterOverviewWithVersion(2, 6, 3, 1, 3, 7, 4, 2, 0, "version", "commit");
+    }
 }

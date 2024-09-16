@@ -19,11 +19,14 @@
 package org.apache.flink.table.expressions.resolver.lookups;
 
 import org.apache.flink.annotation.Internal;
-import org.apache.flink.table.api.TableSchema;
 import org.apache.flink.table.api.ValidationException;
+import org.apache.flink.table.api.config.TableConfigOptions.ColumnExpansionStrategy;
+import org.apache.flink.table.catalog.Column;
+import org.apache.flink.table.catalog.ResolvedSchema;
 import org.apache.flink.table.expressions.FieldReferenceExpression;
 import org.apache.flink.table.operations.QueryOperation;
 
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -35,76 +38,148 @@ import java.util.stream.IntStream;
 
 import static java.util.stream.Collectors.toList;
 
-/**
- * Provides a way to look up field reference by the name of the field.
- */
+/** Provides a way to look up field reference by the name of the field. */
 @Internal
 public class FieldReferenceLookup {
 
-	private final List<Map<String, FieldReferenceExpression>> fieldReferences;
+    private final List<Map<String, FieldReference>> fieldReferences;
 
-	public FieldReferenceLookup(List<QueryOperation> queryOperations) {
-		fieldReferences = prepareFieldReferences(queryOperations);
-	}
+    private static class FieldReference {
+        final Column column;
+        final int inputIdx;
+        final int columnIdx;
 
-	/**
-	 * Tries to resolve {@link FieldReferenceExpression} using given name in underlying inputs.
-	 *
-	 * @param name name of field to look for
-	 * @return resolved field reference or empty if could not find field with given name.
-	 * @throws org.apache.flink.table.api.ValidationException if the name is ambiguous.
-	 */
-	public Optional<FieldReferenceExpression> lookupField(String name) {
-		List<FieldReferenceExpression> matchingFields = fieldReferences.stream()
-			.map(input -> input.get(name))
-			.filter(Objects::nonNull)
-			.collect(toList());
+        FieldReference(Column column, int inputIdx, int columnIdx) {
+            this.column = column;
+            this.inputIdx = inputIdx;
+            this.columnIdx = columnIdx;
+        }
 
-		if (matchingFields.size() == 1) {
-			return Optional.of(matchingFields.get(0));
-		} else if (matchingFields.size() == 0) {
-			return Optional.empty();
-		} else {
-			throw failAmbiuguousColumn(name);
-		}
-	}
+        FieldReferenceExpression toExpr() {
+            return new FieldReferenceExpression(
+                    column.getName(), column.getDataType(), inputIdx, columnIdx);
+        }
+    }
 
-	/**
-	 * Gives all fields of underlying inputs in order of those inputs and order of fields within input.
-	 *
-	 * @return concatenated list of fields of all inputs.
-	 */
-	public List<FieldReferenceExpression> getAllInputFields() {
-		return fieldReferences.stream().flatMap(input -> input.values().stream()).collect(toList());
-	}
+    public FieldReferenceLookup(List<QueryOperation> queryOperations) {
+        fieldReferences = prepareFieldReferences(queryOperations);
+    }
 
-	private static List<Map<String, FieldReferenceExpression>> prepareFieldReferences(
-			List<QueryOperation> queryOperations) {
-		return IntStream.range(0, queryOperations.size())
-			.mapToObj(idx -> prepareFieldsInInput(queryOperations.get(idx), idx))
-			.collect(Collectors.toList());
-	}
+    /**
+     * Tries to resolve {@link FieldReferenceExpression} using given name in underlying inputs.
+     *
+     * @param name name of field to look for
+     * @return resolved field reference or empty if could not find field with given name.
+     * @throws org.apache.flink.table.api.ValidationException if the name is ambiguous.
+     */
+    public Optional<FieldReferenceExpression> lookupField(String name) {
+        List<FieldReference> matchingFields =
+                fieldReferences.stream()
+                        .map(input -> input.get(name))
+                        .filter(Objects::nonNull)
+                        .collect(toList());
 
-	private static Map<String, FieldReferenceExpression> prepareFieldsInInput(QueryOperation input, int inputIdx) {
-		TableSchema tableSchema = input.getTableSchema();
-		return IntStream.range(0, tableSchema.getFieldCount())
-			.mapToObj(i -> new FieldReferenceExpression(
-				tableSchema.getFieldName(i).get(),
-				tableSchema.getFieldDataType(i).get(),
-				inputIdx,
-				i))
-			.collect(Collectors.toMap(
-				FieldReferenceExpression::getName,
-				Function.identity(),
-				(fieldRef1, fieldRef2) -> {
-					throw failAmbiuguousColumn(fieldRef1.getName());
-				},
-				// we need to maintain order of fields within input for resolving e.g. '*' reference
-				LinkedHashMap::new
-			));
-	}
+        if (matchingFields.size() == 1) {
+            return Optional.of(matchingFields.get(0).toExpr());
+        } else if (matchingFields.size() == 0) {
+            return Optional.empty();
+        } else {
+            throw failAmbiguousColumn(name);
+        }
+    }
 
-	private static ValidationException failAmbiuguousColumn(String name) {
-		return new ValidationException("Ambiguous column name: " + name);
-	}
+    /**
+     * Gives all fields of underlying inputs in order of those inputs and order of fields within
+     * input.
+     *
+     * @return concatenated list of fields of all inputs.
+     */
+    public List<FieldReferenceExpression> getAllInputFields() {
+        return getInputFields(Collections.emptyList());
+    }
+
+    /**
+     * Gives matching fields of underlying inputs in order of those inputs and order of fields
+     * within input.
+     *
+     * @return concatenated list of matching fields of all inputs.
+     */
+    public List<FieldReferenceExpression> getInputFields(
+            List<ColumnExpansionStrategy> expansionStrategies) {
+        return fieldReferences.stream()
+                .flatMap(input -> input.values().stream())
+                .filter(fieldRef -> includeExpandedColumn(fieldRef.column, expansionStrategies))
+                .map(FieldReference::toExpr)
+                .collect(toList());
+    }
+
+    private static List<Map<String, FieldReference>> prepareFieldReferences(
+            List<QueryOperation> queryOperations) {
+        return IntStream.range(0, queryOperations.size())
+                .mapToObj(idx -> prepareFieldsInInput(queryOperations.get(idx), idx))
+                .collect(Collectors.toList());
+    }
+
+    private static Map<String, FieldReference> prepareFieldsInInput(
+            QueryOperation input, int inputIdx) {
+        ResolvedSchema resolvedSchema = input.getResolvedSchema();
+        return IntStream.range(0, resolvedSchema.getColumnCount())
+                .mapToObj(i -> new FieldReference(resolvedSchema.getColumns().get(i), inputIdx, i))
+                .collect(
+                        Collectors.toMap(
+                                fieldRef -> fieldRef.column.getName(),
+                                Function.identity(),
+                                (fieldRef1, fieldRef2) -> {
+                                    throw failAmbiguousColumn(fieldRef1.column.getName());
+                                },
+                                // we need to maintain order of fields within input for resolving
+                                // e.g. '*' reference
+                                LinkedHashMap::new));
+    }
+
+    private static ValidationException failAmbiguousColumn(String name) {
+        return new ValidationException("Ambiguous column name: " + name);
+    }
+
+    // --------------------------------------------------------------------------------------------
+    // Shared code with SQL validator
+    // --------------------------------------------------------------------------------------------
+
+    public static boolean includeExpandedColumn(
+            Column column, List<ColumnExpansionStrategy> strategies) {
+        for (ColumnExpansionStrategy strategy : strategies) {
+            switch (strategy) {
+                case EXCLUDE_ALIASED_VIRTUAL_METADATA_COLUMNS:
+                    if (isAliasedVirtualMetadataColumn(column)) {
+                        return false;
+                    }
+                    break;
+                case EXCLUDE_DEFAULT_VIRTUAL_METADATA_COLUMNS:
+                    if (isDefaultVirtualMetadataColumn(column)) {
+                        return false;
+                    }
+                    break;
+                default:
+                    throw new UnsupportedOperationException(
+                            "Unknown column expansion strategy: " + strategy);
+            }
+        }
+        return true;
+    }
+
+    private static boolean isAliasedVirtualMetadataColumn(Column column) {
+        if (!(column instanceof Column.MetadataColumn)) {
+            return false;
+        }
+        final Column.MetadataColumn metadataColumn = (Column.MetadataColumn) column;
+        return metadataColumn.isVirtual() && metadataColumn.getMetadataKey().isPresent();
+    }
+
+    private static boolean isDefaultVirtualMetadataColumn(Column column) {
+        if (!(column instanceof Column.MetadataColumn)) {
+            return false;
+        }
+        final Column.MetadataColumn metadataColumn = (Column.MetadataColumn) column;
+        return metadataColumn.isVirtual() && !metadataColumn.getMetadataKey().isPresent();
+    }
 }

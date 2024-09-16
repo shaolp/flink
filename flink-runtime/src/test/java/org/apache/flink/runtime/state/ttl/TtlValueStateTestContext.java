@@ -21,44 +21,45 @@ package org.apache.flink.runtime.state.ttl;
 import org.apache.flink.api.common.state.State;
 import org.apache.flink.api.common.state.StateDescriptor;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
-import org.apache.flink.api.common.typeutils.base.StringSerializer;
+import org.apache.flink.api.common.typeutils.base.LongSerializer;
 
 /** Test suite for {@link TtlValueState}. */
-class TtlValueStateTestContext extends TtlStateTestContextBase<TtlValueState<?, String, String>, String, String> {
-	private static final String TEST_VAL1 = "test value1";
-	private static final String TEST_VAL2 = "test value2";
-	private static final String TEST_VAL3 = "test value3";
+class TtlValueStateTestContext
+        extends TtlStateTestContextBase<TtlValueState<?, String, Long>, Long, Long> {
+    private static final Long TEST_VAL1 = 11L;
+    private static final Long TEST_VAL2 = 21L;
+    private static final Long TEST_VAL3 = 31L;
 
-	@Override
-	void initTestValues() {
-		updateEmpty = TEST_VAL1;
-		updateUnexpired = TEST_VAL2;
-		updateExpired = TEST_VAL3;
+    @Override
+    void initTestValues() {
+        updateEmpty = TEST_VAL1;
+        updateUnexpired = TEST_VAL2;
+        updateExpired = TEST_VAL3;
 
-		getUpdateEmpty = TEST_VAL1;
-		getUnexpired = TEST_VAL2;
-		getUpdateExpired = TEST_VAL3;
-	}
+        getUpdateEmpty = TEST_VAL1;
+        getUnexpired = TEST_VAL2;
+        getUpdateExpired = TEST_VAL3;
+    }
 
-	@SuppressWarnings("unchecked")
-	@Override
-	public <US extends State, SV> StateDescriptor<US, SV> createStateDescriptor() {
-		return (StateDescriptor<US, SV>) new ValueStateDescriptor<>(
-			getName(), StringSerializer.INSTANCE);
-	}
+    @SuppressWarnings("unchecked")
+    @Override
+    public <US extends State, SV> StateDescriptor<US, SV> createStateDescriptor() {
+        return (StateDescriptor<US, SV>)
+                new ValueStateDescriptor<>(getName(), LongSerializer.INSTANCE);
+    }
 
-	@Override
-	public void update(String value) throws Exception {
-		ttlState.update(value);
-	}
+    @Override
+    public void update(Long value) throws Exception {
+        ttlState.update(value);
+    }
 
-	@Override
-	public String get() throws Exception {
-		return ttlState.value();
-	}
+    @Override
+    public Long get() throws Exception {
+        return ttlState.value();
+    }
 
-	@Override
-	public Object getOriginal() throws Exception {
-		return ttlState.original.value();
-	}
+    @Override
+    public Object getOriginal() throws Exception {
+        return ttlState.original.value();
+    }
 }

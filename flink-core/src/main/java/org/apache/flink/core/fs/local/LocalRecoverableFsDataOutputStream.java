@@ -19,9 +19,10 @@
 package org.apache.flink.core.fs.local;
 
 import org.apache.flink.annotation.Internal;
+import org.apache.flink.annotation.VisibleForTesting;
+import org.apache.flink.core.fs.CommitterFromPersistRecoverableFsDataOutputStream;
 import org.apache.flink.core.fs.RecoverableFsDataOutputStream;
 import org.apache.flink.core.fs.RecoverableWriter.CommitRecoverable;
-import org.apache.flink.core.fs.RecoverableWriter.ResumeRecoverable;
 
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -38,163 +39,172 @@ import java.nio.file.StandardOpenOption;
 
 import static org.apache.flink.util.Preconditions.checkNotNull;
 
-/**
- * A {@link RecoverableFsDataOutputStream} for the {@link LocalFileSystem}.
- */
+/** A {@link RecoverableFsDataOutputStream} for the {@link LocalFileSystem}. */
 @Internal
-class LocalRecoverableFsDataOutputStream extends RecoverableFsDataOutputStream {
+public class LocalRecoverableFsDataOutputStream
+        extends CommitterFromPersistRecoverableFsDataOutputStream<LocalRecoverable> {
 
-	private final File targetFile;
+    private final File targetFile;
 
-	private final File tempFile;
+    private final File tempFile;
 
-	private final FileChannel fileChannel;
+    private final FileChannel fileChannel;
 
-	private final OutputStream fos;
+    private final OutputStream fos;
 
-	LocalRecoverableFsDataOutputStream(File targetFile, File tempFile) throws IOException {
-		this.targetFile = checkNotNull(targetFile);
-		this.tempFile = checkNotNull(tempFile);
+    public LocalRecoverableFsDataOutputStream(File targetFile, File tempFile) throws IOException {
+        this.targetFile = checkNotNull(targetFile);
+        this.tempFile = checkNotNull(tempFile);
 
-		this.fileChannel = FileChannel.open(tempFile.toPath(), StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW);
-		this.fos = Channels.newOutputStream(fileChannel);
-	}
+        this.fileChannel =
+                FileChannel.open(
+                        tempFile.toPath(), StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW);
+        this.fos = Channels.newOutputStream(fileChannel);
+    }
 
-	LocalRecoverableFsDataOutputStream(LocalRecoverable resumable) throws IOException {
-		this.targetFile = checkNotNull(resumable.targetFile());
-		this.tempFile = checkNotNull(resumable.tempFile());
+    LocalRecoverableFsDataOutputStream(LocalRecoverable resumable) throws IOException {
+        this.targetFile = checkNotNull(resumable.targetFile());
+        this.tempFile = checkNotNull(resumable.tempFile());
 
-		if (!tempFile.exists()) {
-			throw new FileNotFoundException("File Not Found: " + tempFile.getAbsolutePath());
-		}
+        if (!tempFile.exists()) {
+            throw new FileNotFoundException("File Not Found: " + tempFile.getAbsolutePath());
+        }
 
-		this.fileChannel = FileChannel.open(tempFile.toPath(), StandardOpenOption.WRITE, StandardOpenOption.APPEND);
-		if (this.fileChannel.position() < resumable.offset()) {
-			throw new IOException("Missing data in tmp file: " + tempFile.getAbsolutePath());
-		}
-		this.fileChannel.truncate(resumable.offset());
-		this.fos = Channels.newOutputStream(fileChannel);
-	}
+        this.fileChannel =
+                FileChannel.open(
+                        tempFile.toPath(), StandardOpenOption.WRITE, StandardOpenOption.APPEND);
+        if (this.fileChannel.position() < resumable.offset()) {
+            throw new IOException("Missing data in tmp file: " + tempFile.getAbsolutePath());
+        }
+        this.fileChannel.truncate(resumable.offset());
+        this.fos = Channels.newOutputStream(fileChannel);
+    }
 
-	@Override
-	public void write(int b) throws IOException {
-		fos.write(b);
-	}
+    @VisibleForTesting
+    LocalRecoverableFsDataOutputStream(
+            File targetFile, File tempFile, FileChannel fileChannel, OutputStream fos) {
+        this.targetFile = checkNotNull(targetFile);
+        this.tempFile = checkNotNull(tempFile);
+        this.fileChannel = fileChannel;
+        this.fos = fos;
+    }
 
-	@Override
-	public void write(byte[] b, int off, int len) throws IOException {
-		fos.write(b, off, len);
-	}
+    @Override
+    public void write(int b) throws IOException {
+        fos.write(b);
+    }
 
-	@Override
-	public void flush() throws IOException {
-		fos.flush();
-	}
+    @Override
+    public void write(byte[] b, int off, int len) throws IOException {
+        fos.write(b, off, len);
+    }
 
-	@Override
-	public void sync() throws IOException {
-		fileChannel.force(true);
-	}
+    @Override
+    public void flush() throws IOException {
+        fos.flush();
+    }
 
-	@Override
-	public long getPos() throws IOException {
-		return fileChannel.position();
-	}
+    @Override
+    public void sync() throws IOException {
+        fileChannel.force(true);
+    }
 
-	@Override
-	public ResumeRecoverable persist() throws IOException {
-		// we call both flush and sync in order to ensure persistence on mounted
-		// file systems, like NFS, EBS, EFS, ...
-		flush();
-		sync();
+    @Override
+    public long getPos() throws IOException {
+        return fileChannel.position();
+    }
 
-		return new LocalRecoverable(targetFile, tempFile, getPos());
-	}
+    @Override
+    public LocalRecoverable persist() throws IOException {
+        // we call both flush and sync in order to ensure persistence on mounted
+        // file systems, like NFS, EBS, EFS, ...
+        flush();
+        sync();
 
-	@Override
-	public Committer closeForCommit() throws IOException {
-		final long pos = getPos();
-		close();
-		return new LocalCommitter(new LocalRecoverable(targetFile, tempFile, pos));
-	}
+        return new LocalRecoverable(targetFile, tempFile, getPos());
+    }
 
-	@Override
-	public void close() throws IOException {
-		fos.close();
-	}
+    @Override
+    protected Committer createCommitterFromResumeRecoverable(LocalRecoverable recoverable) {
+        return new LocalCommitter(recoverable);
+    }
 
-	// ------------------------------------------------------------------------
+    @Override
+    public void close() throws IOException {
+        fos.close();
+    }
 
-	static class LocalCommitter implements Committer {
+    // ------------------------------------------------------------------------
 
-		private final LocalRecoverable recoverable;
+    static class LocalCommitter implements Committer {
 
-		LocalCommitter(LocalRecoverable recoverable) {
-			this.recoverable = checkNotNull(recoverable);
-		}
+        private final LocalRecoverable recoverable;
 
-		@Override
-		public void commit() throws IOException {
-			final File src = recoverable.tempFile();
-			final File dest = recoverable.targetFile();
+        LocalCommitter(LocalRecoverable recoverable) {
+            this.recoverable = checkNotNull(recoverable);
+        }
 
-			// sanity check
-			if (src.length() != recoverable.offset()) {
-				// something was done to this file since the committer was created.
-				// this is not the "clean" case
-				throw new IOException("Cannot clean commit: File has trailing junk data.");
-			}
+        @Override
+        public void commit() throws IOException {
+            final File src = recoverable.tempFile();
+            final File dest = recoverable.targetFile();
 
-			// rather than fall into default recovery, handle errors explicitly
-			// in order to improve error messages
-			try {
-				Files.move(src.toPath(), dest.toPath(), StandardCopyOption.ATOMIC_MOVE);
-			}
-			catch (UnsupportedOperationException | AtomicMoveNotSupportedException e) {
-				if (!src.renameTo(dest)) {
-					throw new IOException("Committing file failed, could not rename " + src + " -> " + dest);
-				}
-			}
-			catch (FileAlreadyExistsException e) {
-				throw new IOException("Committing file failed. Target file already exists: " + dest);
-			}
-		}
+            // sanity check
+            if (src.length() != recoverable.offset()) {
+                // something was done to this file since the committer was created.
+                // this is not the "clean" case
+                throw new IOException("Cannot clean commit: File has trailing junk data.");
+            }
 
-		@Override
-		public void commitAfterRecovery() throws IOException {
-			final File src = recoverable.tempFile();
-			final File dest = recoverable.targetFile();
-			final long expectedLength = recoverable.offset();
+            // rather than fall into default recovery, handle errors explicitly
+            // in order to improve error messages
+            try {
+                Files.move(src.toPath(), dest.toPath(), StandardCopyOption.ATOMIC_MOVE);
+            } catch (UnsupportedOperationException | AtomicMoveNotSupportedException e) {
+                if (!src.renameTo(dest)) {
+                    throw new IOException(
+                            "Committing file failed, could not rename " + src + " -> " + dest);
+                }
+            } catch (FileAlreadyExistsException e) {
+                throw new IOException(
+                        "Committing file failed. Target file already exists: " + dest);
+            }
+        }
 
-			if (src.exists()) {
-				if (src.length() > expectedLength) {
-					// can happen if we co from persist to recovering for commit directly
-					// truncate the trailing junk away
-					try (FileOutputStream fos = new FileOutputStream(src, true)) {
-						fos.getChannel().truncate(expectedLength);
-					}
-				} else if (src.length() < expectedLength) {
-					throw new IOException("Missing data in tmp file: " + src);
-				}
+        @Override
+        public void commitAfterRecovery() throws IOException {
+            final File src = recoverable.tempFile();
+            final File dest = recoverable.targetFile();
+            final long expectedLength = recoverable.offset();
 
-				// source still exists, so no renaming happened yet. do it!
-				Files.move(src.toPath(), dest.toPath(), StandardCopyOption.ATOMIC_MOVE);
-			}
-			else if (!dest.exists()) {
-				// neither exists - that can be a sign of
-				//   - (1) a serious problem (file system loss of data)
-				//   - (2) a recovery of a savepoint that is some time old and the users
-				//         removed the files in the meantime.
+            if (src.exists()) {
+                if (src.length() > expectedLength) {
+                    // can happen if we co from persist to recovering for commit directly
+                    // truncate the trailing junk away
+                    try (FileOutputStream fos = new FileOutputStream(src, true)) {
+                        fos.getChannel().truncate(expectedLength);
+                    }
+                } else if (src.length() < expectedLength) {
+                    throw new IOException("Missing data in tmp file: " + src);
+                }
 
-				// TODO how to handle this?
-				// We probably need an option for users whether this should log,
-				// or result in an exception or unrecoverable exception
-			}
-		}
+                // source still exists, so no renaming happened yet. do it!
+                Files.move(src.toPath(), dest.toPath(), StandardCopyOption.ATOMIC_MOVE);
+            } else if (!dest.exists()) {
+                // neither exists - that can be a sign of
+                //   - (1) a serious problem (file system loss of data)
+                //   - (2) a recovery of a savepoint that is some time old and the users
+                //         removed the files in the meantime.
 
-		@Override
-		public CommitRecoverable getRecoverable() {
-			return recoverable;
-		}
-	}
+                // TODO how to handle this?
+                // We probably need an option for users whether this should log,
+                // or result in an exception or unrecoverable exception
+            }
+        }
+
+        @Override
+        public CommitRecoverable getRecoverable() {
+            return recoverable;
+        }
+    }
 }

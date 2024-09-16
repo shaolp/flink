@@ -23,41 +23,45 @@ import org.apache.flink.api.java.ExecutionEnvironment;
 import org.apache.flink.api.java.io.LocalCollectionOutputFormat;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.test.optimizer.iterations.MultipleJoinsWithSolutionSetCompilerTest;
-import org.apache.flink.test.util.JavaProgramTestBase;
+import org.apache.flink.test.util.JavaProgramTestBaseJUnit4;
 
 import org.junit.Assert;
 
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Test multiple joins with the solution set.
- */
-public class MultipleSolutionSetJoinsITCase extends JavaProgramTestBase {
+/** Test multiple joins with the solution set. */
+public class MultipleSolutionSetJoinsITCase extends JavaProgramTestBaseJUnit4 {
 
-	@Override
-	protected void testProgram() throws Exception {
+    @Override
+    protected void testProgram() throws Exception {
 
-		final int numIters = 4;
-		final double expectedFactor = (int) Math.pow(7, numIters);
+        final int numIters = 4;
+        final double expectedFactor = (int) Math.pow(7, numIters);
 
-		// this is an artificial program, it does not compute anything sensical
-		ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
+        // this is an artificial program, it does not compute anything sensical
+        ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
 
-		@SuppressWarnings("unchecked")
-		DataSet<Tuple2<Long, Double>> initialData = env.fromElements(new Tuple2<Long, Double>(1L, 1.0), new Tuple2<Long, Double>(2L, 2.0),
-															new Tuple2<Long, Double>(3L, 3.0), new Tuple2<Long, Double>(4L, 4.0),
-															new Tuple2<Long, Double>(5L, 5.0), new Tuple2<Long, Double>(6L, 6.0));
+        @SuppressWarnings("unchecked")
+        DataSet<Tuple2<Long, Double>> initialData =
+                env.fromElements(
+                        new Tuple2<Long, Double>(1L, 1.0),
+                        new Tuple2<Long, Double>(2L, 2.0),
+                        new Tuple2<Long, Double>(3L, 3.0),
+                        new Tuple2<Long, Double>(4L, 4.0),
+                        new Tuple2<Long, Double>(5L, 5.0),
+                        new Tuple2<Long, Double>(6L, 6.0));
 
-		DataSet<Tuple2<Long, Double>> result = MultipleJoinsWithSolutionSetCompilerTest.constructPlan(initialData, numIters);
+        DataSet<Tuple2<Long, Double>> result =
+                MultipleJoinsWithSolutionSetCompilerTest.constructPlan(initialData, numIters);
 
-		List<Tuple2<Long, Double>> resultCollector = new ArrayList<Tuple2<Long, Double>>();
-		result.output(new LocalCollectionOutputFormat<>(resultCollector));
+        List<Tuple2<Long, Double>> resultCollector = new ArrayList<Tuple2<Long, Double>>();
+        result.output(new LocalCollectionOutputFormat<>(resultCollector));
 
-		env.execute();
+        env.execute();
 
-		for (Tuple2<Long, Double> tuple : resultCollector) {
-			Assert.assertEquals(expectedFactor * tuple.f0, tuple.f1.doubleValue(), 0.0);
-		}
-	}
+        for (Tuple2<Long, Double> tuple : resultCollector) {
+            Assert.assertEquals(expectedFactor * tuple.f0, tuple.f1.doubleValue(), 0.0);
+        }
+    }
 }

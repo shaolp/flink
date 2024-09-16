@@ -25,146 +25,211 @@ import org.apache.flink.metrics.View;
 
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.RocksDB;
-import org.rocksdb.RocksDBException;
+import org.rocksdb.Statistics;
+import org.rocksdb.TickerType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import javax.annotation.concurrent.GuardedBy;
 
 import java.io.Closeable;
 import java.math.BigInteger;
 
 /**
- * A monitor which pulls {{@link RocksDB}} native metrics
- * and forwards them to Flink's metric group. All metrics are
- * unsigned longs and are reported at the column family level.
+ * A monitor which pulls {{@link RocksDB}} native metrics and forwards them to Flink's metric group.
+ * All metrics are unsigned longs and are reported at the column family level.
  */
 @Internal
 public class RocksDBNativeMetricMonitor implements Closeable {
-	private static final Logger LOG = LoggerFactory.getLogger(RocksDBNativeMetricMonitor.class);
+    private static final Logger LOG = LoggerFactory.getLogger(RocksDBNativeMetricMonitor.class);
 
-	private final RocksDBNativeMetricOptions options;
+    private final RocksDBNativeMetricOptions options;
 
-	private final MetricGroup metricGroup;
+    private final MetricGroup metricGroup;
 
-	private final Object lock;
+    private final Object lock;
 
-	@GuardedBy("lock")
-	private RocksDB rocksDB;
+    static final String COLUMN_FAMILY_KEY = "column_family";
 
-	public RocksDBNativeMetricMonitor(
-		@Nonnull RocksDBNativeMetricOptions options,
-		@Nonnull MetricGroup metricGroup,
-		@Nonnull RocksDB rocksDB
-	) {
-		this.options = options;
-		this.metricGroup = metricGroup;
-		this.rocksDB = rocksDB;
+    @GuardedBy("lock")
+    private RocksDB rocksDB;
 
-		this.lock = new Object();
-	}
+    @Nullable
+    @GuardedBy("lock")
+    private Statistics statistics;
 
-	/**
-	 * Register gauges to pull native metrics for the column family.
-	 * @param columnFamilyName group name for the new gauges
-	 * @param handle native handle to the column family
-	 */
-	void registerColumnFamily(String columnFamilyName, ColumnFamilyHandle handle) {
-		MetricGroup group = metricGroup.addGroup(columnFamilyName);
+    public RocksDBNativeMetricMonitor(
+            @Nonnull RocksDBNativeMetricOptions options,
+            @Nonnull MetricGroup metricGroup,
+            @Nonnull RocksDB rocksDB,
+            @Nullable Statistics statistics) {
+        this.options = options;
+        this.metricGroup = metricGroup;
+        this.rocksDB = rocksDB;
+        this.statistics = statistics;
+        this.lock = new Object();
+        registerStatistics();
+    }
 
-		for (String property : options.getProperties()) {
-			RocksDBNativeMetricView gauge = new RocksDBNativeMetricView(handle, property);
-			group.gauge(property, gauge);
-		}
-	}
+    /** Register gauges to pull native metrics for the database. */
+    private void registerStatistics() {
+        if (statistics != null) {
+            for (TickerType tickerType : options.getMonitorTickerTypes()) {
+                metricGroup.gauge(
+                        String.format("rocksdb.%s", tickerType.name().toLowerCase()),
+                        new RocksDBNativeStatisticsMetricView(tickerType));
+            }
+        }
+    }
 
-	/**
-	 * Updates the value of metricView if the reference is still valid.
-	 */
-	private void setProperty(ColumnFamilyHandle handle, String property, RocksDBNativeMetricView metricView) {
-		if (metricView.isClosed()) {
-			return;
-		}
-		try {
-			synchronized (lock) {
-				if (rocksDB != null) {
-					long value = rocksDB.getLongProperty(handle, property);
-					metricView.setValue(value);
-				}
-			}
-		} catch (RocksDBException e) {
-			metricView.close();
-			LOG.warn("Failed to read native metric %s from RocksDB", property, e);
-		}
-	}
+    /**
+     * Register gauges to pull native metrics for the column family.
+     *
+     * @param columnFamilyName group name for the new gauges
+     * @param handle native handle to the column family
+     */
+    void registerColumnFamily(String columnFamilyName, ColumnFamilyHandle handle) {
 
-	@Override
-	public void close() {
-		synchronized (lock) {
-			rocksDB = null;
-		}
-	}
+        boolean columnFamilyAsVariable = options.isColumnFamilyAsVariable();
+        MetricGroup group =
+                columnFamilyAsVariable
+                        ? metricGroup.addGroup(COLUMN_FAMILY_KEY, columnFamilyName)
+                        : metricGroup.addGroup(columnFamilyName);
 
-	/**
-	 * A gauge which periodically pulls a RocksDB native metric
-	 * for the specified column family / metric pair.
-	 *
-	 *<p><strong>Note</strong>: As the returned property is of type
-	 * {@code uint64_t} on C++ side the returning value can be negative.
-	 * Because java does not support unsigned long types, this gauge
-	 * wraps the result in a {@link BigInteger}.
-	 */
-	class RocksDBNativeMetricView implements Gauge<BigInteger>, View {
-		private final String property;
+        for (RocksDBProperty property : options.getProperties()) {
+            RocksDBNativePropertyMetricView gauge =
+                    new RocksDBNativePropertyMetricView(handle, property);
+            group.gauge(property.getRocksDBProperty(), gauge);
+        }
+    }
 
-		private final ColumnFamilyHandle handle;
+    /** Updates the value of metricView if the reference is still valid. */
+    private void setProperty(RocksDBNativePropertyMetricView metricView) {
+        if (metricView.isClosed()) {
+            return;
+        }
+        try {
+            synchronized (lock) {
+                if (rocksDB != null) {
+                    long value =
+                            metricView.property.getNumericalPropertyValue(
+                                    rocksDB, metricView.handle);
+                    metricView.setValue(value);
+                }
+            }
+        } catch (Exception e) {
+            metricView.close();
+            LOG.warn("Failed to read native metric {} from RocksDB.", metricView.property, e);
+        }
+    }
 
-		private BigInteger bigInteger;
+    private void setStatistics(RocksDBNativeStatisticsMetricView metricView) {
+        if (metricView.isClosed()) {
+            return;
+        }
+        if (statistics != null) {
+            synchronized (lock) {
+                metricView.setValue(statistics.getTickerCount(metricView.tickerType));
+            }
+        }
+    }
 
-		private boolean closed;
+    @Override
+    public void close() {
+        synchronized (lock) {
+            rocksDB = null;
+            statistics = null;
+        }
+    }
 
-		private RocksDBNativeMetricView(
-			ColumnFamilyHandle handle,
-			@Nonnull String property
-		) {
-			this.handle = handle;
-			this.property = property;
-			this.bigInteger = BigInteger.ZERO;
-			this.closed = false;
-		}
+    abstract static class RocksDBNativeView implements View {
+        private boolean closed;
 
-		public void setValue(long value) {
-			if (value >= 0L) {
-				bigInteger = BigInteger.valueOf(value);
-			} else {
-				int upper = (int) (value >>> 32);
-				int lower = (int) value;
+        RocksDBNativeView() {
+            this.closed = false;
+        }
 
-				bigInteger = BigInteger
-					.valueOf(Integer.toUnsignedLong(upper))
-					.shiftLeft(32)
-					.add(BigInteger.valueOf(Integer.toUnsignedLong(lower)));
-			}
-		}
+        void close() {
+            closed = true;
+        }
 
-		public void close() {
-			closed = true;
-		}
+        boolean isClosed() {
+            return closed;
+        }
+    }
 
-		public boolean isClosed() {
-			return closed;
-		}
+    /**
+     * A gauge which periodically pulls a RocksDB property-based native metric for the specified
+     * column family / metric pair.
+     *
+     * <p><strong>Note</strong>: As the returned property is of type {@code uint64_t} on C++ side
+     * the returning value can be negative. Because java does not support unsigned long types, this
+     * gauge wraps the result in a {@link BigInteger}.
+     */
+    class RocksDBNativePropertyMetricView extends RocksDBNativeView implements Gauge<BigInteger> {
+        private final RocksDBProperty property;
 
-		@Override
-		public BigInteger getValue() {
-			return bigInteger;
-		}
+        private final ColumnFamilyHandle handle;
 
-		@Override
-		public void update() {
-			setProperty(handle, property, this);
-		}
-	}
+        private BigInteger bigInteger;
+
+        private RocksDBNativePropertyMetricView(
+                ColumnFamilyHandle handle, @Nonnull RocksDBProperty property) {
+            this.handle = handle;
+            this.property = property;
+            this.bigInteger = BigInteger.ZERO;
+        }
+
+        public void setValue(long value) {
+            if (value >= 0L) {
+                bigInteger = BigInteger.valueOf(value);
+            } else {
+                int upper = (int) (value >>> 32);
+                int lower = (int) value;
+
+                bigInteger =
+                        BigInteger.valueOf(Integer.toUnsignedLong(upper))
+                                .shiftLeft(32)
+                                .add(BigInteger.valueOf(Integer.toUnsignedLong(lower)));
+            }
+        }
+
+        @Override
+        public BigInteger getValue() {
+            return bigInteger;
+        }
+
+        @Override
+        public void update() {
+            setProperty(this);
+        }
+    }
+
+    /**
+     * A gauge which periodically pulls a RocksDB statistics-based native metric for the database.
+     */
+    class RocksDBNativeStatisticsMetricView extends RocksDBNativeView implements Gauge<Long> {
+        private final TickerType tickerType;
+        private long value;
+
+        private RocksDBNativeStatisticsMetricView(TickerType tickerType) {
+            this.tickerType = tickerType;
+        }
+
+        @Override
+        public Long getValue() {
+            return value;
+        }
+
+        void setValue(long value) {
+            this.value = value;
+        }
+
+        @Override
+        public void update() {
+            setStatistics(this);
+        }
+    }
 }
-

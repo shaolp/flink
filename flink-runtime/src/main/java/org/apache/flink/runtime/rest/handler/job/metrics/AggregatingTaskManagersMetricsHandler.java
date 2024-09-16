@@ -18,7 +18,6 @@
 
 package org.apache.flink.runtime.rest.handler.job.metrics;
 
-import org.apache.flink.api.common.time.Time;
 import org.apache.flink.runtime.clusterframework.types.ResourceID;
 import org.apache.flink.runtime.rest.handler.HandlerRequest;
 import org.apache.flink.runtime.rest.handler.legacy.metrics.MetricFetcher;
@@ -32,6 +31,7 @@ import org.apache.flink.runtime.webmonitor.retriever.GatewayRetriever;
 
 import javax.annotation.Nonnull;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -39,37 +39,49 @@ import java.util.Map;
 import java.util.concurrent.Executor;
 
 /**
- * Request handler that returns, aggregated across task managers, a list of all available metrics or the values for
- * a set of metrics.
+ * Request handler that returns, aggregated across task managers, a list of all available metrics or
+ * the values for a set of metrics.
  *
- * <p>Specific taskmanagers can be selected for aggregation by specifying a comma-separated list of taskmanager IDs.
- * {@code /metrics?get=X,Y&taskmanagers=A,B}
+ * <p>Specific taskmanagers can be selected for aggregation by specifying a comma-separated list of
+ * taskmanager IDs. {@code /metrics?get=X,Y&taskmanagers=A,B}
  */
-public class AggregatingTaskManagersMetricsHandler extends AbstractAggregatingMetricsHandler<AggregateTaskManagerMetricsParameters> {
+public class AggregatingTaskManagersMetricsHandler
+        extends AbstractAggregatingMetricsHandler<AggregateTaskManagerMetricsParameters> {
 
-	public AggregatingTaskManagersMetricsHandler(
-			GatewayRetriever<? extends RestfulGateway> leaderRetriever,
-			Time timeout, Map<String, String> responseHeaders,
-			Executor executor,
-			MetricFetcher fetcher) {
-		super(leaderRetriever, timeout, responseHeaders, AggregatedTaskManagerMetricsHeaders.getInstance(), executor, fetcher);
-	}
+    public AggregatingTaskManagersMetricsHandler(
+            GatewayRetriever<? extends RestfulGateway> leaderRetriever,
+            Duration timeout,
+            Map<String, String> responseHeaders,
+            Executor executor,
+            MetricFetcher fetcher) {
+        super(
+                leaderRetriever,
+                timeout,
+                responseHeaders,
+                AggregatedTaskManagerMetricsHeaders.getInstance(),
+                executor,
+                fetcher);
+    }
 
-	@Nonnull
-	@Override
-	Collection<? extends MetricStore.ComponentMetricStore> getStores(MetricStore store, HandlerRequest<EmptyRequestBody, AggregateTaskManagerMetricsParameters> request) {
-		List<ResourceID> taskmanagers = request.getQueryParameter(TaskManagersFilterQueryParameter.class);
-		if (taskmanagers.isEmpty()) {
-			return store.getTaskManagers().values();
-		} else {
-			Collection<MetricStore.TaskManagerMetricStore> taskmanagerStores = new ArrayList<>(taskmanagers.size());
-			for (ResourceID taskmanager : taskmanagers) {
-				MetricStore.TaskManagerMetricStore taskManagerMetricStore = store.getTaskManagerMetricStore(taskmanager.getResourceIdString());
-				if (taskManagerMetricStore != null) {
-					taskmanagerStores.add(taskManagerMetricStore);
-				}
-			}
-			return taskmanagerStores;
-		}
-	}
+    @Nonnull
+    @Override
+    Collection<? extends MetricStore.ComponentMetricStore> getStores(
+            MetricStore store, HandlerRequest<EmptyRequestBody> request) {
+        List<ResourceID> taskmanagers =
+                request.getQueryParameter(TaskManagersFilterQueryParameter.class);
+        if (taskmanagers.isEmpty()) {
+            return store.getTaskManagers().values();
+        } else {
+            Collection<MetricStore.TaskManagerMetricStore> taskmanagerStores =
+                    new ArrayList<>(taskmanagers.size());
+            for (ResourceID taskmanager : taskmanagers) {
+                MetricStore.TaskManagerMetricStore taskManagerMetricStore =
+                        store.getTaskManagerMetricStore(taskmanager.getResourceIdString());
+                if (taskManagerMetricStore != null) {
+                    taskmanagerStores.add(taskManagerMetricStore);
+                }
+            }
+            return taskmanagerStores;
+        }
+    }
 }

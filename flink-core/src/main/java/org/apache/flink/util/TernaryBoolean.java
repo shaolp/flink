@@ -19,73 +19,90 @@
 package org.apache.flink.util;
 
 import org.apache.flink.annotation.PublicEvolving;
+import org.apache.flink.configuration.ConfigOption;
+import org.apache.flink.configuration.ReadableConfig;
 
 import javax.annotation.Nullable;
 
 /**
  * A ternary boolean, which can have the values 'true', 'false', or 'undefined'.
  *
- * <p>A ternary boolean can for example be used to configuration switches that
- * may be not configured (undefined), in which case a default value should be assumed.
+ * <p>A ternary boolean can for example be used to configuration switches that may be not configured
+ * (undefined), in which case a default value should be assumed.
  */
 @PublicEvolving
 public enum TernaryBoolean {
 
-	/** The value for 'true'. */
-	TRUE,
+    /** The value for 'true'. */
+    TRUE,
 
-	/** The value for 'false'. */
-	FALSE,
+    /** The value for 'false'. */
+    FALSE,
 
-	/** The value for 'undefined'. In a configuration setting, this typically means that the
-	 * default value will be used, or the value from a deployment-wide configuration.*/
-	UNDEFINED;
+    /**
+     * The value for 'undefined'. In a configuration setting, this typically means that the default
+     * value will be used, or the value from a deployment-wide configuration.
+     */
+    UNDEFINED;
 
-	// ------------------------------------------------------------------------
+    // ------------------------------------------------------------------------
 
-	/**
-	 * Gets the boolean value corresponding to this value. If this is the 'undefined' value,
-	 * the method returns the given default.
-	 *
-	 * @param defaultValue The value to be returned in case this ternary value is 'undefined'.
-	 */
-	public boolean getOrDefault(boolean defaultValue) {
-		return this == UNDEFINED ? defaultValue : (this == TRUE);
-	}
+    /**
+     * Gets the boolean value corresponding to this value. If this is the 'undefined' value, the
+     * method returns the given default.
+     *
+     * @param defaultValue The value to be returned in case this ternary value is 'undefined'.
+     */
+    public boolean getOrDefault(boolean defaultValue) {
+        return this == UNDEFINED ? defaultValue : (this == TRUE);
+    }
 
-	/**
-	 * Gets the boolean value corresponding to this value. If this is the 'UNDEFINED' value,
-	 * the method returns the given valueForUndefined.
-	 *
-	 * @param valueForUndefined The value to be returned in case this ternary value is 'undefined'.
-	 */
-	public TernaryBoolean resolveUndefined(boolean valueForUndefined) {
-		return this != UNDEFINED ? this : fromBoolean(valueForUndefined);
-	}
+    /**
+     * Gets the boolean value corresponding to this value. If this is the 'UNDEFINED' value, the
+     * method returns the given valueForUndefined.
+     *
+     * @param valueForUndefined The value to be returned in case this ternary value is 'undefined'.
+     */
+    public TernaryBoolean resolveUndefined(boolean valueForUndefined) {
+        return this != UNDEFINED ? this : fromBoolean(valueForUndefined);
+    }
 
-	/**
-	 * Gets this ternary boolean as a boxed boolean. The value 'undefined' results
-	 * in 'null.
-	 */
-	@Nullable
-	public Boolean getAsBoolean() {
-		return this == UNDEFINED ? null : (this == TRUE ? Boolean.TRUE : Boolean.FALSE);
-	}
+    /** Gets this ternary boolean as a boxed boolean. The value 'undefined' results in 'null. */
+    @Nullable
+    public Boolean getAsBoolean() {
+        return this == UNDEFINED ? null : (this == TRUE ? Boolean.TRUE : Boolean.FALSE);
+    }
 
-	// ------------------------------------------------------------------------
+    /**
+     * Merges an existing value with a config, accepting the config's value only if the existing
+     * value is undefined.
+     *
+     * @param original the value to merge with the config.
+     * @param configOption the config option to merge with from the config.
+     * @param config the config to merge with.
+     */
+    public static TernaryBoolean mergeTernaryBooleanWithConfig(
+            TernaryBoolean original, ConfigOption<Boolean> configOption, ReadableConfig config) {
+        if (original != TernaryBoolean.UNDEFINED) {
+            return original;
+        }
+        return TernaryBoolean.fromBoxedBoolean(config.getOptional(configOption).orElse(null));
+    }
 
-	/**
-	 * Converts the given boolean to a TernaryBoolean, {@link #TRUE} or {@link #FALSE} respectively.
-	 */
-	public static TernaryBoolean fromBoolean(boolean bool) {
-		return bool ? TRUE : FALSE;
-	}
+    // ------------------------------------------------------------------------
 
-	/**
-	 * Converts the given boxed Boolean to a TernaryBoolean. A null value results in
-	 * {@link #UNDEFINED}, while a non-null value results in {@link #TRUE} or {@link #FALSE} respectively.
-	 */
-	public static TernaryBoolean fromBoxedBoolean(@Nullable Boolean bool) {
-		return bool == null ? UNDEFINED : fromBoolean(bool);
-	}
+    /**
+     * Converts the given boolean to a TernaryBoolean, {@link #TRUE} or {@link #FALSE} respectively.
+     */
+    public static TernaryBoolean fromBoolean(boolean bool) {
+        return bool ? TRUE : FALSE;
+    }
+
+    /**
+     * Converts the given boxed Boolean to a TernaryBoolean. A null value results in {@link
+     * #UNDEFINED}, while a non-null value results in {@link #TRUE} or {@link #FALSE} respectively.
+     */
+    public static TernaryBoolean fromBoxedBoolean(@Nullable Boolean bool) {
+        return bool == null ? UNDEFINED : fromBoolean(bool);
+    }
 }

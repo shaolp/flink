@@ -30,32 +30,41 @@ import java.io.IOException;
 
 /**
  * Stores elements by serializing them with their type serializer.
+ *
  * @param <T> type parameter
+ * @deprecated All Flink DataSet APIs are deprecated since Flink 1.18 and will be removed in a
+ *     future Flink major version. You can still build your application in DataSet, but you should
+ *     move to either the DataStream and/or Table API.
+ * @see <a href="https://cwiki.apache.org/confluence/pages/viewpage.action?pageId=158866741">
+ *     FLIP-131: Consolidate the user-facing Dataflow SDKs/APIs (and deprecate the DataSet API</a>
  */
+@Deprecated
 @PublicEvolving
-public class TypeSerializerOutputFormat<T> extends BinaryOutputFormat<T> implements InputTypeConfigurable {
+public class TypeSerializerOutputFormat<T> extends BinaryOutputFormat<T>
+        implements InputTypeConfigurable {
 
-	private static final long serialVersionUID = -6653022644629315158L;
+    private static final long serialVersionUID = -6653022644629315158L;
 
-	private TypeSerializer<T> serializer;
+    private TypeSerializer<T> serializer;
 
-	@Override
-	protected void serialize(T record, DataOutputView dataOutput) throws IOException {
-		if (serializer == null){
-			throw new RuntimeException("TypeSerializerOutputFormat requires a type serializer to " +
-					"be defined.");
-		}
+    @Override
+    protected void serialize(T record, DataOutputView dataOutput) throws IOException {
+        if (serializer == null) {
+            throw new RuntimeException(
+                    "TypeSerializerOutputFormat requires a type serializer to " + "be defined.");
+        }
 
-		serializer.serialize(record, dataOutput);
-	}
+        serializer.serialize(record, dataOutput);
+    }
 
-	public void setSerializer(TypeSerializer<T> serializer){
-		this.serializer = serializer;
-	}
+    public void setSerializer(TypeSerializer<T> serializer) {
+        this.serializer = serializer;
+    }
 
-	@Override
-	@SuppressWarnings("unchecked")
-	public void setInputType(TypeInformation<?> type, ExecutionConfig executionConfig) {
-		serializer = (TypeSerializer<T>) type.createSerializer(executionConfig);
-	}
+    @Override
+    @SuppressWarnings("unchecked")
+    public void setInputType(TypeInformation<?> type, ExecutionConfig executionConfig) {
+        serializer =
+                (TypeSerializer<T>) type.createSerializer(executionConfig.getSerializerConfig());
+    }
 }

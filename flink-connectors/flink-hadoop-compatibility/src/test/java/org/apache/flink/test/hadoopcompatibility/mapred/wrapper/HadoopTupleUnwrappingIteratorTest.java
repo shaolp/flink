@@ -23,121 +23,110 @@ import org.apache.flink.api.java.typeutils.runtime.WritableSerializer;
 import org.apache.flink.hadoopcompatibility.mapred.wrapper.HadoopTupleUnwrappingIterator;
 
 import org.apache.hadoop.io.IntWritable;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.NoSuchElementException;
 
-/**
- * Tests for the {@link HadoopTupleUnwrappingIterator}.
- */
-public class HadoopTupleUnwrappingIteratorTest {
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-	@Test
-	public void testValueIterator() {
+/** Tests for the {@link HadoopTupleUnwrappingIterator}. */
+class HadoopTupleUnwrappingIteratorTest {
 
-		HadoopTupleUnwrappingIterator<IntWritable, IntWritable> valIt =
-				new HadoopTupleUnwrappingIterator<IntWritable, IntWritable>(new WritableSerializer
-						<IntWritable>(IntWritable.class));
+    @Test
+    void testValueIterator() {
 
-		// many values
+        HadoopTupleUnwrappingIterator<IntWritable, IntWritable> valIt =
+                new HadoopTupleUnwrappingIterator<IntWritable, IntWritable>(
+                        new WritableSerializer<IntWritable>(IntWritable.class));
 
-		ArrayList<Tuple2<IntWritable, IntWritable>> tList = new ArrayList<Tuple2<IntWritable, IntWritable>>();
-		tList.add(new Tuple2<IntWritable, IntWritable>(new IntWritable(1), new IntWritable(1)));
-		tList.add(new Tuple2<IntWritable, IntWritable>(new IntWritable(1), new IntWritable(2)));
-		tList.add(new Tuple2<IntWritable, IntWritable>(new IntWritable(1), new IntWritable(3)));
-		tList.add(new Tuple2<IntWritable, IntWritable>(new IntWritable(1), new IntWritable(4)));
-		tList.add(new Tuple2<IntWritable, IntWritable>(new IntWritable(1), new IntWritable(5)));
-		tList.add(new Tuple2<IntWritable, IntWritable>(new IntWritable(1), new IntWritable(6)));
-		tList.add(new Tuple2<IntWritable, IntWritable>(new IntWritable(1), new IntWritable(7)));
-		tList.add(new Tuple2<IntWritable, IntWritable>(new IntWritable(1), new IntWritable(8)));
+        // many values
 
-		int expectedKey = 1;
-		int[] expectedValues = new int[] {1, 2, 3, 4, 5, 6, 7, 8};
+        ArrayList<Tuple2<IntWritable, IntWritable>> tList =
+                new ArrayList<Tuple2<IntWritable, IntWritable>>();
+        tList.add(new Tuple2<IntWritable, IntWritable>(new IntWritable(1), new IntWritable(1)));
+        tList.add(new Tuple2<IntWritable, IntWritable>(new IntWritable(1), new IntWritable(2)));
+        tList.add(new Tuple2<IntWritable, IntWritable>(new IntWritable(1), new IntWritable(3)));
+        tList.add(new Tuple2<IntWritable, IntWritable>(new IntWritable(1), new IntWritable(4)));
+        tList.add(new Tuple2<IntWritable, IntWritable>(new IntWritable(1), new IntWritable(5)));
+        tList.add(new Tuple2<IntWritable, IntWritable>(new IntWritable(1), new IntWritable(6)));
+        tList.add(new Tuple2<IntWritable, IntWritable>(new IntWritable(1), new IntWritable(7)));
+        tList.add(new Tuple2<IntWritable, IntWritable>(new IntWritable(1), new IntWritable(8)));
 
-		valIt.set(tList.iterator());
-		Assert.assertTrue(valIt.getCurrentKey().get() == expectedKey);
-		for (int expectedValue : expectedValues) {
-			Assert.assertTrue(valIt.hasNext());
-			Assert.assertTrue(valIt.hasNext());
-			Assert.assertTrue(valIt.next().get() == expectedValue);
-			Assert.assertTrue(valIt.getCurrentKey().get() == expectedKey);
-		}
-		Assert.assertFalse(valIt.hasNext());
-		Assert.assertFalse(valIt.hasNext());
-		Assert.assertTrue(valIt.getCurrentKey().get() == expectedKey);
+        int expectedKey = 1;
+        int[] expectedValues = new int[] {1, 2, 3, 4, 5, 6, 7, 8};
 
-		// one value
+        valIt.set(tList.iterator());
+        assertThat(valIt.getCurrentKey().get()).isEqualTo(expectedKey);
+        for (int expectedValue : expectedValues) {
+            assertThat(valIt.hasNext()).isTrue();
+            assertThat(valIt.next().get()).isEqualTo(expectedValue);
+            assertThat(valIt.getCurrentKey().get()).isEqualTo(expectedKey);
+        }
+        assertThat(valIt.hasNext()).isFalse();
+        assertThat(valIt.getCurrentKey().get()).isEqualTo(expectedKey);
 
-		tList.clear();
-		tList.add(new Tuple2<IntWritable, IntWritable>(new IntWritable(2), new IntWritable(10)));
+        // one value
 
-		expectedKey = 2;
-		expectedValues = new int[]{10};
+        tList.clear();
+        tList.add(new Tuple2<IntWritable, IntWritable>(new IntWritable(2), new IntWritable(10)));
 
-		valIt.set(tList.iterator());
-		Assert.assertTrue(valIt.getCurrentKey().get() == expectedKey);
-		for (int expectedValue : expectedValues) {
-			Assert.assertTrue(valIt.hasNext());
-			Assert.assertTrue(valIt.hasNext());
-			Assert.assertTrue(valIt.next().get() == expectedValue);
-			Assert.assertTrue(valIt.getCurrentKey().get() == expectedKey);
-		}
-		Assert.assertFalse(valIt.hasNext());
-		Assert.assertFalse(valIt.hasNext());
-		Assert.assertTrue(valIt.getCurrentKey().get() == expectedKey);
+        expectedKey = 2;
+        expectedValues = new int[] {10};
 
-		// more values
+        valIt.set(tList.iterator());
+        assertThat(valIt.getCurrentKey().get()).isEqualTo(expectedKey);
+        for (int expectedValue : expectedValues) {
+            assertThat(valIt.hasNext()).isTrue();
+            assertThat(valIt.next().get()).isEqualTo(expectedValue);
+            assertThat(valIt.getCurrentKey().get()).isEqualTo(expectedKey);
+        }
+        assertThat(valIt.hasNext()).isFalse();
+        assertThat(valIt.getCurrentKey().get()).isEqualTo(expectedKey);
 
-		tList.clear();
-		tList.add(new Tuple2<IntWritable, IntWritable>(new IntWritable(3), new IntWritable(10)));
-		tList.add(new Tuple2<IntWritable, IntWritable>(new IntWritable(3), new IntWritable(4)));
-		tList.add(new Tuple2<IntWritable, IntWritable>(new IntWritable(3), new IntWritable(7)));
-		tList.add(new Tuple2<IntWritable, IntWritable>(new IntWritable(3), new IntWritable(9)));
-		tList.add(new Tuple2<IntWritable, IntWritable>(new IntWritable(4), new IntWritable(21)));
+        // more values
 
-		expectedKey = 3;
-		expectedValues = new int[]{10, 4, 7, 9, 21};
+        tList.clear();
+        tList.add(new Tuple2<IntWritable, IntWritable>(new IntWritable(3), new IntWritable(10)));
+        tList.add(new Tuple2<IntWritable, IntWritable>(new IntWritable(3), new IntWritable(4)));
+        tList.add(new Tuple2<IntWritable, IntWritable>(new IntWritable(3), new IntWritable(7)));
+        tList.add(new Tuple2<IntWritable, IntWritable>(new IntWritable(3), new IntWritable(9)));
+        tList.add(new Tuple2<IntWritable, IntWritable>(new IntWritable(4), new IntWritable(21)));
 
-		valIt.set(tList.iterator());
-		Assert.assertTrue(valIt.hasNext());
-		Assert.assertTrue(valIt.getCurrentKey().get() == expectedKey);
-		for (int expectedValue : expectedValues) {
-			Assert.assertTrue(valIt.hasNext());
-			Assert.assertTrue(valIt.hasNext());
-			Assert.assertTrue(valIt.next().get() == expectedValue);
-			Assert.assertTrue(valIt.getCurrentKey().get() == expectedKey);
-		}
-		Assert.assertFalse(valIt.hasNext());
-		Assert.assertFalse(valIt.hasNext());
-		Assert.assertTrue(valIt.getCurrentKey().get() == expectedKey);
+        expectedKey = 3;
+        expectedValues = new int[] {10, 4, 7, 9, 21};
 
-		// no has next calls
+        valIt.set(tList.iterator());
+        assertThat(valIt.hasNext()).isTrue();
+        assertThat(valIt.getCurrentKey().get()).isEqualTo(expectedKey);
+        for (int expectedValue : expectedValues) {
+            assertThat(valIt.hasNext()).isTrue();
+            assertThat(valIt.next().get()).isEqualTo(expectedValue);
+            assertThat(valIt.getCurrentKey().get()).isEqualTo(expectedKey);
+        }
+        assertThat(valIt.hasNext()).isFalse();
+        assertThat(valIt.getCurrentKey().get()).isEqualTo(expectedKey);
 
-		tList.clear();
-		tList.add(new Tuple2<IntWritable, IntWritable>(new IntWritable(4), new IntWritable(5)));
-		tList.add(new Tuple2<IntWritable, IntWritable>(new IntWritable(4), new IntWritable(8)));
-		tList.add(new Tuple2<IntWritable, IntWritable>(new IntWritable(4), new IntWritable(42)));
-		tList.add(new Tuple2<IntWritable, IntWritable>(new IntWritable(4), new IntWritable(-1)));
-		tList.add(new Tuple2<IntWritable, IntWritable>(new IntWritable(4), new IntWritable(0)));
+        // no has next calls
 
-		expectedKey = 4;
-		expectedValues = new int[]{5, 8, 42, -1, 0};
+        tList.clear();
+        tList.add(new Tuple2<IntWritable, IntWritable>(new IntWritable(4), new IntWritable(5)));
+        tList.add(new Tuple2<IntWritable, IntWritable>(new IntWritable(4), new IntWritable(8)));
+        tList.add(new Tuple2<IntWritable, IntWritable>(new IntWritable(4), new IntWritable(42)));
+        tList.add(new Tuple2<IntWritable, IntWritable>(new IntWritable(4), new IntWritable(-1)));
+        tList.add(new Tuple2<IntWritable, IntWritable>(new IntWritable(4), new IntWritable(0)));
 
-		valIt.set(tList.iterator());
-		Assert.assertTrue(valIt.getCurrentKey().get() == expectedKey);
-		for (int expectedValue : expectedValues) {
-			Assert.assertTrue(valIt.next().get() == expectedValue);
-		}
-		try {
-			valIt.next();
-			Assert.fail();
-		} catch (NoSuchElementException nsee) {
-			// expected
-		}
-		Assert.assertFalse(valIt.hasNext());
-		Assert.assertTrue(valIt.getCurrentKey().get() == expectedKey);
-	}
+        expectedKey = 4;
+        expectedValues = new int[] {5, 8, 42, -1, 0};
 
+        valIt.set(tList.iterator());
+        assertThat(valIt.getCurrentKey().get()).isEqualTo(expectedKey);
+        for (int expectedValue : expectedValues) {
+            assertThat(valIt.next().get()).isEqualTo(expectedValue);
+        }
+        assertThatThrownBy(() -> valIt.next()).isInstanceOf(NoSuchElementException.class);
+        assertThat(valIt.hasNext()).isFalse();
+        assertThat(valIt.getCurrentKey().get()).isEqualTo(expectedKey);
+    }
 }

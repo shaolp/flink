@@ -25,36 +25,38 @@ import org.apache.flink.test.testdata.WordCountData;
 import org.apache.flink.test.util.JavaProgramTestBase;
 import org.apache.flink.util.OperatingSystem;
 
-import org.junit.Assume;
-import org.junit.Before;
+import org.junit.jupiter.api.BeforeEach;
 
-/**
- * IT cases for both the {@link HadoopInputFormat} and {@link HadoopOutputFormat}.
- */
-public class HadoopInputOutputITCase extends JavaProgramTestBase {
+import static org.apache.flink.test.util.TestBaseUtils.compareResultsByLinesInMemory;
+import static org.assertj.core.api.Assumptions.assumeThat;
 
-	protected String textPath;
-	protected String resultPath;
+/** IT cases for both the {@link HadoopInputFormat} and {@link HadoopOutputFormat}. */
+class HadoopInputOutputITCase extends JavaProgramTestBase {
 
-	@Before
-	public void checkOperatingSystem() {
-		// FLINK-5164 - see https://wiki.apache.org/hadoop/WindowsProblems
-		Assume.assumeTrue("This test can't run successfully on Windows.", !OperatingSystem.isWindows());
-	}
+    private String textPath;
+    private String resultPath;
 
-	@Override
-	protected void preSubmit() throws Exception {
-		textPath = createTempFile("text.txt", WordCountData.TEXT);
-		resultPath = getTempDirPath("result");
-	}
+    @BeforeEach
+    void checkOperatingSystem() {
+        // FLINK-5164 - see https://wiki.apache.org/hadoop/WindowsProblems
+        assumeThat(OperatingSystem.isWindows())
+                .as("This test can't run successfully on Windows.")
+                .isFalse();
+    }
 
-	@Override
-	protected void postSubmit() throws Exception {
-		compareResultsByLinesInMemory(WordCountData.COUNTS, resultPath, new String[]{".", "_"});
-	}
+    @Override
+    protected void preSubmit() throws Exception {
+        textPath = createTempFile("text.txt", WordCountData.TEXT);
+        resultPath = getTempDirPath("result");
+    }
 
-	@Override
-	protected void testProgram() throws Exception {
-		WordCount.main(new String[] { textPath, resultPath });
-	}
+    @Override
+    protected void postSubmit() throws Exception {
+        compareResultsByLinesInMemory(WordCountData.COUNTS, resultPath, new String[] {".", "_"});
+    }
+
+    @Override
+    protected void testProgram() throws Exception {
+        WordCount.main(new String[] {textPath, resultPath});
+    }
 }

@@ -27,43 +27,49 @@ import org.apache.flink.api.java.DataSet;
  *
  * @param <IN> The data type of the input data set.
  * @param <OUT> The data type of the returned data set.
+ * @deprecated All Flink DataSet APIs are deprecated since Flink 1.18 and will be removed in a
+ *     future Flink major version. You can still build your application in DataSet, but you should
+ *     move to either the DataStream and/or Table API.
+ * @see <a href="https://cwiki.apache.org/confluence/pages/viewpage.action?pageId=158866741">
+ *     FLIP-131: Consolidate the user-facing Dataflow SDKs/APIs (and deprecate the DataSet API</a>
  */
+@Deprecated
 @Public
-public abstract class SingleInputOperator<IN, OUT, O extends SingleInputOperator<IN, OUT, O>> extends Operator<OUT, O> {
+public abstract class SingleInputOperator<IN, OUT, O extends SingleInputOperator<IN, OUT, O>>
+        extends Operator<OUT, O> {
 
-	private final DataSet<IN> input;
+    private final DataSet<IN> input;
 
-	protected SingleInputOperator(DataSet<IN> input, TypeInformation<OUT> resultType) {
-		super(input.getExecutionEnvironment(), resultType);
-		this.input = input;
-	}
+    protected SingleInputOperator(DataSet<IN> input, TypeInformation<OUT> resultType) {
+        super(input.getExecutionEnvironment(), resultType);
+        this.input = input;
+    }
 
-	/**
-	 * Gets the data set that this operation uses as its input.
-	 *
-	 * @return The data set that this operation uses as its input.
-	 */
-	public DataSet<IN> getInput() {
-		return this.input;
-	}
+    /**
+     * Gets the data set that this operation uses as its input.
+     *
+     * @return The data set that this operation uses as its input.
+     */
+    public DataSet<IN> getInput() {
+        return this.input;
+    }
 
-	/**
-	 * Gets the type information of the data type of the input data set.
-	 * This method returns equivalent information as {@code getInput().getType()}.
-	 *
-	 * @return The input data type.
-	 */
-	public TypeInformation<IN> getInputType() {
-		return this.input.getType();
-	}
+    /**
+     * Gets the type information of the data type of the input data set. This method returns
+     * equivalent information as {@code getInput().getType()}.
+     *
+     * @return The input data type.
+     */
+    public TypeInformation<IN> getInputType() {
+        return this.input.getType();
+    }
 
-	/**
-	 * Translates this operation to a data flow operator of the common data flow API.
-	 *
-	 * @param input The data flow operator that produces this operation's input data.
-	 * @return The translated data flow operator.
-	 */
-	protected abstract org.apache.flink.api.common.operators.Operator<OUT> translateToDataFlow(
-			org.apache.flink.api.common.operators.Operator<IN> input);
-
+    /**
+     * Translates this operation to a data flow operator of the common data flow API.
+     *
+     * @param input The data flow operator that produces this operation's input data.
+     * @return The translated data flow operator.
+     */
+    protected abstract org.apache.flink.api.common.operators.Operator<OUT> translateToDataFlow(
+            org.apache.flink.api.common.operators.Operator<IN> input);
 }

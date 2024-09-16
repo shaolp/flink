@@ -18,42 +18,28 @@
 
 package org.apache.flink.client.program;
 
-import org.apache.flink.api.common.JobExecutionResult;
 import org.apache.flink.api.common.JobID;
-import org.apache.flink.api.common.JobSubmissionResult;
-import org.apache.flink.api.common.Plan;
+import org.apache.flink.api.common.JobStatus;
 import org.apache.flink.configuration.Configuration;
-import org.apache.flink.core.fs.Path;
-import org.apache.flink.optimizer.CompilerException;
-import org.apache.flink.optimizer.DataStatistics;
-import org.apache.flink.optimizer.Optimizer;
-import org.apache.flink.optimizer.costs.DefaultCostEstimator;
-import org.apache.flink.optimizer.plan.FlinkPlan;
-import org.apache.flink.optimizer.plan.OptimizedPlan;
-import org.apache.flink.optimizer.plan.StreamingPlan;
-import org.apache.flink.optimizer.plandump.PlanJSONDumpGenerator;
-import org.apache.flink.optimizer.plantranslate.JobGraphGenerator;
+import org.apache.flink.core.execution.CheckpointType;
+import org.apache.flink.core.execution.SavepointFormatType;
 import org.apache.flink.runtime.client.JobStatusMessage;
 import org.apache.flink.runtime.jobgraph.JobGraph;
-import org.apache.flink.runtime.jobgraph.JobStatus;
-import org.apache.flink.runtime.jobgraph.SavepointRestoreSettings;
+import org.apache.flink.runtime.jobgraph.OperatorID;
 import org.apache.flink.runtime.jobmaster.JobResult;
 import org.apache.flink.runtime.messages.Acknowledge;
+import org.apache.flink.runtime.operators.coordination.CoordinationRequest;
+import org.apache.flink.runtime.operators.coordination.CoordinationResponse;
+import org.apache.flink.util.AbstractID;
 import org.apache.flink.util.FlinkException;
-import org.apache.flink.util.OptionalFailure;
-import org.apache.flink.util.Preconditions;
+import org.apache.flink.util.concurrent.FutureUtils;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import java.net.URISyntaxException;
-import java.net.URL;
 import java.util.Collection;
-import java.util.List;
+import java.util.Collections;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -61,334 +47,218 @@ import java.util.concurrent.CompletableFuture;
  *
  * @param <T> type of the cluster id
  */
-public abstract class ClusterClient<T> implements AutoCloseable {
+public interface ClusterClient<T> extends AutoCloseable {
 
-	protected final Logger log = LoggerFactory.getLogger(getClass());
+    @Override
+    void close();
 
-	/** The optimizer used in the optimization of batch programs. */
-	final Optimizer compiler;
+    /**
+     * Returns the cluster id identifying the cluster to which the client is connected.
+     *
+     * @return cluster id of the connected cluster
+     */
+    T getClusterId();
 
-	/** Configuration of the client. */
-	private final Configuration flinkConfig;
+    /**
+     * Return the Flink configuration object.
+     *
+     * @return The Flink configuration object
+     */
+    Configuration getFlinkConfiguration();
 
-	/**
-	 * For interactive invocations, the job results are only available after the ContextEnvironment has
-	 * been run inside the user JAR. We pass the Client to every instance of the ContextEnvironment
-	 * which lets us access the execution result here.
-	 */
-	protected JobExecutionResult lastJobExecutionResult;
+    /** Shut down the cluster that this client communicate with. */
+    void shutDownCluster();
 
-	/** Switch for blocking/detached job submission of the client. */
-	private boolean detachedJobSubmission = false;
+    /** Returns an URL (as a string) to the cluster web interface. */
+    String getWebInterfaceURL();
 
-	// ------------------------------------------------------------------------
-	//                            Construction
-	// ------------------------------------------------------------------------
+    /**
+     * Lists the currently running and finished jobs on the cluster.
+     *
+     * @return future collection of running and finished jobs
+     * @throws Exception if no connection to the cluster could be established
+     */
+    CompletableFuture<Collection<JobStatusMessage>> listJobs() throws Exception;
 
-	/**
-	 * Creates a instance that submits the programs to the JobManager defined in the
-	 * configuration. This method will try to resolve the JobManager hostname and throw an exception
-	 * if that is not possible.
-	 *
-	 * @param flinkConfig The config used to obtain the job-manager's address, and used to configure the optimizer.
-	 */
-	public ClusterClient(Configuration flinkConfig) {
-		this.flinkConfig = Preconditions.checkNotNull(flinkConfig);
-		this.compiler = new Optimizer(new DataStatistics(), new DefaultCostEstimator(), flinkConfig);
-	}
+    /**
+     * Dispose the savepoint under the given path.
+     *
+     * @param savepointPath path to the savepoint to be disposed
+     * @return acknowledge future of the dispose action
+     */
+    CompletableFuture<Acknowledge> disposeSavepoint(String savepointPath) throws FlinkException;
 
-	/**
-	 * User overridable hook to close the client, possibly closes internal services.
-	 * @deprecated use the {@link #close()} instead. This method stays for backwards compatibility.
-	 */
-	public void shutdown() throws Exception {
-		close();
-	}
+    /**
+     * Submit the given {@link JobGraph} to the cluster.
+     *
+     * @param jobGraph to submit
+     * @return {@link JobID} of the submitted job
+     */
+    CompletableFuture<JobID> submitJob(JobGraph jobGraph);
 
-	@Override
-	public void close() throws Exception {
+    /** Requests the {@link JobStatus} of the job with the given {@link JobID}. */
+    CompletableFuture<JobStatus> getJobStatus(JobID jobId);
 
-	}
+    /**
+     * Request the {@link JobResult} for the given {@link JobID}.
+     *
+     * @param jobId for which to request the {@link JobResult}
+     * @return Future which is completed with the {@link JobResult}
+     */
+    CompletableFuture<JobResult> requestJobResult(JobID jobId);
 
-	// ------------------------------------------------------------------------
-	//  Access to the Program's Plan
-	// ------------------------------------------------------------------------
+    /**
+     * Requests and returns the accumulators for the given job identifier. Accumulators can be
+     * requested while a is running or after it has finished. The default class loader is used to
+     * deserialize the incoming accumulator results.
+     *
+     * @param jobID The job identifier of a job.
+     * @return A Map containing the accumulator's name and its value.
+     */
+    default CompletableFuture<Map<String, Object>> getAccumulators(JobID jobID) {
+        return getAccumulators(jobID, ClassLoader.getSystemClassLoader());
+    }
 
-	public static String getOptimizedPlanAsJson(Optimizer compiler, PackagedProgram prog, int parallelism)
-			throws CompilerException, ProgramInvocationException {
-		PlanJSONDumpGenerator jsonGen = new PlanJSONDumpGenerator();
-		return jsonGen.getOptimizerPlanAsJSON((OptimizedPlan) getOptimizedPlan(compiler, prog, parallelism));
-	}
+    /**
+     * Requests and returns the accumulators for the given job identifier. Accumulators can be
+     * requested while a is running or after it has finished.
+     *
+     * @param jobID The job identifier of a job.
+     * @param loader The class loader for deserializing the accumulator results.
+     * @return A Map containing the accumulator's name and its value.
+     */
+    CompletableFuture<Map<String, Object>> getAccumulators(JobID jobID, ClassLoader loader);
 
-	public static FlinkPlan getOptimizedPlan(Optimizer compiler, PackagedProgram prog, int parallelism)
-			throws CompilerException, ProgramInvocationException {
-		final ClassLoader contextClassLoader = Thread.currentThread().getContextClassLoader();
-		try {
-			Thread.currentThread().setContextClassLoader(prog.getUserCodeClassLoader());
+    /**
+     * Cancels a job identified by the job id.
+     *
+     * @param jobId the job id
+     */
+    CompletableFuture<Acknowledge> cancel(JobID jobId);
 
-			// temporary hack to support the optimizer plan preview
-			OptimizerPlanEnvironment env = new OptimizerPlanEnvironment(compiler);
-			if (parallelism > 0) {
-				env.setParallelism(parallelism);
-			}
-			return env.getOptimizedPlan(prog);
-		} finally {
-			Thread.currentThread().setContextClassLoader(contextClassLoader);
-		}
-	}
+    /**
+     * Cancels a job identified by the job id and triggers a savepoint.
+     *
+     * @param jobId the job id
+     * @param savepointDirectory directory the savepoint should be written to
+     * @param formatType a binary format of the savepoint
+     * @return future of path where the savepoint is located
+     */
+    CompletableFuture<String> cancelWithSavepoint(
+            JobID jobId, @Nullable String savepointDirectory, SavepointFormatType formatType);
 
-	public static OptimizedPlan getOptimizedPlan(Optimizer compiler, Plan p, int parallelism) throws CompilerException {
-		Logger log = LoggerFactory.getLogger(ClusterClient.class);
+    /**
+     * Stops a program on Flink cluster whose job-manager is configured in this client's
+     * configuration. Stopping works only for streaming programs. Be aware, that the program might
+     * continue to run for a while after sending the stop command, because after sources stopped to
+     * emit data all operators need to finish processing.
+     *
+     * @param jobId the job ID of the streaming program to stop
+     * @param advanceToEndOfEventTime flag indicating if the source should inject a {@code
+     *     MAX_WATERMARK} in the pipeline
+     * @param savepointDirectory directory the savepoint should be written to
+     * @param formatType a binary format of the savepoint
+     * @return a {@link CompletableFuture} containing the path where the savepoint is located
+     */
+    CompletableFuture<String> stopWithSavepoint(
+            final JobID jobId,
+            final boolean advanceToEndOfEventTime,
+            @Nullable final String savepointDirectory,
+            final SavepointFormatType formatType);
 
-		if (parallelism > 0 && p.getDefaultParallelism() <= 0) {
-			log.debug("Changing plan default parallelism from {} to {}", p.getDefaultParallelism(), parallelism);
-			p.setDefaultParallelism(parallelism);
-		}
-		log.debug("Set parallelism {}, plan default parallelism {}", parallelism, p.getDefaultParallelism());
+    /**
+     * Stops a program on Flink cluster whose job-manager is configured in this client's
+     * configuration. Stopping works only for streaming programs. Be aware, that the program might
+     * continue to run for a while after sending the stop command, because after sources stopped to
+     * emit data all operators need to finish processing.
+     *
+     * @param jobId the job ID of the streaming program to stop
+     * @param advanceToEndOfEventTime flag indicating if the source should inject a {@code
+     *     MAX_WATERMARK} in the pipeline
+     * @param savepointDirectory directory the savepoint should be written to
+     * @param formatType a binary format of the savepoint
+     * @return the savepoint trigger id
+     */
+    CompletableFuture<String> stopWithDetachedSavepoint(
+            final JobID jobId,
+            final boolean advanceToEndOfEventTime,
+            @Nullable final String savepointDirectory,
+            final SavepointFormatType formatType);
 
-		return compiler.compile(p);
-	}
+    /**
+     * Triggers a savepoint for the job identified by the job id. The savepoint will be written to
+     * the given savepoint directory, or {@link
+     * org.apache.flink.configuration.CheckpointingOptions#SAVEPOINT_DIRECTORY} if it is null.
+     *
+     * @param jobId job id
+     * @param savepointDirectory directory the savepoint should be written to
+     * @param formatType a binary format of the savepoint
+     * @return path future where the savepoint is located
+     */
+    CompletableFuture<String> triggerSavepoint(
+            JobID jobId, @Nullable String savepointDirectory, SavepointFormatType formatType);
 
-	// ------------------------------------------------------------------------
-	//  Program submission / execution
-	// ------------------------------------------------------------------------
+    /**
+     * Triggers a checkpoint for the job identified by the job id. The checkpoint will be written to
+     * the checkpoint directory for the job.
+     *
+     * @param jobId job id
+     * @param checkpointType the checkpoint type (configured / full / incremental)
+     */
+    CompletableFuture<Long> triggerCheckpoint(JobID jobId, CheckpointType checkpointType);
 
-	/**
-	 * General purpose method to run a user jar from the CliFrontend in either blocking or detached mode, depending
-	 * on whether {@code setDetached(true)} or {@code setDetached(false)}.
-	 * @param prog the packaged program
-	 * @param parallelism the parallelism to execute the contained Flink job
-	 * @return The result of the execution
-	 * @throws ProgramMissingJobException
-	 * @throws ProgramInvocationException
-	 */
-	public JobSubmissionResult run(PackagedProgram prog, int parallelism)
-			throws ProgramInvocationException, ProgramMissingJobException {
-		final ClassLoader contextClassLoader = Thread.currentThread().getContextClassLoader();
-		try {
-			Thread.currentThread().setContextClassLoader(prog.getUserCodeClassLoader());
+    /**
+     * Triggers a detached savepoint for the job identified by the job id. The savepoint will be
+     * written to the given savepoint directory, or {@link
+     * org.apache.flink.configuration.CheckpointingOptions#SAVEPOINT_DIRECTORY} if it is null.
+     * Notice that: the detached savepoint will return with a savepoint trigger id instead of the
+     * path future, that means the client will return very quickly.
+     *
+     * @param jobId job id
+     * @param savepointDirectory directory the savepoint should be written to
+     * @param formatType a binary format of the savepoint
+     * @return the savepoint trigger id
+     */
+    CompletableFuture<String> triggerDetachedSavepoint(
+            JobID jobId, @Nullable String savepointDirectory, SavepointFormatType formatType);
 
-			log.info("Starting program (detached: {})", isDetached());
+    /**
+     * Sends out a request to a specified coordinator and return the response.
+     *
+     * @param jobId specifies the job which the coordinator belongs to
+     * @param operatorId specifies which coordinator to receive the request
+     * @param request the request to send
+     * @return the response from the coordinator
+     */
+    CompletableFuture<CoordinationResponse> sendCoordinationRequest(
+            JobID jobId, OperatorID operatorId, CoordinationRequest request);
 
-			final List<URL> libraries = prog.getAllLibraries();
+    /**
+     * Return a set of ids of the completed cluster datasets.
+     *
+     * @return A set of ids of the completely cached intermediate dataset.
+     */
+    default CompletableFuture<Set<AbstractID>> listCompletedClusterDatasetIds() {
+        return CompletableFuture.completedFuture(Collections.emptySet());
+    }
 
-			ContextEnvironmentFactory factory = new ContextEnvironmentFactory(this, libraries,
-					prog.getClasspaths(), prog.getUserCodeClassLoader(), parallelism, isDetached(),
-					prog.getSavepointSettings());
-			ContextEnvironment.setAsContext(factory);
+    /**
+     * Invalidate the cached intermediate dataset with the given id.
+     *
+     * @param clusterDatasetId id of the cluster dataset to be invalidated.
+     * @return Future which will be completed when the cached dataset is invalidated.
+     */
+    default CompletableFuture<Void> invalidateClusterDataset(AbstractID clusterDatasetId) {
+        return CompletableFuture.completedFuture(null);
+    }
 
-			try {
-				// invoke main method
-				prog.invokeInteractiveModeForExecution();
-				if (lastJobExecutionResult == null) {
-					throw new ProgramMissingJobException("The program didn't contain a Flink job.");
-				}
-				return this.lastJobExecutionResult;
-			} finally {
-				ContextEnvironment.unsetContext();
-			}
-		}
-		finally {
-			Thread.currentThread().setContextClassLoader(contextClassLoader);
-		}
-	}
-
-	public JobSubmissionResult run(
-		Plan plan,
-		List<URL> libraries,
-		List<URL> classpaths,
-		ClassLoader classLoader,
-		int parallelism,
-		SavepointRestoreSettings savepointSettings) throws CompilerException, ProgramInvocationException {
-
-		OptimizedPlan optPlan = getOptimizedPlan(compiler, plan, parallelism);
-		return run(optPlan, libraries, classpaths, classLoader, savepointSettings);
-	}
-
-	public JobSubmissionResult run(
-		FlinkPlan compiledPlan,
-		List<URL> libraries,
-		List<URL> classpaths,
-		ClassLoader classLoader,
-		SavepointRestoreSettings savepointSettings) throws ProgramInvocationException {
-		JobGraph job = getJobGraph(flinkConfig, compiledPlan, libraries, classpaths, savepointSettings);
-		return submitJob(job, classLoader);
-	}
-
-	/**
-	 * Requests the {@link JobStatus} of the job with the given {@link JobID}.
-	 */
-	public abstract CompletableFuture<JobStatus> getJobStatus(JobID jobId);
-
-	/**
-	 * Cancels a job identified by the job id.
-	 * @param jobId the job id
-	 * @throws Exception In case an error occurred.
-	 */
-	public abstract void cancel(JobID jobId) throws Exception;
-
-	/**
-	 * Cancels a job identified by the job id and triggers a savepoint.
-	 * @param jobId the job id
-	 * @param savepointDirectory directory the savepoint should be written to
-	 * @return path where the savepoint is located
-	 * @throws Exception In case an error occurred.
-	 */
-	public abstract String cancelWithSavepoint(JobID jobId, @Nullable String savepointDirectory) throws Exception;
-
-	/**
-	 * Stops a program on Flink cluster whose job-manager is configured in this client's configuration.
-	 * Stopping works only for streaming programs. Be aware, that the program might continue to run for
-	 * a while after sending the stop command, because after sources stopped to emit data all operators
-	 * need to finish processing.
-	 *
-	 * @param jobId the job ID of the streaming program to stop
-	 * @param advanceToEndOfEventTime flag indicating if the source should inject a {@code MAX_WATERMARK} in the pipeline
-	 * @param savepointDirectory directory the savepoint should be written to
-	 * @return a {@link CompletableFuture} containing the path where the savepoint is located
-	 * @throws Exception
-	 *             If the job ID is invalid (ie, is unknown or refers to a batch job) or if sending the stop signal
-	 *             failed. That might be due to an I/O problem, ie, the job-manager is unreachable.
-	 */
-	public abstract String stopWithSavepoint(final JobID jobId, final boolean advanceToEndOfEventTime, @Nullable final String savepointDirectory) throws Exception;
-
-	/**
-	 * Triggers a savepoint for the job identified by the job id. The savepoint will be written to the given savepoint
-	 * directory, or {@link org.apache.flink.configuration.CheckpointingOptions#SAVEPOINT_DIRECTORY} if it is null.
-	 *
-	 * @param jobId job id
-	 * @param savepointDirectory directory the savepoint should be written to
-	 * @return path future where the savepoint is located
-	 * @throws FlinkException if no connection to the cluster could be established
-	 */
-	public abstract CompletableFuture<String> triggerSavepoint(JobID jobId, @Nullable String savepointDirectory) throws FlinkException;
-
-	public abstract CompletableFuture<Acknowledge> disposeSavepoint(String savepointPath) throws FlinkException;
-
-	/**
-	 * Lists the currently running and finished jobs on the cluster.
-	 *
-	 * @return future collection of running and finished jobs
-	 * @throws Exception if no connection to the cluster could be established
-	 */
-	public abstract CompletableFuture<Collection<JobStatusMessage>> listJobs() throws Exception;
-
-	/**
-	 * Requests and returns the accumulators for the given job identifier. Accumulators can be
-	 * requested while a is running or after it has finished. The default class loader is used
-	 * to deserialize the incoming accumulator results.
-	 * @param jobID The job identifier of a job.
-	 * @return A Map containing the accumulator's name and its value.
-	 */
-	public Map<String, OptionalFailure<Object>> getAccumulators(JobID jobID) throws Exception {
-		return getAccumulators(jobID, ClassLoader.getSystemClassLoader());
-	}
-
-	/**
-	 * Requests and returns the accumulators for the given job identifier. Accumulators can be
-	 * requested while a is running or after it has finished.
-	 * @param jobID The job identifier of a job.
-	 * @param loader The class loader for deserializing the accumulator results.
-	 * @return A Map containing the accumulator's name and its value.
-	 */
-	public abstract Map<String, OptionalFailure<Object>> getAccumulators(JobID jobID, ClassLoader loader) throws Exception;
-
-	// ------------------------------------------------------------------------
-	//  Internal translation methods
-	// ------------------------------------------------------------------------
-
-	public static JobGraph getJobGraph(Configuration flinkConfig, PackagedProgram prog, FlinkPlan optPlan, SavepointRestoreSettings savepointSettings) throws ProgramInvocationException {
-		return getJobGraph(flinkConfig, optPlan, prog.getAllLibraries(), prog.getClasspaths(), savepointSettings);
-	}
-
-	public static JobGraph getJobGraph(Configuration flinkConfig, FlinkPlan optPlan, List<URL> jarFiles, List<URL> classpaths, SavepointRestoreSettings savepointSettings) {
-		JobGraph job;
-		if (optPlan instanceof StreamingPlan) {
-			job = ((StreamingPlan) optPlan).getJobGraph();
-			job.setSavepointRestoreSettings(savepointSettings);
-		} else {
-			JobGraphGenerator gen = new JobGraphGenerator(flinkConfig);
-			job = gen.compileJobGraph((OptimizedPlan) optPlan);
-		}
-
-		for (URL jar : jarFiles) {
-			try {
-				job.addJar(new Path(jar.toURI()));
-			} catch (URISyntaxException e) {
-				throw new RuntimeException("URL is invalid. This should not happen.", e);
-			}
-		}
-
-		job.setClasspaths(classpaths);
-
-		return job;
-	}
-
-	// ------------------------------------------------------------------------
-	//  Abstract methods to be implemented by the cluster specific Client
-	// ------------------------------------------------------------------------
-
-	/**
-	 * Returns an URL (as a string) to the JobManager web interface.
-	 */
-	public abstract String getWebInterfaceURL();
-
-	/**
-	 * Returns the cluster id identifying the cluster to which the client is connected.
-	 *
-	 * @return cluster id of the connected cluster
-	 */
-	public abstract T getClusterId();
-
-	/**
-	 * Set the mode of this client (detached or blocking job execution).
-	 * @param isDetached If true, the client will submit programs detached via the {@code run} method
-	 */
-	public void setDetached(boolean isDetached) {
-		this.detachedJobSubmission = isDetached;
-	}
-
-	/**
-	 * A flag to indicate whether this clients submits jobs detached.
-	 * @return True if the Client submits detached, false otherwise
-	 */
-	public boolean isDetached() {
-		return detachedJobSubmission;
-	}
-
-	/**
-	 * Return the Flink configuration object.
-	 * @return The Flink configuration object
-	 */
-	public Configuration getFlinkConfiguration() {
-		return flinkConfig.clone();
-	}
-
-	/**
-	 * Calls the subclasses' submitJob method. It may decide to simply call one of the run methods or it may perform
-	 * some custom job submission logic.
-	 * @param jobGraph The JobGraph to be submitted
-	 * @return JobSubmissionResult
-	 */
-	public abstract JobSubmissionResult submitJob(JobGraph jobGraph, ClassLoader classLoader) throws ProgramInvocationException;
-
-	/**
-	 * Submit the given {@link JobGraph} to the cluster.
-	 *
-	 * @param jobGraph to submit
-	 * @return Future which is completed with the {@link JobSubmissionResult}
-	 */
-	public abstract CompletableFuture<JobSubmissionResult> submitJob(@Nonnull JobGraph jobGraph);
-
-	/**
-	 * Request the {@link JobResult} for the given {@link JobID}.
-	 *
-	 * @param jobId for which to request the {@link JobResult}
-	 * @return Future which is completed with the {@link JobResult}
-	 */
-	public abstract CompletableFuture<JobResult> requestJobResult(@Nonnull JobID jobId);
-
-	public void shutDownCluster() {
-		throw new UnsupportedOperationException("The " + getClass().getSimpleName() + " does not support shutDownCluster.");
-	}
+    /**
+     * The client reports the heartbeat to the dispatcher for aliveness.
+     *
+     * @param jobId The jobId for the client and the job.
+     * @return
+     */
+    default CompletableFuture<Void> reportHeartbeat(JobID jobId, long expiredTimestamp) {
+        return FutureUtils.completedVoidFuture();
+    }
 }

@@ -35,7 +35,7 @@ function run_ha_test() {
     local ASYNC=$3
     local INCREM=$4
 
-    local JM_KILLS=3
+    local JM_KILLS=2
     local CHECKPOINT_DIR="${TEST_DATA_DIR}/checkpoints/"
 
     CLEARED=0
@@ -45,11 +45,12 @@ function run_ha_test() {
     # change the pid dir to start log files always from 0, this is important for checks in the
     # jm killing loop
     set_config_key "env.pid.dir" "${TEST_DATA_DIR}"
-    set_config_key "env.java.opts" "-ea"
+    set_config_key "env.java.opts.jobmanager" "-enableassertions"
+    set_config_key "env.java.opts.taskmanager" "-enableassertions"
     start_local_zk
     start_cluster
 
-    echo "Running on HA mode: parallelism=${PARALLELISM}, backend=${BACKEND}, asyncSnapshots=${ASYNC}, and incremSnapshots=${INCREM}."
+    echo "Running on HA mode: parallelism=${PARALLELISM}, backend=${BACKEND}, asyncSnapshots=${ASYNC}, incremSnapshots=${INCREM}."
 
     # submit a job in detached mode and let it run
     local JOB_ID=$($FLINK_DIR/bin/flink run -d -p ${PARALLELISM} \
@@ -97,4 +98,4 @@ STATE_BACKEND_TYPE=${1:-file}
 STATE_BACKEND_FILE_ASYNC=${2:-true}
 STATE_BACKEND_ROCKS_INCREMENTAL=${3:-false}
 
-run_ha_test 4 ${STATE_BACKEND_TYPE} ${STATE_BACKEND_FILE_ASYNC} ${STATE_BACKEND_ROCKS_INCREMENTAL}
+run_test_with_timeout 900 run_ha_test 4 ${STATE_BACKEND_TYPE} ${STATE_BACKEND_FILE_ASYNC} ${STATE_BACKEND_ROCKS_INCREMENTAL}

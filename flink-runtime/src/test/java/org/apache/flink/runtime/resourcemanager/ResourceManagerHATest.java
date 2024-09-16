@@ -18,107 +18,53 @@
 
 package org.apache.flink.runtime.resourcemanager;
 
-import org.apache.flink.api.common.time.Time;
-import org.apache.flink.runtime.clusterframework.types.ResourceID;
-import org.apache.flink.runtime.entrypoint.ClusterInformation;
-import org.apache.flink.runtime.heartbeat.TestingHeartbeatServices;
-import org.apache.flink.runtime.highavailability.TestingHighAvailabilityServices;
-import org.apache.flink.runtime.leaderelection.TestingLeaderElectionService;
-import org.apache.flink.runtime.metrics.NoOpMetricRegistry;
-import org.apache.flink.runtime.metrics.groups.UnregisteredMetricGroups;
-import org.apache.flink.runtime.resourcemanager.slotmanager.SlotManagerConfiguration;
-import org.apache.flink.runtime.rpc.RpcService;
-import org.apache.flink.runtime.rpc.TestingRpcService;
-import org.apache.flink.runtime.testingUtils.TestingUtils;
-import org.apache.flink.runtime.util.TestingFatalErrorHandler;
-import org.apache.flink.util.TestLogger;
+import org.apache.flink.runtime.leaderelection.LeaderInformation;
+import org.apache.flink.runtime.leaderelection.TestingLeaderElection;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
-/**
- * ResourceManager HA test, including grant leadership and revoke leadership.
- */
-public class ResourceManagerHATest extends TestLogger {
+import static org.assertj.core.api.Assertions.assertThat;
 
-	@Test
-	public void testGrantAndRevokeLeadership() throws Exception {
-		ResourceID rmResourceId = ResourceID.generate();
-		RpcService rpcService = new TestingRpcService();
+/** ResourceManager HA test, including grant leadership and revoke leadership. */
+class ResourceManagerHATest {
 
-		CompletableFuture<UUID> leaderSessionIdFuture = new CompletableFuture<>();
+    @Test
+    void testGrantAndRevokeLeadership() throws Exception {
+        final TestingLeaderElection leaderElection = new TestingLeaderElection();
 
-		TestingLeaderElectionService leaderElectionService = new TestingLeaderElectionService() {
-			@Override
-			public void confirmLeaderSessionID(UUID leaderId) {
-				leaderSessionIdFuture.complete(leaderId);
-			}
-		};
+        final TestingResourceManagerService resourceManagerService =
+                TestingResourceManagerService.newBuilder()
+                        .setRmLeaderElection(leaderElection)
+                        .build();
 
-		TestingHighAvailabilityServices highAvailabilityServices = new TestingHighAvailabilityServices();
-		highAvailabilityServices.setResourceManagerLeaderElectionService(leaderElectionService);
+        try {
+            resourceManagerService.start();
 
-		TestingHeartbeatServices heartbeatServices = new TestingHeartbeatServices();
+            final UUID leaderId = UUID.randomUUID();
+            final LeaderInformation confirmedLeaderInformation =
+                    resourceManagerService.isLeader(leaderId).join();
 
-		ResourceManagerRuntimeServicesConfiguration resourceManagerRuntimeServicesConfiguration = new ResourceManagerRuntimeServicesConfiguration(
-			Time.seconds(5L),
-			new SlotManagerConfiguration(
-				TestingUtils.infiniteTime(),
-				TestingUtils.infiniteTime(),
-				TestingUtils.infiniteTime(),
-				true));
-		ResourceManagerRuntimeServices resourceManagerRuntimeServices = ResourceManagerRuntimeServices.fromConfiguration(
-			resourceManagerRuntimeServicesConfiguration,
-			highAvailabilityServices,
-			rpcService.getScheduledExecutor());
+            // after grant leadership, verify resource manager is started with the fencing token
+            assertThat(confirmedLeaderInformation.getLeaderSessionID()).isEqualTo(leaderId);
+            assertThat(resourceManagerService.getResourceManagerFencingToken()).isPresent();
+            assertThat(resourceManagerService.getResourceManagerFencingToken().get().toUUID())
+                    .isEqualTo(leaderId);
 
-		TestingFatalErrorHandler testingFatalErrorHandler = new TestingFatalErrorHandler();
+            // then revoke leadership, verify resource manager is closed
+            final Optional<CompletableFuture<Void>> rmTerminationFutureOpt =
+                    resourceManagerService.getResourceManagerTerminationFuture();
+            assertThat(rmTerminationFutureOpt).isPresent();
 
-		CompletableFuture<ResourceManagerId> revokedLeaderIdFuture = new CompletableFuture<>();
+            resourceManagerService.notLeader();
+            rmTerminationFutureOpt.get().get();
 
-		final ResourceManager resourceManager =
-			new StandaloneResourceManager(
-				rpcService,
-				ResourceManager.RESOURCE_MANAGER_NAME,
-				rmResourceId,
-				highAvailabilityServices,
-				heartbeatServices,
-				resourceManagerRuntimeServices.getSlotManager(),
-				NoOpMetricRegistry.INSTANCE,
-				resourceManagerRuntimeServices.getJobLeaderIdService(),
-				new ClusterInformation("localhost", 1234),
-				testingFatalErrorHandler,
-				UnregisteredMetricGroups.createUnregisteredJobManagerMetricGroup(),
-				Time.minutes(5L)) {
-
-				@Override
-				public void revokeLeadership() {
-					super.revokeLeadership();
-					runAsyncWithoutFencing(
-						() -> revokedLeaderIdFuture.complete(getFencingToken()));
-				}
-			};
-
-		try {
-			resourceManager.start();
-
-			Assert.assertNull(resourceManager.getFencingToken());
-			final UUID leaderId = UUID.randomUUID();
-			leaderElectionService.isLeader(leaderId);
-			// after grant leadership, resourceManager's leaderId has value
-			Assert.assertEquals(leaderId, leaderSessionIdFuture.get());
-			// then revoke leadership, resourceManager's leaderId should be different
-			leaderElectionService.notLeader();
-			Assert.assertNotEquals(leaderId, revokedLeaderIdFuture.get());
-
-			if (testingFatalErrorHandler.hasExceptionOccurred()) {
-				testingFatalErrorHandler.rethrowError();
-			}
-		} finally {
-			rpcService.stopService().get();
-		}
-	}
+            resourceManagerService.rethrowFatalErrorIfAny();
+        } finally {
+            resourceManagerService.cleanUp();
+        }
+    }
 }

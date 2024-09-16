@@ -20,39 +20,36 @@ package org.apache.flink.runtime.rest.messages.job;
 
 import org.apache.flink.runtime.jobgraph.JobVertexID;
 import org.apache.flink.runtime.rest.messages.RestResponseMarshallingTestBase;
+import org.apache.flink.testutils.junit.extensions.parameterized.NoOpTestExtension;
+
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Tests (un)marshalling of the {@link SubtasksAllAccumulatorsInfo}.
- */
-public class SubtasksAllAccumulatorsInfoTest extends RestResponseMarshallingTestBase<SubtasksAllAccumulatorsInfo> {
-	@Override
-	protected Class<SubtasksAllAccumulatorsInfo> getTestResponseClass() {
-		return SubtasksAllAccumulatorsInfo.class;
-	}
+/** Tests (un)marshalling of the {@link SubtasksAllAccumulatorsInfo}. */
+@ExtendWith(NoOpTestExtension.class)
+class SubtasksAllAccumulatorsInfoTest
+        extends RestResponseMarshallingTestBase<SubtasksAllAccumulatorsInfo> {
+    @Override
+    protected Class<SubtasksAllAccumulatorsInfo> getTestResponseClass() {
+        return SubtasksAllAccumulatorsInfo.class;
+    }
 
-	@Override
-	protected SubtasksAllAccumulatorsInfo getTestResponseInstance() throws Exception {
-		List<SubtasksAllAccumulatorsInfo.SubtaskAccumulatorsInfo> subtaskAccumulatorsInfos = new ArrayList<>(3);
+    @Override
+    protected SubtasksAllAccumulatorsInfo getTestResponseInstance() throws Exception {
+        List<SubtasksAllAccumulatorsInfo.SubtaskAccumulatorsInfo> subtaskAccumulatorsInfos =
+                new ArrayList<>(3);
 
-		List<UserAccumulator> userAccumulators = new ArrayList<>(2);
-		userAccumulators.add(new UserAccumulator("test name1", "test type1", "test value1"));
-		userAccumulators.add(new UserAccumulator("test name2", "test type2", "test value2"));
+        List<UserAccumulator> userAccumulators = new ArrayList<>(2);
+        userAccumulators.add(new UserAccumulator("test name1", "test type1", "test value1"));
+        userAccumulators.add(new UserAccumulator("test name2", "test type2", "test value2"));
 
-		for (int i = 0; i < 3; ++i) {
-			subtaskAccumulatorsInfos.add(
-				new SubtasksAllAccumulatorsInfo.SubtaskAccumulatorsInfo(
-					i,
-					i,
-					"host-" + String.valueOf(i),
-					userAccumulators
-				));
-
-		}
-		return new SubtasksAllAccumulatorsInfo(new JobVertexID(),
-			4,
-			subtaskAccumulatorsInfos);
-	}
+        for (int i = 0; i < 3; ++i) {
+            subtaskAccumulatorsInfos.add(
+                    new SubtasksAllAccumulatorsInfo.SubtaskAccumulatorsInfo(
+                            i, i, "host-" + i, "host-" + i + ":123", userAccumulators));
+        }
+        return new SubtasksAllAccumulatorsInfo(new JobVertexID(), 4, subtaskAccumulatorsInfos);
+    }
 }

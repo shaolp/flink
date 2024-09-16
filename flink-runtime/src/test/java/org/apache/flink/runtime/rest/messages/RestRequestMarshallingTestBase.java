@@ -23,50 +23,48 @@ import org.apache.flink.util.TestLogger;
 
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.ObjectMapper;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.TestTemplate;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Test base for verifying that marshalling / unmarshalling REST {@link RequestBody}s work properly.
  */
 public abstract class RestRequestMarshallingTestBase<R extends RequestBody> extends TestLogger {
 
-	/**
-	 * Returns the class of the test response.
-	 *
-	 * @return class of the test response type
-	 */
-	protected abstract Class<R> getTestRequestClass();
+    /**
+     * Returns the class of the test response.
+     *
+     * @return class of the test response type
+     */
+    protected abstract Class<R> getTestRequestClass();
 
-	/**
-	 * Returns an instance of a response to be tested.
-	 *
-	 * @return instance of the expected test response
-	 */
-	protected abstract R getTestRequestInstance() throws Exception;
+    /**
+     * Returns an instance of a response to be tested.
+     *
+     * @return instance of the expected test response
+     */
+    protected abstract R getTestRequestInstance() throws Exception;
 
-	/**
-	 * Tests that we can marshal and unmarshal the response.
-	 */
-	@Test
-	public void testJsonMarshalling() throws Exception {
-		final R expected = getTestRequestInstance();
+    /** Tests that we can marshal and unmarshal the response. */
+    @TestTemplate
+    public void testJsonMarshalling() throws Exception {
+        final R expected = getTestRequestInstance();
 
-		ObjectMapper objectMapper = RestMapperUtils.getStrictObjectMapper();
-		final String marshalled = objectMapper.writeValueAsString(expected);
+        ObjectMapper objectMapper = RestMapperUtils.getStrictObjectMapper();
+        final String marshalled = objectMapper.writeValueAsString(expected);
 
-		final R unmarshalled = objectMapper.readValue(marshalled, getTestRequestClass());
-		assertOriginalEqualsToUnmarshalled(expected, unmarshalled);
-	}
+        final R unmarshalled = objectMapper.readValue(marshalled, getTestRequestClass());
+        assertOriginalEqualsToUnmarshalled(expected, unmarshalled);
+    }
 
-	/**
-	 * Asserts that two objects are equal. If they are not, an {@link AssertionError} is thrown.
-	 *
-	 * @param expected expected value
-	 * @param actual   the value to check against expected
-	 */
-	protected void assertOriginalEqualsToUnmarshalled(R expected, R actual) {
-		Assert.assertEquals(expected, actual);
-	}
-
+    /**
+     * Asserts that two objects are equal. If they are not, an {@link AssertionError} is thrown.
+     *
+     * @param expected expected value
+     * @param actual the value to check against expected
+     */
+    protected void assertOriginalEqualsToUnmarshalled(R expected, R actual) {
+        assertThat(expected).isEqualTo(actual);
+    }
 }

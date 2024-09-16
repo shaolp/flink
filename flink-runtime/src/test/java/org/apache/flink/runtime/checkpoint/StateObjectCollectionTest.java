@@ -20,51 +20,51 @@ package org.apache.flink.runtime.checkpoint;
 
 import org.apache.flink.runtime.state.StateObject;
 import org.apache.flink.util.MethodForwardingTestUtil;
-import org.apache.flink.util.TestLogger;
-import org.junit.Assert;
-import org.junit.Test;
+
+import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.function.Function;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
-/**
- * Tests for {@link StateObjectCollection}.
- */
-public class StateObjectCollectionTest extends TestLogger {
+/** Tests for {@link StateObjectCollection}. */
+class StateObjectCollectionTest {
 
-	@Test
-	public void testEmptyCollection() {
-		StateObjectCollection<StateObject> empty = StateObjectCollection.empty();
-		Assert.assertEquals(0, empty.getStateSize());
-	}
+    @Test
+    void testEmptyCollection() {
+        StateObjectCollection<StateObject> empty = StateObjectCollection.empty();
+        assertThat(empty.getStateSize()).isZero();
+    }
 
-	@Test
-	public void testForwardingCollectionMethods() throws Exception {
-		MethodForwardingTestUtil.testMethodForwarding(
-			Collection.class,
-			((Function<Collection, StateObjectCollection>) StateObjectCollection::new));
-	}
+    @Test
+    void testForwardingCollectionMethods() throws Exception {
+        MethodForwardingTestUtil.testMethodForwarding(
+                Collection.class,
+                ((Function<Collection, StateObjectCollection>) StateObjectCollection::new));
+    }
 
-	@Test
-	public void testForwardingStateObjectMethods() throws Exception {
-		MethodForwardingTestUtil.testMethodForwarding(
-			StateObject.class,
-			object -> new StateObjectCollection<>(Collections.singletonList(object)));
-	}
+    @Test
+    void testForwardingStateObjectMethods() throws Exception {
+        MethodForwardingTestUtil.testMethodForwarding(
+                StateObject.class,
+                object -> new StateObjectCollection<>(Collections.singletonList(object)));
+    }
 
-	@Test
-	public void testHasState() {
-		StateObjectCollection<StateObject> stateObjects = new StateObjectCollection<>(new ArrayList<>());
-		Assert.assertFalse(stateObjects.hasState());
+    @Test
+    void testHasState() {
+        StateObjectCollection<StateObject> stateObjects =
+                new StateObjectCollection<>(new ArrayList<>());
+        assertThat(stateObjects.hasState()).isFalse();
 
-		stateObjects = new StateObjectCollection<>(Collections.singletonList(null));
-		Assert.assertFalse(stateObjects.hasState());
+        stateObjects = new StateObjectCollection<>(Collections.singletonList(null));
+        assertThat(stateObjects.hasState()).isFalse();
 
-		stateObjects = new StateObjectCollection<>(Collections.singletonList(mock(StateObject.class)));
-		Assert.assertTrue(stateObjects.hasState());
-	}
+        stateObjects =
+                new StateObjectCollection<>(Collections.singletonList(mock(StateObject.class)));
+        assertThat(stateObjects.hasState()).isTrue();
+    }
 }

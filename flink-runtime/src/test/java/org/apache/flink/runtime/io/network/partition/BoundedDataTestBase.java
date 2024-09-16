@@ -18,180 +18,223 @@
 
 package org.apache.flink.runtime.io.network.partition;
 
+import org.apache.flink.configuration.NettyShuffleEnvironmentOptions.CompressionCodec;
 import org.apache.flink.runtime.io.network.buffer.Buffer;
 import org.apache.flink.runtime.io.network.buffer.BufferBuilderTestUtils;
+import org.apache.flink.runtime.io.network.buffer.BufferCompressor;
+import org.apache.flink.runtime.io.network.buffer.BufferDecompressor;
+import org.apache.flink.testutils.junit.extensions.parameterized.Parameter;
+import org.apache.flink.testutils.junit.extensions.parameterized.ParameterizedTestExtension;
+import org.apache.flink.testutils.junit.extensions.parameterized.Parameters;
 
-import org.hamcrest.Matchers;
-import org.junit.ClassRule;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.TestTemplate;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.io.TempDir;
 
-import java.io.File;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.List;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * Tests that read the BoundedBlockingSubpartition with multiple threads in parallel.
- */
-public abstract class BoundedDataTestBase {
+/** Tests that read the BoundedBlockingSubpartition with multiple threads in parallel. */
+@ExtendWith(ParameterizedTestExtension.class)
+abstract class BoundedDataTestBase {
 
-	@ClassRule
-	public static final TemporaryFolder TMP_FOLDER = new TemporaryFolder();
+    private Path subpartitionDataPath;
 
-	/** Max buffer sized used by the tests that write data. For implementations that need
-	 * to instantiate buffers in the read side. */
-	protected static final int BUFFER_SIZE = 1024 * 1024; // 1 MiByte
+    /**
+     * Max buffer sized used by the tests that write data. For implementations that need to
+     * instantiate buffers in the read side.
+     */
+    protected static final int BUFFER_SIZE = 1024 * 1024; // 1 MiByte
 
-	// ------------------------------------------------------------------------
-	//  BoundedData Instantiation
-	// ------------------------------------------------------------------------
+    private static final CompressionCodec COMPRESSION_CODEC = CompressionCodec.LZ4;
 
-	protected abstract boolean isRegionBased();
+    private static final BufferCompressor COMPRESSOR =
+            new BufferCompressor(BUFFER_SIZE, COMPRESSION_CODEC);
 
-	protected abstract BoundedData createBoundedData(Path tempFilePath) throws IOException;
+    private static final BufferDecompressor DECOMPRESSOR =
+            new BufferDecompressor(BUFFER_SIZE, COMPRESSION_CODEC);
 
-	protected abstract BoundedData createBoundedDataWithRegion(Path tempFilePath, int regionSize) throws IOException;
+    @Parameter private static boolean compressionEnabled;
 
-	protected BoundedData createBoundedData() throws IOException {
-		return createBoundedData(createTempPath());
-	}
+    @Parameters(name = "compressionEnabled = {0}")
+    private static List<Boolean> compressionEnabled() {
+        return Arrays.asList(false, true);
+    }
 
-	private BoundedData createBoundedDataWithRegion(int regionSize) throws IOException {
-		return createBoundedDataWithRegion(createTempPath(), regionSize);
-	}
+    @BeforeEach
+    void before(@TempDir Path tempDir) {
+        this.subpartitionDataPath = tempDir.resolve("subpartitiondata");
+    }
 
-	// ------------------------------------------------------------------------
-	//  Tests
-	// ------------------------------------------------------------------------
+    // ------------------------------------------------------------------------
+    //  BoundedData Instantiation
+    // ------------------------------------------------------------------------
 
-	@Test
-	public void testWriteAndReadData() throws Exception {
-		try (BoundedData bd = createBoundedData()) {
-			testWriteAndReadData(bd);
-		}
-	}
+    protected abstract boolean isRegionBased();
 
-	@Test
-	public void testWriteAndReadDataAcrossRegions() throws Exception {
-		if (!isRegionBased()) {
-			return;
-		}
+    protected abstract BoundedData createBoundedData(Path tempFilePath) throws IOException;
 
-		try (BoundedData bd = createBoundedDataWithRegion(1_276_347)) {
-			testWriteAndReadData(bd);
-		}
-	}
+    protected abstract BoundedData createBoundedDataWithRegion(Path tempFilePath, int regionSize)
+            throws IOException;
 
-	private void testWriteAndReadData(BoundedData bd) throws Exception {
-		final int numInts = 10_000_000;
-		final int numBuffers = writeInts(bd, numInts);
-		bd.finishWrite();
+    protected BoundedData createBoundedData() throws IOException {
+        return createBoundedData(subpartitionDataPath);
+    }
 
-		readInts(bd.createReader(), numBuffers, numInts);
-	}
+    private BoundedData createBoundedDataWithRegion(int regionSize) throws IOException {
+        return createBoundedDataWithRegion(subpartitionDataPath, regionSize);
+    }
 
-	@Test
-	public void returnNullAfterEmpty() throws Exception {
-		try (BoundedData bd = createBoundedData()) {
-			bd.finishWrite();
+    // ------------------------------------------------------------------------
+    //  Tests
+    // ------------------------------------------------------------------------
 
-			final BoundedData.Reader reader = bd.createReader();
+    @TestTemplate
+    void testWriteAndReadData() throws Exception {
+        try (BoundedData bd = createBoundedData()) {
+            testWriteAndReadData(bd);
+        }
+    }
 
-			// check that multiple calls now return empty buffers
-			assertNull(reader.nextBuffer());
-			assertNull(reader.nextBuffer());
-			assertNull(reader.nextBuffer());
-		}
-	}
+    @TestTemplate
+    void testWriteAndReadDataAcrossRegions() throws Exception {
+        if (!isRegionBased()) {
+            return;
+        }
 
-	@Test
-	public void testDeleteFileOnClose() throws Exception {
-		final Path path = createTempPath();
-		final BoundedData bd = createBoundedData(path);
-		assertTrue(Files.exists(path));
+        try (BoundedData bd = createBoundedDataWithRegion(1_276_347)) {
+            testWriteAndReadData(bd);
+        }
+    }
 
-		bd.close();
+    private void testWriteAndReadData(BoundedData bd) throws Exception {
+        final int numLongs = 10_000_000;
+        final int numBuffers = writeLongs(bd, numLongs);
+        bd.finishWrite();
 
-		assertFalse(Files.exists(path));
-	}
+        readLongs(bd.createReader(), numBuffers, numLongs);
+    }
 
-	@Test
-	public void testGetSizeSingleRegion() throws Exception {
-		try (BoundedData bd = createBoundedData()) {
-			testGetSize(bd);
-		}
-	}
+    @TestTemplate
+    void returnNullAfterEmpty() throws Exception {
+        try (BoundedData bd = createBoundedData()) {
+            bd.finishWrite();
 
-	@Test
-	public void testGetSizeMultipleRegions() throws Exception {
-		if (!isRegionBased()) {
-			return;
-		}
+            final BoundedData.Reader reader = bd.createReader();
 
-		try (BoundedData bd = createBoundedDataWithRegion(100_000)) {
-			testGetSize(bd);
-		}
-	}
+            // check that multiple calls now return empty buffers
+            assertThat(reader.nextBuffer()).isNull();
+            assertThat(reader.nextBuffer()).isNull();
+            assertThat(reader.nextBuffer()).isNull();
+        }
+    }
 
-	private static void testGetSize(BoundedData bd) throws Exception {
-		final int bufferSize1 = 60_787;
-		final int bufferSize2 = 76_687;
-		final int expectedSize1 = bufferSize1 + BufferReaderWriterUtil.HEADER_LENGTH;
-		final int expectedSizeFinal = bufferSize1 + bufferSize2 + 2 * BufferReaderWriterUtil.HEADER_LENGTH;
+    @TestTemplate
+    void testDeleteFileOnClose() throws Exception {
+        final BoundedData bd = createBoundedData(subpartitionDataPath);
+        assertThat(subpartitionDataPath).exists();
 
-		bd.writeBuffer(BufferBuilderTestUtils.buildSomeBuffer(bufferSize1));
-		assertEquals(expectedSize1, bd.getSize());
+        bd.close();
 
-		bd.writeBuffer(BufferBuilderTestUtils.buildSomeBuffer(bufferSize2));
-		assertEquals(expectedSizeFinal, bd.getSize());
+        assertThat(subpartitionDataPath).doesNotExist();
+    }
 
-		bd.finishWrite();
-		assertEquals(expectedSizeFinal, bd.getSize());
-	}
+    @TestTemplate
+    void testGetSizeSingleRegion() throws Exception {
+        try (BoundedData bd = createBoundedData()) {
+            testGetSize(bd, 60_787, 76_687);
+        }
+    }
 
-	// ------------------------------------------------------------------------
-	//  utils
-	// ------------------------------------------------------------------------
+    @TestTemplate
+    void testGetSizeMultipleRegions() throws Exception {
+        if (!isRegionBased()) {
+            return;
+        }
 
-	private static int writeInts(BoundedData bd, int numInts) throws IOException {
-		final int numIntsInBuffer = BUFFER_SIZE / 4;
-		int numBuffers = 0;
+        int pageSize = PageSizeUtil.getSystemPageSizeOrConservativeMultiple();
+        try (BoundedData bd = createBoundedDataWithRegion(pageSize)) {
+            testGetSize(bd, pageSize / 3, pageSize - BufferReaderWriterUtil.HEADER_LENGTH);
+        }
+    }
 
-		for (int nextValue = 0; nextValue < numInts; nextValue += numIntsInBuffer) {
-			Buffer buffer = BufferBuilderTestUtils.buildBufferWithAscendingInts(BUFFER_SIZE, numIntsInBuffer, nextValue);
-			bd.writeBuffer(buffer);
-			numBuffers++;
-		}
+    private static void testGetSize(BoundedData bd, int bufferSize1, int bufferSize2)
+            throws Exception {
+        final int expectedSize1 = bufferSize1 + BufferReaderWriterUtil.HEADER_LENGTH;
+        final int expectedSizeFinal =
+                bufferSize1 + bufferSize2 + 2 * BufferReaderWriterUtil.HEADER_LENGTH;
 
-		return numBuffers;
-	}
+        bd.writeBuffer(BufferBuilderTestUtils.buildSomeBuffer(bufferSize1));
+        assertThat(bd.getSize()).isEqualTo(expectedSize1);
 
-	private static void readInts(BoundedData.Reader reader, int numBuffersExpected, int numInts) throws IOException {
-		Buffer b;
-		int nextValue = 0;
-		int numBuffers = 0;
+        bd.writeBuffer(BufferBuilderTestUtils.buildSomeBuffer(bufferSize2));
+        assertThat(bd.getSize()).isEqualTo(expectedSizeFinal);
 
-		while ((b = reader.nextBuffer()) != null) {
-			final int numIntsInBuffer = b.getSize() / 4;
-			BufferBuilderTestUtils.validateBufferWithAscendingInts(b, numIntsInBuffer, nextValue);
-			nextValue += numIntsInBuffer;
-			numBuffers++;
+        bd.finishWrite();
+        assertThat(bd.getSize()).isEqualTo(expectedSizeFinal);
+    }
 
-			b.recycleBuffer();
-		}
+    // ------------------------------------------------------------------------
+    //  utils
+    // ------------------------------------------------------------------------
 
-		assertEquals(numBuffersExpected, numBuffers);
-		assertThat(nextValue, Matchers.greaterThanOrEqualTo(numInts));
-	}
+    private static int writeLongs(BoundedData bd, int numLongs) throws IOException {
+        final int numLongsInBuffer = BUFFER_SIZE / Long.BYTES;
+        int numBuffers = 0;
 
-	private static Path createTempPath() throws IOException {
-		return new File(TMP_FOLDER.newFolder(), "subpartitiondata").toPath();
-	}
+        for (long nextValue = 0; nextValue < numLongs; nextValue += numLongsInBuffer) {
+            Buffer buffer =
+                    BufferBuilderTestUtils.buildBufferWithAscendingLongs(
+                            BUFFER_SIZE, numLongsInBuffer, nextValue);
+            if (compressionEnabled) {
+                Buffer compressedBuffer = COMPRESSOR.compressToIntermediateBuffer(buffer);
+                bd.writeBuffer(compressedBuffer);
+                // recycle intermediate buffer.
+                if (compressedBuffer != buffer) {
+                    compressedBuffer.recycleBuffer();
+                }
+            } else {
+                bd.writeBuffer(buffer);
+            }
+            numBuffers++;
+            buffer.recycleBuffer();
+        }
+
+        return numBuffers;
+    }
+
+    private static void readLongs(BoundedData.Reader reader, int numBuffersExpected, int numLongs)
+            throws IOException {
+        Buffer b;
+        long nextValue = 0;
+        int numBuffers = 0;
+
+        int numLongsInBuffer;
+        while ((b = reader.nextBuffer()) != null) {
+            if (compressionEnabled && b.isCompressed()) {
+                Buffer decompressedBuffer = DECOMPRESSOR.decompressToIntermediateBuffer(b);
+                numLongsInBuffer = decompressedBuffer.getSize() / Long.BYTES;
+                BufferBuilderTestUtils.validateBufferWithAscendingLongs(
+                        decompressedBuffer, numLongsInBuffer, nextValue);
+                // recycle intermediate buffer.
+                decompressedBuffer.recycleBuffer();
+            } else {
+                numLongsInBuffer = b.getSize() / Long.BYTES;
+                BufferBuilderTestUtils.validateBufferWithAscendingLongs(
+                        b, numLongsInBuffer, nextValue);
+            }
+            nextValue += numLongsInBuffer;
+            numBuffers++;
+
+            b.recycleBuffer();
+        }
+
+        assertThat(numBuffers).isEqualTo(numBuffersExpected);
+        assertThat(nextValue).isGreaterThanOrEqualTo(numLongs);
+    }
 }

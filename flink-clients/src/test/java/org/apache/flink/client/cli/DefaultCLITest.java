@@ -18,95 +18,80 @@
 
 package org.apache.flink.client.cli;
 
-import org.apache.flink.client.deployment.ClusterDescriptor;
-import org.apache.flink.client.deployment.StandaloneClusterId;
-import org.apache.flink.client.program.ClusterClient;
 import org.apache.flink.configuration.Configuration;
-import org.apache.flink.configuration.JobManagerOptions;
+import org.apache.flink.configuration.PipelineOptions;
 import org.apache.flink.configuration.RestOptions;
+import org.apache.flink.configuration.SecurityOptions;
 
 import org.apache.commons.cli.CommandLine;
-import org.hamcrest.Matchers;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
+import org.junit.jupiter.api.Test;
 
-import java.net.URL;
+import java.time.Duration;
 
-import static org.junit.Assert.assertThat;
+import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * Tests for the {@link DefaultCLI}.
- */
-public class DefaultCLITest extends CliFrontendTestBase {
+/** Tests for the {@link DefaultCLI}. */
+class DefaultCLITest {
 
-	@Rule
-	public TemporaryFolder temporaryFolder = new TemporaryFolder();
+    /** Verifies command line options are correctly materialized. */
+    @Test
+    void testCommandLineMaterialization() throws Exception {
+        final String hostname = "home-sweet-home";
+        final String urlPath = "/some/other/path/index.html";
+        final int port = 1234;
+        final String[] args = {"-m", hostname + ':' + port + urlPath};
 
-	/**
-	 * Tests that the configuration is properly passed via the DefaultCLI to the
-	 * created ClusterDescriptor.
-	 */
-	@Test
-	public void testConfigurationPassing() throws Exception {
-		final Configuration configuration = getConfiguration();
+        final AbstractCustomCommandLine defaultCLI = new DefaultCLI();
+        final CommandLine commandLine = defaultCLI.parseCommandLineOptions(args, false);
 
-		final String localhost = "localhost";
-		final int port = 1234;
+        Configuration configuration = defaultCLI.toConfiguration(commandLine);
 
-		configuration.setString(RestOptions.ADDRESS, localhost);
-		configuration.setInteger(RestOptions.PORT, port);
+        assertThat(configuration.get(RestOptions.ADDRESS)).isEqualTo(hostname);
+        assertThat(configuration.get(RestOptions.PORT)).isEqualTo(port);
 
-		@SuppressWarnings("unchecked")
-		final AbstractCustomCommandLine<StandaloneClusterId> defaultCLI =
-			(AbstractCustomCommandLine<StandaloneClusterId>) getCli(configuration);
+        final String httpProtocol = "http";
+        assertThat(configuration.get(SecurityOptions.SSL_REST_ENABLED)).isEqualTo(false);
+        assertThat(configuration.get(RestOptions.PATH)).isEqualTo(urlPath);
 
-		final String[] args = {};
+        final String hostnameWithHttpScheme = httpProtocol + "://" + hostname;
+        final String[] httpArgs = {"-m", hostnameWithHttpScheme + ':' + port + urlPath};
+        final CommandLine httpCommandLine = defaultCLI.parseCommandLineOptions(httpArgs, false);
 
-		CommandLine commandLine = defaultCLI.parseCommandLineOptions(args, false);
+        Configuration httpConfiguration = defaultCLI.toConfiguration(httpCommandLine);
 
-		final ClusterDescriptor<StandaloneClusterId> clusterDescriptor =
-			defaultCLI.createClusterDescriptor(commandLine);
+        assertThat(httpConfiguration.get(RestOptions.ADDRESS)).isEqualTo(hostname);
+        assertThat(httpConfiguration.get(RestOptions.PORT)).isEqualTo(port);
+        assertThat(httpConfiguration.get(SecurityOptions.SSL_REST_ENABLED)).isEqualTo(false);
+        assertThat(httpConfiguration.get(RestOptions.PATH)).isEqualTo(urlPath);
 
-		final ClusterClient<?> clusterClient = clusterDescriptor.retrieve(defaultCLI.getClusterId(commandLine));
+        final String httpsProtocol = "https";
 
-		final URL webInterfaceUrl = new URL(clusterClient.getWebInterfaceURL());
+        final String hostnameWithHttpsScheme = httpsProtocol + "://" + hostname;
+        final String[] httpsArgs = {"-m", hostnameWithHttpsScheme + ':' + port + urlPath};
+        final CommandLine httpsCommandLine = defaultCLI.parseCommandLineOptions(httpsArgs, false);
 
-		assertThat(webInterfaceUrl.getHost(), Matchers.equalTo(localhost));
-		assertThat(webInterfaceUrl.getPort(), Matchers.equalTo(port));
-	}
+        Configuration httpsConfiguration = defaultCLI.toConfiguration(httpsCommandLine);
 
-	/**
-	 * Tests that command line options override the configuration settings.
-	 */
-	@Test
-	public void testManualConfigurationOverride() throws Exception {
-		final String localhost = "localhost";
-		final int port = 1234;
-		final Configuration configuration = getConfiguration();
+        assertThat(httpsConfiguration.get(RestOptions.ADDRESS)).isEqualTo(hostname);
+        assertThat(httpsConfiguration.get(RestOptions.PORT)).isEqualTo(port);
+        assertThat(httpsConfiguration.get(SecurityOptions.SSL_REST_ENABLED)).isEqualTo(true);
+        assertThat(httpsConfiguration.get(RestOptions.PATH)).isEqualTo(urlPath);
+    }
 
-		configuration.setString(JobManagerOptions.ADDRESS, localhost);
-		configuration.setInteger(JobManagerOptions.PORT, port);
+    @Test
+    void testDynamicPropertyMaterialization() throws Exception {
+        final String[] args = {
+            "-D" + PipelineOptions.AUTO_WATERMARK_INTERVAL.key() + "=42",
+            "-D" + PipelineOptions.AUTO_GENERATE_UIDS.key() + "=true"
+        };
 
-		@SuppressWarnings("unchecked")
-		final AbstractCustomCommandLine<StandaloneClusterId> defaultCLI =
-			(AbstractCustomCommandLine<StandaloneClusterId>) getCli(configuration);
+        final AbstractCustomCommandLine defaultCLI = new DefaultCLI();
+        final CommandLine commandLine = defaultCLI.parseCommandLineOptions(args, false);
 
-		final String manualHostname = "123.123.123.123";
-		final int manualPort = 4321;
-		final String[] args = {"-m", manualHostname + ':' + manualPort};
+        Configuration configuration = defaultCLI.toConfiguration(commandLine);
 
-		CommandLine commandLine = defaultCLI.parseCommandLineOptions(args, false);
-
-		final ClusterDescriptor<StandaloneClusterId> clusterDescriptor =
-			defaultCLI.createClusterDescriptor(commandLine);
-
-		final ClusterClient<?> clusterClient = clusterDescriptor.retrieve(defaultCLI.getClusterId(commandLine));
-
-		final URL webInterfaceUrl = new URL(clusterClient.getWebInterfaceURL());
-
-		assertThat(webInterfaceUrl.getHost(), Matchers.equalTo(manualHostname));
-		assertThat(webInterfaceUrl.getPort(), Matchers.equalTo(manualPort));
-	}
-
+        assertThat(configuration.get(PipelineOptions.AUTO_WATERMARK_INTERVAL))
+                .isEqualTo(Duration.ofMillis(42L));
+        assertThat(configuration.get(PipelineOptions.AUTO_GENERATE_UIDS)).isTrue();
+    }
 }

@@ -22,39 +22,35 @@ import org.apache.flink.annotation.PublicEvolving;
 
 /**
  * Summary for a column of values.
+ *
+ * @deprecated All Flink DataSet APIs are deprecated since Flink 1.18 and will be removed in a
+ *     future Flink major version. You can still build your application in DataSet, but you should
+ *     move to either the DataStream and/or Table API.
+ * @see <a href="https://cwiki.apache.org/confluence/pages/viewpage.action?pageId=158866741">
+ *     FLIP-131: Consolidate the user-facing Dataflow SDKs/APIs (and deprecate the DataSet API</a>
  */
+@Deprecated
 @PublicEvolving
 public abstract class ColumnSummary {
 
-	/**
-	 * The number of all rows in this column including both nulls and non-nulls.
-	 */
-	public long getTotalCount() {
-		return getNullCount() + getNonNullCount();
-	}
+    /** The number of all rows in this column including both nulls and non-nulls. */
+    public long getTotalCount() {
+        return getNullCount() + getNonNullCount();
+    }
 
-	/**
-	 * The number of non-null values in this column.
-	 */
-	public abstract long getNonNullCount();
+    /** The number of non-null values in this column. */
+    public abstract long getNonNullCount();
 
-	/**
-	 * The number of null values in this column.
-	 */
-	public abstract long getNullCount();
+    /** The number of null values in this column. */
+    public abstract long getNullCount();
 
-	/**
-	 * True if this column contains any null values.
-	 */
-	public boolean containsNull() {
-		return getNullCount() > 0L;
-	}
+    /** True if this column contains any null values. */
+    public boolean containsNull() {
+        return getNullCount() > 0L;
+    }
 
-	/**
-	 * True if this column contains any non-null values.
-	 */
-	public boolean containsNonNull() {
-		return getNonNullCount() > 0L;
-	}
-
+    /** True if this column contains any non-null values. */
+    public boolean containsNonNull() {
+        return getNonNullCount() > 0L;
+    }
 }

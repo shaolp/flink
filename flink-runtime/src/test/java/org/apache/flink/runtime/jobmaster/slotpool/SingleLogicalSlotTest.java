@@ -20,22 +20,21 @@ package org.apache.flink.runtime.jobmaster.slotpool;
 
 import org.apache.flink.runtime.clusterframework.types.AllocationID;
 import org.apache.flink.runtime.clusterframework.types.ResourceProfile;
-import org.apache.flink.runtime.concurrent.FutureUtils;
 import org.apache.flink.runtime.executiongraph.utils.SimpleAckingTaskManagerGateway;
-import org.apache.flink.runtime.instance.SimpleSlotContext;
 import org.apache.flink.runtime.jobmanager.scheduler.Locality;
 import org.apache.flink.runtime.jobmanager.slots.DummySlotOwner;
 import org.apache.flink.runtime.jobmaster.LogicalSlot;
 import org.apache.flink.runtime.jobmaster.SlotContext;
 import org.apache.flink.runtime.jobmaster.SlotOwner;
 import org.apache.flink.runtime.jobmaster.SlotRequestId;
+import org.apache.flink.runtime.scheduler.TestingPhysicalSlot;
 import org.apache.flink.runtime.taskmanager.LocalTaskManagerLocation;
 import org.apache.flink.util.ExceptionUtils;
 import org.apache.flink.util.FlinkException;
 import org.apache.flink.util.Preconditions;
-import org.apache.flink.util.TestLogger;
+import org.apache.flink.util.concurrent.FutureUtils;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -46,250 +45,257 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.is;
-import static org.hamcrest.Matchers.sameInstance;
+import static org.apache.flink.core.testutils.FlinkAssertions.assertThatFuture;
+import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * Tests for the {@link SingleLogicalSlot} class.
- */
-public class SingleLogicalSlotTest extends TestLogger {
+/** Tests for the {@link SingleLogicalSlot} class. */
+class SingleLogicalSlotTest {
 
-	@Test
-	public void testPayloadAssignment() {
-		final SingleLogicalSlot singleLogicalSlot = createSingleLogicalSlot();
-		final DummyPayload dummyPayload1 = new DummyPayload();
-		final DummyPayload dummyPayload2 = new DummyPayload();
+    @Test
+    void testPayloadAssignment() {
+        final SingleLogicalSlot singleLogicalSlot = createSingleLogicalSlot();
+        final DummyPayload dummyPayload1 = new DummyPayload();
+        final DummyPayload dummyPayload2 = new DummyPayload();
 
-		assertThat(singleLogicalSlot.tryAssignPayload(dummyPayload1), is(true));
-		assertThat(singleLogicalSlot.tryAssignPayload(dummyPayload2), is(false));
+        assertThat(singleLogicalSlot.tryAssignPayload(dummyPayload1)).isTrue();
+        assertThat(singleLogicalSlot.tryAssignPayload(dummyPayload2)).isFalse();
 
-		assertThat(singleLogicalSlot.getPayload(), sameInstance(dummyPayload1));
-	}
+        assertThat(singleLogicalSlot.getPayload()).isSameAs(dummyPayload1);
+    }
 
-	private SingleLogicalSlot createSingleLogicalSlot() {
-		return createSingleLogicalSlot(new DummySlotOwner());
-	}
+    private SingleLogicalSlot createSingleLogicalSlot() {
+        return createSingleLogicalSlot(new DummySlotOwner());
+    }
 
-	private SingleLogicalSlot createSingleLogicalSlot(SlotOwner slotOwner) {
-		return new SingleLogicalSlot(
-			new SlotRequestId(),
-			createSlotContext(),
-			null,
-			Locality.LOCAL,
-			slotOwner);
-	}
+    private SingleLogicalSlot createSingleLogicalSlot(SlotOwner slotOwner) {
+        return new SingleLogicalSlot(
+                new SlotRequestId(), createSlotContext(), Locality.LOCAL, slotOwner);
+    }
 
-	private static SlotContext createSlotContext() {
-		return new SimpleSlotContext(
-			new AllocationID(),
-			new LocalTaskManagerLocation(),
-			0,
-			new SimpleAckingTaskManagerGateway(),
-			ResourceProfile.UNKNOWN);
-	}
+    private static SlotContext createSlotContext() {
+        return TestingPhysicalSlot.builder()
+                .withAllocationID(new AllocationID())
+                .withTaskManagerLocation(new LocalTaskManagerLocation())
+                .withPhysicalSlotNumber(0)
+                .withTaskManagerGateway(new SimpleAckingTaskManagerGateway())
+                .withResourceProfile(ResourceProfile.ANY)
+                .build();
+    }
 
-	@Test
-	public void testAlive() throws Exception {
-		final SingleLogicalSlot singleLogicalSlot = createSingleLogicalSlot();
-		final DummyPayload dummyPayload = new DummyPayload();
+    @Test
+    void testAlive() throws Exception {
+        final SingleLogicalSlot singleLogicalSlot = createSingleLogicalSlot();
+        final DummyPayload dummyPayload = new DummyPayload();
 
-		assertThat(singleLogicalSlot.isAlive(), is(true));
+        assertThat(singleLogicalSlot.isAlive()).isTrue();
+        ;
 
-		assertThat(singleLogicalSlot.tryAssignPayload(dummyPayload), is(true));
-		assertThat(singleLogicalSlot.isAlive(), is(true));
+        assertThat(singleLogicalSlot.tryAssignPayload(dummyPayload)).isTrue();
+        assertThat(singleLogicalSlot.isAlive()).isTrue();
 
-		final CompletableFuture<?> releaseFuture = singleLogicalSlot.releaseSlot(new FlinkException("Test exception"));
+        final CompletableFuture<?> releaseFuture =
+                singleLogicalSlot.releaseSlot(new FlinkException("Test exception"));
 
-		assertThat(singleLogicalSlot.isAlive(), is(false));
+        assertThat(singleLogicalSlot.isAlive()).isFalse();
 
-		releaseFuture.get();
+        releaseFuture.get();
 
-		assertThat(singleLogicalSlot.isAlive(), is(false));
-	}
+        assertThat(singleLogicalSlot.isAlive()).isFalse();
+    }
 
-	@Test
-	public void testPayloadAssignmentAfterRelease() {
-		final SingleLogicalSlot singleLogicalSlot = createSingleLogicalSlot();
-		final DummyPayload dummyPayload = new DummyPayload();
+    @Test
+    void testPayloadAssignmentAfterRelease() {
+        final SingleLogicalSlot singleLogicalSlot = createSingleLogicalSlot();
+        final DummyPayload dummyPayload = new DummyPayload();
 
-		singleLogicalSlot.releaseSlot(new FlinkException("Test exception"));
+        singleLogicalSlot.releaseSlot(new FlinkException("Test exception"));
 
-		assertThat(singleLogicalSlot.tryAssignPayload(dummyPayload), is(false));
-	}
+        assertThat(singleLogicalSlot.tryAssignPayload(dummyPayload)).isFalse();
+    }
 
-	/**
-	 * Tests that the {@link PhysicalSlot.Payload#release(Throwable)} does not wait
-	 * for the payload to reach a terminal state.
-	 */
-	@Test
-	public void testAllocatedSlotRelease() {
-		final CompletableFuture<LogicalSlot> returnSlotFuture = new CompletableFuture<>();
-		final WaitingSlotOwner waitingSlotOwner = new WaitingSlotOwner(returnSlotFuture, new CompletableFuture<>());
-		final SingleLogicalSlot singleLogicalSlot = createSingleLogicalSlot(waitingSlotOwner);
+    /**
+     * Tests that the {@link PhysicalSlot.Payload#release(Throwable)} does not wait for the payload
+     * to reach a terminal state.
+     */
+    @Test
+    void testAllocatedSlotRelease() {
+        final CompletableFuture<LogicalSlot> returnSlotFuture = new CompletableFuture<>();
+        final WaitingSlotOwner waitingSlotOwner =
+                new WaitingSlotOwner(returnSlotFuture, new CompletableFuture<>());
+        final SingleLogicalSlot singleLogicalSlot = createSingleLogicalSlot(waitingSlotOwner);
 
-		final CompletableFuture<?> terminalStateFuture = new CompletableFuture<>();
-		final CompletableFuture<?> failFuture = new CompletableFuture<>();
-		final ManualTestingPayload dummyPayload = new ManualTestingPayload(failFuture, terminalStateFuture);
+        final CompletableFuture<?> terminalStateFuture = new CompletableFuture<>();
+        final CompletableFuture<?> failFuture = new CompletableFuture<>();
+        final ManualTestingPayload dummyPayload =
+                new ManualTestingPayload(failFuture, terminalStateFuture);
 
-		assertThat(singleLogicalSlot.tryAssignPayload(dummyPayload), is(true));
+        assertThat(singleLogicalSlot.tryAssignPayload(dummyPayload)).isTrue();
 
-		singleLogicalSlot.release(new FlinkException("Test exception"));
+        singleLogicalSlot.release(new FlinkException("Test exception"));
 
-		assertThat(failFuture.isDone(), is(true));
-		// we don't require the logical slot to return to the owner because
-		// the release call should only come from the owner
-		assertThat(returnSlotFuture.isDone(), is(false));
-	}
+        assertThatFuture(failFuture).isDone();
+        // we don't require the logical slot to return to the owner because
+        // the release call should only come from the owner
+        assertThatFuture(returnSlotFuture).isNotDone();
+    }
 
-	/**
-	 * Tests that the slot release is only signaled after the owner has
-	 * taken it back.
-	 */
-	@Test
-	public void testSlotRelease() {
-		final CompletableFuture<LogicalSlot> returnedSlotFuture = new CompletableFuture<>();
-		final CompletableFuture<Boolean> returnSlotResponseFuture = new CompletableFuture<>();
-		final WaitingSlotOwner waitingSlotOwner = new WaitingSlotOwner(returnedSlotFuture, returnSlotResponseFuture);
-		final CompletableFuture<?> terminalStateFuture = new CompletableFuture<>();
-		final CompletableFuture<?> failFuture = new CompletableFuture<>();
-		final ManualTestingPayload dummyPayload = new ManualTestingPayload(failFuture, terminalStateFuture);
+    /** Tests that the slot release is only signaled after the owner has taken it back. */
+    @Test
+    void testSlotRelease() {
+        final CompletableFuture<LogicalSlot> returnedSlotFuture = new CompletableFuture<>();
+        final CompletableFuture<Boolean> returnSlotResponseFuture = new CompletableFuture<>();
+        final WaitingSlotOwner waitingSlotOwner =
+                new WaitingSlotOwner(returnedSlotFuture, returnSlotResponseFuture);
+        final CompletableFuture<?> terminalStateFuture = new CompletableFuture<>();
+        final CompletableFuture<?> failFuture = new CompletableFuture<>();
+        final ManualTestingPayload dummyPayload =
+                new ManualTestingPayload(failFuture, terminalStateFuture);
 
-		final SingleLogicalSlot singleLogicalSlot = createSingleLogicalSlot(waitingSlotOwner);
+        final SingleLogicalSlot singleLogicalSlot = createSingleLogicalSlot(waitingSlotOwner);
 
-		assertThat(singleLogicalSlot.tryAssignPayload(dummyPayload), is(true));
+        assertThat(singleLogicalSlot.tryAssignPayload(dummyPayload)).isTrue();
 
-		final CompletableFuture<?> releaseFuture = singleLogicalSlot.releaseSlot(new FlinkException("Test exception"));
+        final CompletableFuture<?> releaseFuture =
+                singleLogicalSlot.releaseSlot(new FlinkException("Test exception"));
 
-		assertThat(releaseFuture.isDone(), is(false));
-		assertThat(returnedSlotFuture.isDone(), is(false));
-		assertThat(failFuture.isDone(), is(true));
+        assertThatFuture(releaseFuture).isNotDone();
+        assertThatFuture(returnedSlotFuture).isNotDone();
+        assertThatFuture(failFuture).isDone();
 
-		terminalStateFuture.complete(null);
+        terminalStateFuture.complete(null);
 
-		assertThat(returnedSlotFuture.isDone(), is(true));
+        assertThatFuture(returnedSlotFuture).isDone();
 
-		returnSlotResponseFuture.complete(true);
+        returnSlotResponseFuture.complete(true);
 
-		assertThat(releaseFuture.isDone(), is(true));
-	}
+        assertThatFuture(releaseFuture).isDone();
+    }
 
-	/**
-	 * Tests that concurrent release operations only trigger the failing of the payload and
-	 * the return of the slot once.
-	 */
-	@Test
-	public void testConcurrentReleaseOperations() throws Exception {
-		final CountingSlotOwner countingSlotOwner = new CountingSlotOwner();
-		final CountingFailPayload countingFailPayload = new CountingFailPayload();
-		final SingleLogicalSlot singleLogicalSlot = createSingleLogicalSlot(countingSlotOwner);
+    /**
+     * Tests that concurrent release operations only trigger the failing of the payload and the
+     * return of the slot once.
+     */
+    @Test
+    void testConcurrentReleaseOperations() throws Exception {
+        final CountingSlotOwner countingSlotOwner = new CountingSlotOwner();
+        final CountingFailPayload countingFailPayload = new CountingFailPayload();
+        final SingleLogicalSlot singleLogicalSlot = createSingleLogicalSlot(countingSlotOwner);
 
-		singleLogicalSlot.tryAssignPayload(countingFailPayload);
+        singleLogicalSlot.tryAssignPayload(countingFailPayload);
 
-		final ExecutorService executorService = Executors.newFixedThreadPool(4);
+        final ExecutorService executorService = Executors.newFixedThreadPool(4);
 
-		try {
-			final int numberConcurrentOperations = 10;
-			final Collection<CompletableFuture<?>> releaseOperationFutures = new ArrayList<>(numberConcurrentOperations);
+        try {
+            final int numberConcurrentOperations = 10;
+            final Collection<CompletableFuture<?>> releaseOperationFutures =
+                    new ArrayList<>(numberConcurrentOperations);
 
-			for (int i = 0; i < numberConcurrentOperations; i++) {
-				final CompletableFuture<Void> releaseOperationFuture = CompletableFuture.runAsync(
-					() -> {
-						try {
-							singleLogicalSlot.releaseSlot(new FlinkException("Test exception")).get();
-						} catch (InterruptedException | ExecutionException e) {
-							ExceptionUtils.checkInterrupted(e);
-							throw new CompletionException(e);
-						}
-					});
+            for (int i = 0; i < numberConcurrentOperations; i++) {
+                final CompletableFuture<Void> releaseOperationFuture =
+                        CompletableFuture.runAsync(
+                                () -> {
+                                    try {
+                                        singleLogicalSlot
+                                                .releaseSlot(new FlinkException("Test exception"))
+                                                .get();
+                                    } catch (InterruptedException | ExecutionException e) {
+                                        ExceptionUtils.checkInterrupted(e);
+                                        throw new CompletionException(e);
+                                    }
+                                });
 
-				releaseOperationFutures.add(releaseOperationFuture);
-			}
+                releaseOperationFutures.add(releaseOperationFuture);
+            }
 
-			final FutureUtils.ConjunctFuture<Void> releaseOperationsFuture = FutureUtils.waitForAll(releaseOperationFutures);
+            final FutureUtils.ConjunctFuture<Void> releaseOperationsFuture =
+                    FutureUtils.waitForAll(releaseOperationFutures);
 
-			releaseOperationsFuture.get();
+            releaseOperationsFuture.get();
 
-			assertThat(countingSlotOwner.getReleaseCount(), is(1));
-			assertThat(countingFailPayload.getFailCount(), is(1));
-		} finally {
-			executorService.shutdownNow();
-		}
-	}
+            assertThat(countingSlotOwner.getReleaseCount()).isOne();
+            assertThat(countingFailPayload.getFailCount()).isOne();
+        } finally {
+            executorService.shutdownNow();
+        }
+    }
 
-	private static final class CountingFailPayload implements LogicalSlot.Payload {
+    private static final class CountingFailPayload implements LogicalSlot.Payload {
 
-		private final AtomicInteger failCounter = new AtomicInteger(0);
+        private final AtomicInteger failCounter = new AtomicInteger(0);
 
-		int getFailCount() {
-			return failCounter.get();
-		}
+        int getFailCount() {
+            return failCounter.get();
+        }
 
-		@Override
-		public void fail(Throwable cause) {
-			failCounter.incrementAndGet();
-		}
+        @Override
+        public void fail(Throwable cause) {
+            failCounter.incrementAndGet();
+        }
 
-		@Override
-		public CompletableFuture<?> getTerminalStateFuture() {
-			return CompletableFuture.completedFuture(null);
-		}
-	}
+        @Override
+        public CompletableFuture<?> getTerminalStateFuture() {
+            return CompletableFuture.completedFuture(null);
+        }
+    }
 
-	private static final class CountingSlotOwner implements SlotOwner {
+    private static final class CountingSlotOwner implements SlotOwner {
 
-		private final AtomicInteger counter;
+        private final AtomicInteger counter;
 
-		private CountingSlotOwner() {
-			this.counter = new AtomicInteger(0);
-		}
+        private CountingSlotOwner() {
+            this.counter = new AtomicInteger(0);
+        }
 
-		public int getReleaseCount() {
-			return counter.get();
-		}
+        public int getReleaseCount() {
+            return counter.get();
+        }
 
-		@Override
-		public void returnLogicalSlot(LogicalSlot logicalSlot) {
-			counter.incrementAndGet();
-		}
-	}
+        @Override
+        public void returnLogicalSlot(LogicalSlot logicalSlot) {
+            counter.incrementAndGet();
+        }
+    }
 
-	private static final class ManualTestingPayload implements LogicalSlot.Payload {
+    private static final class ManualTestingPayload implements LogicalSlot.Payload {
 
-		private final CompletableFuture<?> failFuture;
+        private final CompletableFuture<?> failFuture;
 
-		private final CompletableFuture<?> terminalStateFuture;
+        private final CompletableFuture<?> terminalStateFuture;
 
-		private ManualTestingPayload(CompletableFuture<?> failFuture, CompletableFuture<?> terminalStateFuture) {
-			this.failFuture = failFuture;
-			this.terminalStateFuture = terminalStateFuture;
-		}
+        private ManualTestingPayload(
+                CompletableFuture<?> failFuture, CompletableFuture<?> terminalStateFuture) {
+            this.failFuture = failFuture;
+            this.terminalStateFuture = terminalStateFuture;
+        }
 
-		@Override
-		public void fail(Throwable cause) {
-			failFuture.completeExceptionally(cause);
-		}
+        @Override
+        public void fail(Throwable cause) {
+            failFuture.completeExceptionally(cause);
+        }
 
-		@Override
-		public CompletableFuture<?> getTerminalStateFuture() {
-			return terminalStateFuture;
-		}
-	}
+        @Override
+        public CompletableFuture<?> getTerminalStateFuture() {
+            return terminalStateFuture;
+        }
+    }
 
-	private static final class WaitingSlotOwner implements SlotOwner {
+    private static final class WaitingSlotOwner implements SlotOwner {
 
-		private final CompletableFuture<LogicalSlot> returnAllocatedSlotFuture;
+        private final CompletableFuture<LogicalSlot> returnAllocatedSlotFuture;
 
-		private final CompletableFuture<Boolean> returnAllocatedSlotResponse;
+        private final CompletableFuture<Boolean> returnAllocatedSlotResponse;
 
-		private WaitingSlotOwner(CompletableFuture<LogicalSlot> returnAllocatedSlotFuture, CompletableFuture<Boolean> returnAllocatedSlotResponse) {
-			this.returnAllocatedSlotFuture = Preconditions.checkNotNull(returnAllocatedSlotFuture);
-			this.returnAllocatedSlotResponse = Preconditions.checkNotNull(returnAllocatedSlotResponse);
-		}
+        private WaitingSlotOwner(
+                CompletableFuture<LogicalSlot> returnAllocatedSlotFuture,
+                CompletableFuture<Boolean> returnAllocatedSlotResponse) {
+            this.returnAllocatedSlotFuture = Preconditions.checkNotNull(returnAllocatedSlotFuture);
+            this.returnAllocatedSlotResponse =
+                    Preconditions.checkNotNull(returnAllocatedSlotResponse);
+        }
 
-		@Override
-		public void returnLogicalSlot(LogicalSlot logicalSlot) {
-			returnAllocatedSlotFuture.complete(logicalSlot);
-		}
-	}
+        @Override
+        public void returnLogicalSlot(LogicalSlot logicalSlot) {
+            returnAllocatedSlotFuture.complete(logicalSlot);
+        }
+    }
 }

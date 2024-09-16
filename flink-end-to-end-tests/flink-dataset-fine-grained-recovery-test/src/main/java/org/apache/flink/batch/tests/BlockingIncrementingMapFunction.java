@@ -19,9 +19,9 @@
 
 package org.apache.flink.batch.tests;
 
+import org.apache.flink.api.common.functions.OpenContext;
 import org.apache.flink.api.common.functions.RichMapFunction;
 import org.apache.flink.batch.tests.util.FileBasedOneShotLatch;
-import org.apache.flink.configuration.Configuration;
 
 import java.nio.file.Paths;
 
@@ -34,27 +34,27 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
  */
 public class BlockingIncrementingMapFunction extends RichMapFunction<Long, Long> {
 
-	private final String latchFilePath;
+    private final String latchFilePath;
 
-	private transient FileBasedOneShotLatch latch;
+    private transient FileBasedOneShotLatch latch;
 
-	public BlockingIncrementingMapFunction(final String latchFilePath) {
-		this.latchFilePath = checkNotNull(latchFilePath);
-	}
+    public BlockingIncrementingMapFunction(final String latchFilePath) {
+        this.latchFilePath = checkNotNull(latchFilePath);
+    }
 
-	@Override
-	public void open(final Configuration parameters) {
-		latch = new FileBasedOneShotLatch(Paths.get(latchFilePath));
-	}
+    @Override
+    public void open(final OpenContext openContext) {
+        latch = new FileBasedOneShotLatch(Paths.get(latchFilePath));
+    }
 
-	@Override
-	public void close() throws Exception {
-		latch.close();
-	}
+    @Override
+    public void close() throws Exception {
+        latch.close();
+    }
 
-	@Override
-	public Long map(final Long value) throws InterruptedException {
-		latch.await();
-		return value + 1;
-	}
+    @Override
+    public Long map(final Long value) throws InterruptedException {
+        latch.await();
+        return value + 1;
+    }
 }

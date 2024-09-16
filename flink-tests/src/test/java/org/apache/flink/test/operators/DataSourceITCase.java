@@ -23,60 +23,56 @@ import org.apache.flink.api.java.ExecutionEnvironment;
 import org.apache.flink.api.java.io.TextInputFormat;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.core.fs.Path;
-import org.apache.flink.test.util.JavaProgramTestBase;
+import org.apache.flink.test.util.JavaProgramTestBaseJUnit4;
 
 import org.junit.Assert;
 
 import java.util.List;
 
-/**
- * Tests for the DataSource.
- */
-public class DataSourceITCase extends JavaProgramTestBase {
+import static org.apache.flink.test.util.TestBaseUtils.compareResultAsText;
 
-	private String inputPath;
+/** Tests for the DataSource. */
+public class DataSourceITCase extends JavaProgramTestBaseJUnit4 {
 
-	@Override
-	protected void preSubmit() throws Exception {
-		inputPath = createTempFile("input", "ab\n"
-				+ "cd\n"
-				+ "ef\n");
-	}
+    private String inputPath;
 
-	@Override
-	protected void testProgram() throws Exception {
-		/*
-		 * Test passing a configuration object to an input format
-		 */
+    @Override
+    protected void preSubmit() throws Exception {
+        inputPath = createTempFile("input", "ab\n" + "cd\n" + "ef\n");
+    }
 
-		final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
-		Configuration ifConf = new Configuration();
-		ifConf.setString("prepend", "test");
+    @Override
+    protected void testProgram() throws Exception {
+        /*
+         * Test passing a configuration object to an input format
+         */
 
-		DataSet<String> ds = env.createInput(new TestInputFormat(new Path(inputPath))).withParameters(ifConf);
-		List<String> result = ds.collect();
+        final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
+        Configuration ifConf = new Configuration();
+        ifConf.setString("prepend", "test");
 
-		String expectedResult = "ab\n"
-				+ "cd\n"
-				+ "ef\n";
+        DataSet<String> ds =
+                env.createInput(new TestInputFormat(new Path(inputPath))).withParameters(ifConf);
+        List<String> result = ds.collect();
 
-		compareResultAsText(result, expectedResult);
-	}
+        String expectedResult = "ab\n" + "cd\n" + "ef\n";
 
-	private static class TestInputFormat extends TextInputFormat {
-		private static final long serialVersionUID = 1L;
+        compareResultAsText(result, expectedResult);
+    }
 
-		public TestInputFormat(Path filePath) {
-			super(filePath);
-		}
+    private static class TestInputFormat extends TextInputFormat {
+        private static final long serialVersionUID = 1L;
 
-		@Override
-		public void configure(Configuration parameters) {
-			super.configure(parameters);
+        public TestInputFormat(Path filePath) {
+            super(filePath);
+        }
 
-			Assert.assertNotNull(parameters.getString("prepend", null));
-			Assert.assertEquals("test", parameters.getString("prepend", null));
-		}
+        @Override
+        public void configure(Configuration parameters) {
+            super.configure(parameters);
 
-	}
+            Assert.assertNotNull(parameters.getString("prepend", null));
+            Assert.assertEquals("test", parameters.getString("prepend", null));
+        }
+    }
 }

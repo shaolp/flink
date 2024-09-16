@@ -18,86 +18,90 @@
 
 package org.apache.flink.runtime.highavailability.nonha.embedded;
 
-import org.apache.flink.runtime.leaderelection.LeaderElectionService;
-import org.apache.flink.runtime.testingUtils.TestingUtils;
-import org.apache.flink.util.TestLogger;
+import org.apache.flink.runtime.concurrent.ManuallyTriggeredScheduledExecutorService;
+import org.apache.flink.runtime.leaderelection.LeaderElection;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 
-import static org.hamcrest.Matchers.is;
+import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * Tests for the {@link EmbeddedLeaderService}.
- */
-public class EmbeddedLeaderServiceTest extends TestLogger {
+/** Tests for the {@link EmbeddedLeaderService}. */
+class EmbeddedLeaderServiceTest {
 
-	/**
-	 * Tests that the {@link EmbeddedLeaderService} can handle a concurrent grant
-	 * leadership call and a shutdown.
-	 */
-	@Test
-	public void testConcurrentGrantLeadershipAndShutdown() throws Exception {
-		final EmbeddedLeaderService embeddedLeaderService = new EmbeddedLeaderService(TestingUtils.defaultExecutor());
+    /**
+     * Tests that the {@link EmbeddedLeaderService} can handle a concurrent grant leadership call
+     * and a shutdown.
+     */
+    @Test
+    public void testConcurrentGrantLeadershipAndShutdown() throws Exception {
+        final ManuallyTriggeredScheduledExecutorService executorService =
+                new ManuallyTriggeredScheduledExecutorService();
+        final EmbeddedLeaderService embeddedLeaderService =
+                new EmbeddedLeaderService(executorService);
 
-		try {
-			final LeaderElectionService leaderElectionService = embeddedLeaderService.createLeaderElectionService();
+        try {
+            final TestingLeaderContender contender = new TestingLeaderContender();
 
-			final TestingLeaderContender contender = new TestingLeaderContender();
+            final LeaderElection leaderElection =
+                    embeddedLeaderService.createLeaderElectionService("component_id");
+            leaderElection.startLeaderElection(contender);
+            leaderElection.close();
 
-			leaderElectionService.start(contender);
-			leaderElectionService.stop();
+            assertThat(contender.getLeaderSessionFuture())
+                    .as(
+                            "The future shouldn't have completed because the grant event wasn't processed, yet.")
+                    .isNotDone();
 
-			try {
-				// check that no exception occurred
-				contender.getLeaderSessionFuture().get(10L, TimeUnit.MILLISECONDS);
-			} catch (TimeoutException ignored) {
-				// we haven't participated in the leader election
-			}
+            // the election service should still be running
+            assertThat(embeddedLeaderService.isShutdown()).isFalse();
+        } finally {
+            embeddedLeaderService.shutdown();
 
-			// the election service should still be running
-			Assert.assertThat(embeddedLeaderService.isShutdown(), is(false));
-		} finally {
-			embeddedLeaderService.shutdown();
-		}
-	}
+            // triggers the grant event processing after shutdown
+            executorService.triggerAll();
+        }
+    }
 
-	/**
-	 * Tests that the {@link EmbeddedLeaderService} can handle a concurrent revoke
-	 * leadership call and a shutdown.
-	 */
-	@Test
-	public void testConcurrentRevokeLeadershipAndShutdown() throws Exception {
-		final EmbeddedLeaderService embeddedLeaderService = new EmbeddedLeaderService(TestingUtils.defaultExecutor());
+    /**
+     * Tests that the {@link EmbeddedLeaderService} can handle a concurrent revoke leadership call
+     * and a shutdown.
+     */
+    @Test
+    public void testConcurrentRevokeLeadershipAndShutdown() throws Exception {
+        final ManuallyTriggeredScheduledExecutorService executorService =
+                new ManuallyTriggeredScheduledExecutorService();
+        final EmbeddedLeaderService embeddedLeaderService =
+                new EmbeddedLeaderService(executorService);
 
-		try {
-			final LeaderElectionService leaderElectionService = embeddedLeaderService.createLeaderElectionService();
+        try {
+            final TestingLeaderContender contender = new TestingLeaderContender();
 
-			final TestingLeaderContender contender = new TestingLeaderContender();
+            final LeaderElection leaderElection =
+                    embeddedLeaderService.createLeaderElectionService("component_id");
+            leaderElection.startLeaderElection(contender);
 
-			leaderElectionService.start(contender);
+            // wait for the leadership
+            executorService.trigger();
+            contender.getLeaderSessionFuture().get();
 
-			// wait for the leadership
-			contender.getLeaderSessionFuture().get();
+            final CompletableFuture<Void> revokeLeadershipFuture =
+                    embeddedLeaderService.revokeLeadership();
+            leaderElection.close();
 
-			final CompletableFuture<Void> revokeLeadershipFuture = embeddedLeaderService.revokeLeadership();
-			leaderElectionService.stop();
+            assertThat(revokeLeadershipFuture)
+                    .as(
+                            "The future shouldn't have completed because the revoke event wasn't processed, yet.")
+                    .isNotDone();
 
-			try {
-				// check that no exception occurred
-				revokeLeadershipFuture.get(10L, TimeUnit.MILLISECONDS);
-			} catch (TimeoutException ignored) {
-				// the leader election service has been stopped before revoking could be executed
-			}
+            // the election service should still be running
+            assertThat(embeddedLeaderService.isShutdown()).isFalse();
+        } finally {
+            embeddedLeaderService.shutdown();
 
-			// the election service should still be running
-			Assert.assertThat(embeddedLeaderService.isShutdown(), is(false));
-		} finally {
-			embeddedLeaderService.shutdown();
-		}
-	}
+            // triggers the revoke event processing after shutdown
+            executorService.triggerAll();
+        }
+    }
 }

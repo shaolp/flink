@@ -19,68 +19,73 @@
 package org.apache.flink.runtime.state;
 
 import org.apache.flink.runtime.state.filesystem.FsStateBackend;
+import org.apache.flink.testutils.junit.extensions.parameterized.Parameter;
+import org.apache.flink.testutils.junit.extensions.parameterized.ParameterizedTestExtension;
+import org.apache.flink.testutils.junit.extensions.parameterized.Parameters;
+import org.apache.flink.testutils.junit.utils.TempDirUtils;
 
-import org.junit.Ignore;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
+import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.TestTemplate;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
 
 /**
- * Tests for the keyed state backend and operator state backend, as created by the
- * {@link FsStateBackend}.
+ * Tests for the keyed state backend and operator state backend, as created by the {@link
+ * FsStateBackend}.
  */
-@RunWith(Parameterized.class)
+@ExtendWith(ParameterizedTestExtension.class)
 public class FileStateBackendTest extends StateBackendTestBase<FsStateBackend> {
 
-	@Parameterized.Parameters
-	public static List<Boolean> modes() {
-		return Arrays.asList(true, false);
-	}
+    @Parameters
+    public static List<Boolean> modes() {
+        return Arrays.asList(true, false);
+    }
 
-	@Parameterized.Parameter
-	public boolean useAsyncMode;
+    @Parameter public boolean useAsyncMode;
 
-	@Rule
-	public final TemporaryFolder tempFolder = new TemporaryFolder();
+    @TempDir private Path tempFolder;
 
-	@Override
-	protected FsStateBackend getStateBackend() throws Exception {
-		File checkpointPath = tempFolder.newFolder();
-		return new FsStateBackend(checkpointPath.toURI(), useAsyncMode);
-	}
+    @Override
+    protected ConfigurableStateBackend getStateBackend() throws Exception {
+        File checkpointPath = TempDirUtils.newFolder(tempFolder);
+        return new FsStateBackend(checkpointPath.toURI(), useAsyncMode);
+    }
 
-	@Override
-	protected boolean isSerializerPresenceRequiredOnRestore() {
-		return true;
-	}
+    @Override
+    protected boolean isSerializerPresenceRequiredOnRestore() {
+        return true;
+    }
 
-	// disable these because the verification does not work for this state backend
-	@Override
-	@Test
-	public void testValueStateRestoreWithWrongSerializers() {}
+    @Override
+    protected boolean supportsAsynchronousSnapshots() {
+        return useAsyncMode;
+    }
 
-	@Override
-	@Test
-	public void testListStateRestoreWithWrongSerializers() {}
+    // disable these because the verification does not work for this state backend
+    @Override
+    @TestTemplate
+    void testValueStateRestoreWithWrongSerializers() {}
 
-	@Override
-	@Test
-	public void testReducingStateRestoreWithWrongSerializers() {}
+    @Override
+    @TestTemplate
+    void testListStateRestoreWithWrongSerializers() {}
 
-	@Override
-	@Test
-	public void testMapStateRestoreWithWrongSerializers() {}
+    @Override
+    @TestTemplate
+    void testReducingStateRestoreWithWrongSerializers() {}
 
-	@Ignore
-	@Test
-	public void testConcurrentMapIfQueryable() throws Exception {
-		super.testConcurrentMapIfQueryable();
-	}
+    @Override
+    @TestTemplate
+    void testMapStateRestoreWithWrongSerializers() {}
 
+    @Disabled
+    @TestTemplate
+    void testConcurrentMapIfQueryable() throws Exception {
+        super.testConcurrentMapIfQueryable();
+    }
 }

@@ -23,55 +23,58 @@ import org.apache.flink.api.common.functions.GroupReduceFunction;
 import org.apache.flink.api.java.DataSet;
 import org.apache.flink.api.java.ExecutionEnvironment;
 import org.apache.flink.api.java.operators.IterativeDataSet;
-import org.apache.flink.test.util.JavaProgramTestBase;
+import org.apache.flink.test.util.JavaProgramTestBaseJUnit4;
 import org.apache.flink.util.Collector;
 
 import java.util.List;
 
-/**
- * Test iteration with termination criterion consuming the iteration tail.
- */
-public class IterationTerminationWithTwoTails extends JavaProgramTestBase {
-	private static final String EXPECTED = "22\n";
+import static org.apache.flink.test.util.TestBaseUtils.containsResultAsText;
 
-	@Override
-	protected void testProgram() throws Exception {
-		ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
-		env.setParallelism(4);
+/** Test iteration with termination criterion consuming the iteration tail. */
+public class IterationTerminationWithTwoTails extends JavaProgramTestBaseJUnit4 {
+    private static final String EXPECTED = "22\n";
 
-		DataSet<String> initialInput = env.fromElements("1", "2", "3", "4", "5").name("input");
+    @Override
+    protected void testProgram() throws Exception {
+        ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
+        env.setParallelism(4);
 
-		IterativeDataSet<String> iteration = initialInput.iterate(5).name("Loop");
+        DataSet<String> initialInput = env.fromElements("1", "2", "3", "4", "5").name("input");
 
-		DataSet<String> sumReduce = iteration.reduceGroup(new SumReducer()).name("Compute sum (GroupReduce");
+        IterativeDataSet<String> iteration = initialInput.iterate(5).name("Loop");
 
-		DataSet<String> terminationFilter = iteration.filter(new TerminationFilter()).name("Compute termination criterion (Map)");
+        DataSet<String> sumReduce =
+                iteration.reduceGroup(new SumReducer()).name("Compute sum (GroupReduce");
 
-		List<String> result = iteration.closeWith(sumReduce, terminationFilter).collect();
+        DataSet<String> terminationFilter =
+                iteration
+                        .filter(new TerminationFilter())
+                        .name("Compute termination criterion (Map)");
 
-		containsResultAsText(result, EXPECTED);
-	}
+        List<String> result = iteration.closeWith(sumReduce, terminationFilter).collect();
 
-	private static final class SumReducer implements GroupReduceFunction<String, String> {
-		private static final long serialVersionUID = 1L;
+        containsResultAsText(result, EXPECTED);
+    }
 
-		@Override
-		public void reduce(Iterable<String> values, Collector<String> out) throws Exception {
-			int sum = 0;
-			for (String value : values) {
-				sum += Integer.parseInt(value) + 1;
-			}
-			out.collect("" + sum);
-		}
-	}
+    private static final class SumReducer implements GroupReduceFunction<String, String> {
+        private static final long serialVersionUID = 1L;
 
-	private static class TerminationFilter implements FilterFunction<String> {
-		private static final long serialVersionUID = 1L;
+        @Override
+        public void reduce(Iterable<String> values, Collector<String> out) throws Exception {
+            int sum = 0;
+            for (String value : values) {
+                sum += Integer.parseInt(value) + 1;
+            }
+            out.collect("" + sum);
+        }
+    }
 
-		@Override
-		public boolean filter(String value) throws Exception {
-			return Integer.parseInt(value) < 21;
-		}
-	}
+    private static class TerminationFilter implements FilterFunction<String> {
+        private static final long serialVersionUID = 1L;
 
+        @Override
+        public boolean filter(String value) throws Exception {
+            return Integer.parseInt(value) < 21;
+        }
+    }
 }

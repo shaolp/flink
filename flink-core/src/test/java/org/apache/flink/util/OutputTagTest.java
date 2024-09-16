@@ -20,30 +20,34 @@ package org.apache.flink.util;
 
 import org.apache.flink.api.common.typeinfo.BasicTypeInfo;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-/**
- * Tests for the {@link OutputTag}.
- */
-public class OutputTagTest {
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-	@Test(expected = NullPointerException.class)
-	public void testNullRejected() {
-		new OutputTag<Integer>(null);
-	}
+/** Tests for the {@link OutputTag}. */
+class OutputTagTest {
 
-	@Test(expected = NullPointerException.class)
-	public void testNullRejectedWithTypeInfo() {
-		new OutputTag<>(null, BasicTypeInfo.INT_TYPE_INFO);
-	}
+    @Test
+    void testNullRejected() {
+        assertThatThrownBy(() -> new OutputTag<Integer>(null))
+                .isInstanceOf(NullPointerException.class);
+    }
 
-	@Test(expected = IllegalArgumentException.class)
-	public void testEmptyStringRejected() {
-		new OutputTag<Integer>("");
-	}
+    @Test
+    void testNullRejectedWithTypeInfo() {
+        assertThatThrownBy(() -> new OutputTag<>(null, BasicTypeInfo.INT_TYPE_INFO))
+                .isInstanceOf(NullPointerException.class);
+    }
 
-	@Test(expected = IllegalArgumentException.class)
-	public void testEmptyStringRejectedWithTypeInfo() {
-		new OutputTag<>("", BasicTypeInfo.INT_TYPE_INFO);
-	}
+    @Test
+    void testEmptyStringRejected() {
+        assertThatThrownBy(() -> new OutputTag<Integer>(""))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void testEmptyStringRejectedWithTypeInfo() {
+        assertThatThrownBy(() -> new OutputTag<>("", BasicTypeInfo.INT_TYPE_INFO))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
 }

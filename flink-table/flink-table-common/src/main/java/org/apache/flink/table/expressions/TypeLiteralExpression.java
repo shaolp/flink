@@ -20,6 +20,7 @@ package org.apache.flink.table.expressions;
 
 import org.apache.flink.annotation.PublicEvolving;
 import org.apache.flink.table.types.DataType;
+import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.util.Preconditions;
 
 import java.util.Collections;
@@ -36,56 +37,65 @@ import java.util.Objects;
 @PublicEvolving
 public final class TypeLiteralExpression implements ResolvedExpression {
 
-	private final DataType dataType;
+    private final DataType dataType;
 
-	public TypeLiteralExpression(DataType dataType) {
-		this.dataType = Preconditions.checkNotNull(dataType, "Data type must not be null.");
-	}
+    public TypeLiteralExpression(DataType dataType) {
+        this.dataType = Preconditions.checkNotNull(dataType, "Data type must not be null.");
+    }
 
-	@Override
-	public DataType getOutputDataType() {
-		return dataType;
-	}
+    @Override
+    public DataType getOutputDataType() {
+        return dataType;
+    }
 
-	@Override
-	public List<ResolvedExpression> getResolvedChildren() {
-		return Collections.emptyList();
-	}
+    @Override
+    public List<ResolvedExpression> getResolvedChildren() {
+        return Collections.emptyList();
+    }
 
-	@Override
-	public String asSummaryString() {
-		return dataType.toString();
-	}
+    @Override
+    public String asSummaryString() {
+        return dataType.toString();
+    }
 
-	@Override
-	public List<Expression> getChildren() {
-		return Collections.emptyList();
-	}
+    @Override
+    public String asSerializableString() {
+        // in SQL nullability is not part of the type, but it is an additional constraint
+        // on table columns, we remove the nullability here to be able to use the string
+        // representation in SQL such as e.g. CAST(f0 AS BIGINT)
+        final LogicalType logicalType = dataType.getLogicalType();
+        return logicalType.copy(true).asSerializableString();
+    }
 
-	@Override
-	public <R> R accept(ExpressionVisitor<R> visitor) {
-		return visitor.visit(this);
-	}
+    @Override
+    public List<Expression> getChildren() {
+        return Collections.emptyList();
+    }
 
-	@Override
-	public boolean equals(Object o) {
-		if (this == o) {
-			return true;
-		}
-		if (o == null || getClass() != o.getClass()) {
-			return false;
-		}
-		TypeLiteralExpression that = (TypeLiteralExpression) o;
-		return dataType.equals(that.dataType);
-	}
+    @Override
+    public <R> R accept(ExpressionVisitor<R> visitor) {
+        return visitor.visit(this);
+    }
 
-	@Override
-	public int hashCode() {
-		return Objects.hash(dataType);
-	}
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        TypeLiteralExpression that = (TypeLiteralExpression) o;
+        return dataType.equals(that.dataType);
+    }
 
-	@Override
-	public String toString() {
-		return asSummaryString();
-	}
+    @Override
+    public int hashCode() {
+        return Objects.hash(dataType);
+    }
+
+    @Override
+    public String toString() {
+        return asSummaryString();
+    }
 }

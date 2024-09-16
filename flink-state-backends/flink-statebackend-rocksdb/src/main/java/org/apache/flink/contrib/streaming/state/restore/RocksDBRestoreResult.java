@@ -19,64 +19,73 @@
 package org.apache.flink.contrib.streaming.state.restore;
 
 import org.apache.flink.contrib.streaming.state.RocksDBNativeMetricMonitor;
-import org.apache.flink.runtime.state.StateHandleID;
+import org.apache.flink.runtime.state.IncrementalKeyedStateHandle.HandleAndLocalPath;
 
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.RocksDB;
 
-import java.util.Set;
+import javax.annotation.Nullable;
+
+import java.util.Collection;
+import java.util.Optional;
 import java.util.SortedMap;
 import java.util.UUID;
 
-/**
- * Entity holding result of RocksDB instance restore.
- */
+/** Entity holding result of RocksDB instance restore. */
 public class RocksDBRestoreResult {
-	private final RocksDB db;
-	private final ColumnFamilyHandle defaultColumnFamilyHandle;
-	private final RocksDBNativeMetricMonitor nativeMetricMonitor;
+    private final RocksDB db;
+    private final ColumnFamilyHandle defaultColumnFamilyHandle;
+    private final RocksDBNativeMetricMonitor nativeMetricMonitor;
 
-	// fields only for incremental restore
-	private final long lastCompletedCheckpointId;
-	private final UUID backendUID;
-	private final SortedMap<Long, Set<StateHandleID>> restoredSstFiles;
+    // fields only for incremental restore
+    private final long lastCompletedCheckpointId;
+    private final UUID backendUID;
+    private final SortedMap<Long, Collection<HandleAndLocalPath>> restoredSstFiles;
 
-	public RocksDBRestoreResult(
-		RocksDB db,
-		ColumnFamilyHandle defaultColumnFamilyHandle,
-		RocksDBNativeMetricMonitor nativeMetricMonitor,
-		long lastCompletedCheckpointId,
-		UUID backendUID,
-		SortedMap<Long, Set<StateHandleID>> restoredSstFiles) {
-		this.db = db;
-		this.defaultColumnFamilyHandle = defaultColumnFamilyHandle;
-		this.nativeMetricMonitor = nativeMetricMonitor;
-		this.lastCompletedCheckpointId = lastCompletedCheckpointId;
-		this.backendUID = backendUID;
-		this.restoredSstFiles = restoredSstFiles;
-	}
+    private final Runnable asyncCompactTaskAfterRestore;
 
-	public RocksDB getDb() {
-		return db;
-	}
+    public RocksDBRestoreResult(
+            RocksDB db,
+            ColumnFamilyHandle defaultColumnFamilyHandle,
+            RocksDBNativeMetricMonitor nativeMetricMonitor,
+            long lastCompletedCheckpointId,
+            UUID backendUID,
+            SortedMap<Long, Collection<HandleAndLocalPath>> restoredSstFiles,
+            @Nullable Runnable asyncCompactTaskAfterRestore) {
+        this.db = db;
+        this.defaultColumnFamilyHandle = defaultColumnFamilyHandle;
+        this.nativeMetricMonitor = nativeMetricMonitor;
+        this.lastCompletedCheckpointId = lastCompletedCheckpointId;
+        this.backendUID = backendUID;
+        this.restoredSstFiles = restoredSstFiles;
+        this.asyncCompactTaskAfterRestore = asyncCompactTaskAfterRestore;
+    }
 
-	public long getLastCompletedCheckpointId() {
-		return lastCompletedCheckpointId;
-	}
+    public RocksDB getDb() {
+        return db;
+    }
 
-	public UUID getBackendUID() {
-		return backendUID;
-	}
+    public long getLastCompletedCheckpointId() {
+        return lastCompletedCheckpointId;
+    }
 
-	public SortedMap<Long, Set<StateHandleID>> getRestoredSstFiles() {
-		return restoredSstFiles;
-	}
+    public UUID getBackendUID() {
+        return backendUID;
+    }
 
-	public ColumnFamilyHandle getDefaultColumnFamilyHandle() {
-		return defaultColumnFamilyHandle;
-	}
+    public SortedMap<Long, Collection<HandleAndLocalPath>> getRestoredSstFiles() {
+        return restoredSstFiles;
+    }
 
-	public RocksDBNativeMetricMonitor getNativeMetricMonitor() {
-		return nativeMetricMonitor;
-	}
+    public ColumnFamilyHandle getDefaultColumnFamilyHandle() {
+        return defaultColumnFamilyHandle;
+    }
+
+    public RocksDBNativeMetricMonitor getNativeMetricMonitor() {
+        return nativeMetricMonitor;
+    }
+
+    public Optional<Runnable> getAsyncCompactTaskAfterRestore() {
+        return Optional.ofNullable(asyncCompactTaskAfterRestore);
+    }
 }

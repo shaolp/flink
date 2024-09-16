@@ -18,79 +18,75 @@
 
 package org.apache.flink.types;
 
-import static org.junit.Assert.*;
+import org.apache.flink.core.memory.DataInputView;
+import org.apache.flink.core.memory.DataOutputView;
+
+import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 
-import org.apache.flink.core.memory.DataInputView;
-import org.apache.flink.core.memory.DataOutputView;
-import org.junit.Test;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-public class JavaToValueConverterTest {
+class JavaToValueConverterTest {
 
-	@Test
-	public void testJavaToValueConversion() {
-		try {
-			assertNull(JavaToValueConverter.convertBoxedJavaType(null));
-			
-			assertEquals(new StringValue("123Test"), JavaToValueConverter.convertBoxedJavaType("123Test"));
-			assertEquals(new ByteValue((byte) 44), JavaToValueConverter.convertBoxedJavaType((byte) 44));
-			assertEquals(new ShortValue((short) 10000), JavaToValueConverter.convertBoxedJavaType((short) 10000));
-			assertEquals(new IntValue(3567564), JavaToValueConverter.convertBoxedJavaType(3567564));
-			assertEquals(new LongValue(767692734), JavaToValueConverter.convertBoxedJavaType(767692734L));
-			assertEquals(new FloatValue(17.5f), JavaToValueConverter.convertBoxedJavaType(17.5f));
-			assertEquals(new DoubleValue(3.1415926), JavaToValueConverter.convertBoxedJavaType(3.1415926));
-			assertEquals(new BooleanValue(true), JavaToValueConverter.convertBoxedJavaType(true));
-			assertEquals(new CharValue('@'), JavaToValueConverter.convertBoxedJavaType('@'));
-			
-			try {
-				JavaToValueConverter.convertBoxedJavaType(new ArrayList<Object>());
-				fail("Accepted invalid type.");
-			} catch (IllegalArgumentException e) {
-				// expected
-			}
-		}
-		catch (Exception e) {
-			e.printStackTrace();
-			fail(e.getMessage());
-		}
-	}
-	
-	@Test
-	public void testValueToJavaConversion() {
-		try {
-			assertNull(JavaToValueConverter.convertValueType(null));
-			
-			assertEquals("123Test", JavaToValueConverter.convertValueType(new StringValue("123Test")));
-			assertEquals((byte) 44, JavaToValueConverter.convertValueType(new ByteValue((byte) 44)));
-			assertEquals((short) 10000, JavaToValueConverter.convertValueType(new ShortValue((short) 10000)));
-			assertEquals(3567564, JavaToValueConverter.convertValueType(new IntValue(3567564)));
-			assertEquals(767692734L, JavaToValueConverter.convertValueType(new LongValue(767692734)));
-			assertEquals(17.5f, JavaToValueConverter.convertValueType(new FloatValue(17.5f)));
-			assertEquals(3.1415926, JavaToValueConverter.convertValueType(new DoubleValue(3.1415926)));
-			assertEquals(true, JavaToValueConverter.convertValueType(new BooleanValue(true)));
-			assertEquals('@', JavaToValueConverter.convertValueType(new CharValue('@')));
-			
-			try {
-				JavaToValueConverter.convertValueType(new MyValue());
-				fail("Accepted invalid type.");
-			} catch (IllegalArgumentException e) {
-				// expected
-			}
-		}
-		catch (Exception e) {
-			e.printStackTrace();
-			fail(e.getMessage());
-		}
-	}
-	
-	private static final class MyValue implements Value {
-		private static final long serialVersionUID = 1L;
+    @Test
+    void testJavaToValueConversion() {
+        assertThat(JavaToValueConverter.convertBoxedJavaType(null)).isNull();
 
-		@Override
-		public void write(DataOutputView out) {}
+        assertThat(JavaToValueConverter.convertBoxedJavaType("123Test"))
+                .isEqualTo(new StringValue("123Test"));
+        assertThat(JavaToValueConverter.convertBoxedJavaType((byte) 44))
+                .isEqualTo(new ByteValue((byte) 44));
+        assertThat(JavaToValueConverter.convertBoxedJavaType((short) 10000))
+                .isEqualTo(new ShortValue((short) 10000));
+        assertThat(JavaToValueConverter.convertBoxedJavaType(3567564))
+                .isEqualTo(new IntValue(3567564));
+        assertThat(JavaToValueConverter.convertBoxedJavaType(767692734L))
+                .isEqualTo(new LongValue(767692734));
+        assertThat(JavaToValueConverter.convertBoxedJavaType(17.5f))
+                .isEqualTo(new FloatValue(17.5f));
+        assertThat(JavaToValueConverter.convertBoxedJavaType(3.1415926))
+                .isEqualTo(new DoubleValue(3.1415926));
+        assertThat(JavaToValueConverter.convertBoxedJavaType(true))
+                .isEqualTo(new BooleanValue(true));
+        assertThat(JavaToValueConverter.convertBoxedJavaType('@')).isEqualTo(new CharValue('@'));
 
-		@Override
-		public void read(DataInputView in) {}
-	}
+        assertThatThrownBy(() -> JavaToValueConverter.convertBoxedJavaType(new ArrayList<>()))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void testValueToJavaConversion() {
+        assertThat(JavaToValueConverter.convertValueType(null)).isNull();
+
+        assertThat(JavaToValueConverter.convertValueType(new StringValue("123Test")))
+                .isEqualTo("123Test");
+        assertThat(JavaToValueConverter.convertValueType(new ByteValue((byte) 44)))
+                .isEqualTo((byte) 44);
+        assertThat(JavaToValueConverter.convertValueType(new ShortValue((short) 10000)))
+                .isEqualTo((short) 10000);
+        assertThat(JavaToValueConverter.convertValueType(new IntValue(3567564))).isEqualTo(3567564);
+        assertThat(JavaToValueConverter.convertValueType(new LongValue(767692734)))
+                .isEqualTo(767692734L);
+        assertThat(JavaToValueConverter.convertValueType(new FloatValue(17.5f))).isEqualTo(17.5f);
+        assertThat(JavaToValueConverter.convertValueType(new DoubleValue(3.1415926)))
+                .isEqualTo(3.1415926);
+        assertThat((Boolean) JavaToValueConverter.convertValueType(new BooleanValue(true)))
+                .isTrue();
+        assertThat(JavaToValueConverter.convertValueType(new CharValue('@'))).isEqualTo('@');
+
+        assertThatThrownBy(() -> JavaToValueConverter.convertValueType(new MyValue()))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    private static final class MyValue implements Value {
+        private static final long serialVersionUID = 1L;
+
+        @Override
+        public void write(DataOutputView out) {}
+
+        @Override
+        public void read(DataInputView in) {}
+    }
 }

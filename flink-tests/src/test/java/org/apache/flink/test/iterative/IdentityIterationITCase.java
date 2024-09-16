@@ -21,39 +21,36 @@ package org.apache.flink.test.iterative;
 import org.apache.flink.api.java.ExecutionEnvironment;
 import org.apache.flink.api.java.io.LocalCollectionOutputFormat;
 import org.apache.flink.api.java.operators.IterativeDataSet;
-import org.apache.flink.test.util.JavaProgramTestBase;
+import org.apache.flink.test.util.JavaProgramTestBaseJUnit4;
 
 import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.Assert.assertEquals;
 
-/**
- * Test empty (identity) bulk iteration.
- */
-public class IdentityIterationITCase extends JavaProgramTestBase {
+/** Test empty (identity) bulk iteration. */
+public class IdentityIterationITCase extends JavaProgramTestBaseJUnit4 {
 
-	private List<Long> result = new ArrayList<Long>();
+    private List<Long> result = new ArrayList<Long>();
 
-	@Override
-	protected void testProgram() throws Exception {
-		ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
+    @Override
+    protected void testProgram() throws Exception {
+        ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
 
-		IterativeDataSet<Long> iteration = env.generateSequence(1, 10).iterate(100);
-		iteration.closeWith(iteration)
-			.output(new LocalCollectionOutputFormat<Long>(result));
+        IterativeDataSet<Long> iteration = env.generateSequence(1, 10).iterate(100);
+        iteration.closeWith(iteration).output(new LocalCollectionOutputFormat<Long>(result));
 
-		env.execute();
-	}
+        env.execute();
+    }
 
-	@Override
-	protected void postSubmit()  {
-		assertEquals(10, result.size());
+    @Override
+    protected void postSubmit() {
+        assertEquals(10, result.size());
 
-		long sum = 0;
-		for (Long l : result) {
-			sum += l;
-		}
-		assertEquals(55, sum);
-	}
+        long sum = 0;
+        for (Long l : result) {
+            sum += l;
+        }
+        assertEquals(55, sum);
+    }
 }

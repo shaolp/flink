@@ -21,37 +21,39 @@ package org.apache.flink.test.example.java;
 
 import org.apache.flink.examples.java.relational.WebLogAnalysis;
 import org.apache.flink.test.testdata.WebLogAnalysisData;
-import org.apache.flink.test.util.JavaProgramTestBase;
+import org.apache.flink.test.util.JavaProgramTestBaseJUnit4;
 
-/**
- * Test for {@link WebLogAnalysis}.
- */
-public class WebLogAnalysisITCase extends JavaProgramTestBase {
+import static org.apache.flink.test.util.TestBaseUtils.compareResultsByLinesInMemory;
 
-	private String docsPath;
-	private String ranksPath;
-	private String visitsPath;
-	private String resultPath;
+/** Test for {@link WebLogAnalysis}. */
+public class WebLogAnalysisITCase extends JavaProgramTestBaseJUnit4 {
 
-	@Override
-	protected void preSubmit() throws Exception {
-		docsPath = createTempFile("docs", WebLogAnalysisData.DOCS);
-		ranksPath = createTempFile("ranks", WebLogAnalysisData.RANKS);
-		visitsPath = createTempFile("visits", WebLogAnalysisData.VISITS);
-		resultPath = getTempDirPath("result");
-	}
+    private String docsPath;
+    private String ranksPath;
+    private String visitsPath;
+    private String resultPath;
 
-	@Override
-	protected void postSubmit() throws Exception {
-		compareResultsByLinesInMemory(WebLogAnalysisData.EXCEPTED_RESULT, resultPath);
-	}
+    @Override
+    protected void preSubmit() throws Exception {
+        docsPath = createTempFile("docs", WebLogAnalysisData.DOCS);
+        ranksPath = createTempFile("ranks", WebLogAnalysisData.RANKS);
+        visitsPath = createTempFile("visits", WebLogAnalysisData.VISITS);
+        resultPath = getTempDirPath("result");
+    }
 
-	@Override
-	protected void testProgram() throws Exception {
-		WebLogAnalysis.main(new String[] {
-				"--documents", docsPath,
-				"--ranks", ranksPath,
-				"--visits", visitsPath,
-				"--output", resultPath});
-	}
+    @Override
+    protected void postSubmit() throws Exception {
+        compareResultsByLinesInMemory(WebLogAnalysisData.EXCEPTED_RESULT, resultPath);
+    }
+
+    @Override
+    protected void testProgram() throws Exception {
+        WebLogAnalysis.main(
+                new String[] {
+                    "--documents", docsPath,
+                    "--ranks", ranksPath,
+                    "--visits", visitsPath,
+                    "--output", resultPath
+                });
+    }
 }

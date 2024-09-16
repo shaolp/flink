@@ -24,10 +24,9 @@ import org.apache.flink.core.fs.FSDataOutputStream;
 import org.apache.flink.core.fs.FileStatus;
 import org.apache.flink.core.fs.FileSystem;
 import org.apache.flink.core.fs.Path;
-import org.apache.flink.util.TestLogger;
 
-import org.junit.AfterClass;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Test;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -35,128 +34,127 @@ import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
 
-import static junit.framework.TestCase.assertEquals;
-import static junit.framework.TestCase.assertFalse;
-import static junit.framework.TestCase.assertNotNull;
-import static junit.framework.TestCase.assertTrue;
 import static org.apache.flink.core.fs.FileSystemTestUtils.checkPathEventualExistence;
+import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * Abstract integration test class for implementations of hadoop file system.
- */
-public abstract class AbstractHadoopFileSystemITTest extends TestLogger {
+/** Abstract integration test class for implementations of hadoop file system. */
+public abstract class AbstractHadoopFileSystemITTest {
 
-	protected static FileSystem fs;
-	protected static Path basePath;
-	protected static long deadline;
+    protected static FileSystem fs;
+    protected static Path basePath;
+    protected static long consistencyToleranceNS;
 
-	public static void checkPathExistence(Path path,
-			boolean expectedExists,
-			long deadline) throws IOException, InterruptedException {
-		if (deadline == 0) {
-			//strongly consistency
-			assertEquals(expectedExists, fs.exists(path));
-		} else {
-			//eventually consistency
-			checkPathEventualExistence(fs, path, expectedExists, deadline);
-		}
-	}
+    private static void checkPathExistence(
+            Path path, boolean expectedExists, long consistencyToleranceNS)
+            throws IOException, InterruptedException {
+        if (consistencyToleranceNS == 0) {
+            // strongly consistency
+            assertThat(fs.exists(path)).isEqualTo(expectedExists);
+        } else {
+            // eventually consistency
+            checkPathEventualExistence(fs, path, expectedExists, consistencyToleranceNS);
+        }
+    }
 
-	protected void checkEmptyDirectory(Path path) throws IOException, InterruptedException {
-		checkPathExistence(path, true, deadline);
-	}
+    protected void checkEmptyDirectory(Path path) throws IOException, InterruptedException {
+        checkPathExistence(path, true, consistencyToleranceNS);
+    }
 
-	@Test
-	public void testSimpleFileWriteAndRead() throws Exception {
-		final String testLine = "Hello Upload!";
+    @Test
+    void testSimpleFileWriteAndRead() throws Exception {
+        final String testLine = "Hello Upload!";
 
-		final Path path = new Path(basePath, "test.txt");
+        final Path path = new Path(basePath, "test.txt");
 
-		try {
-			try (FSDataOutputStream out = fs.create(path, FileSystem.WriteMode.OVERWRITE);
-				OutputStreamWriter writer = new OutputStreamWriter(out, StandardCharsets.UTF_8)) {
-				writer.write(testLine);
-			}
+        try {
+            try (FSDataOutputStream out = fs.create(path, FileSystem.WriteMode.OVERWRITE);
+                    OutputStreamWriter writer =
+                            new OutputStreamWriter(out, StandardCharsets.UTF_8)) {
+                writer.write(testLine);
+            }
 
-			// just in case, wait for the path to exist
-			checkPathExistence(path, true, deadline);
+            // just in case, wait for the path to exist
+            checkPathExistence(path, true, consistencyToleranceNS);
 
-			try (FSDataInputStream in = fs.open(path);
-				InputStreamReader ir = new InputStreamReader(in, StandardCharsets.UTF_8);
-				BufferedReader reader = new BufferedReader(ir)) {
-				String line = reader.readLine();
-				assertEquals(testLine, line);
-			}
-		}
-		finally {
-			fs.delete(path, false);
-		}
+            try (FSDataInputStream in = fs.open(path);
+                    InputStreamReader ir = new InputStreamReader(in, StandardCharsets.UTF_8);
+                    BufferedReader reader = new BufferedReader(ir)) {
+                String line = reader.readLine();
+                assertThat(line).isEqualTo(testLine);
+            }
+        } finally {
+            fs.delete(path, false);
+        }
 
-		checkPathExistence(path, false, deadline);
-	}
+        checkPathExistence(path, false, consistencyToleranceNS);
+    }
 
-	@Test
-	public void testDirectoryListing() throws Exception {
-		final Path directory = new Path(basePath, "testdir/");
+    @Test
+    void testDirectoryListing() throws Exception {
+        final Path directory = new Path(basePath, "testdir/");
 
-		// directory must not yet exist
-		assertFalse(fs.exists(directory));
+        // directory must not yet exist
+        assertThat(fs.exists(directory)).isFalse();
 
-		try {
-			// create directory
-			assertTrue(fs.mkdirs(directory));
+        try {
+            // create directory
+            assertThat(fs.mkdirs(directory)).isTrue();
 
-			checkEmptyDirectory(directory);
+            checkEmptyDirectory(directory);
 
-			// directory empty
-			assertEquals(0, fs.listStatus(directory).length);
+            // directory empty
+            assertThat(fs.listStatus(directory).length).isZero();
 
-			// create some files
-			final int numFiles = 3;
-			for (int i = 0; i < numFiles; i++) {
-				Path file = new Path(directory, "/file-" + i);
-				try (FSDataOutputStream out = fs.create(file, FileSystem.WriteMode.OVERWRITE);
-					OutputStreamWriter writer = new OutputStreamWriter(out, StandardCharsets.UTF_8)) {
-					writer.write("hello-" + i + "\n");
-				}
-				// just in case, wait for the file to exist (should then also be reflected in the
-				// directory's file list below)
-				checkPathExistence(file, true, deadline);
-			}
+            // create some files
+            final int numFiles = 3;
+            for (int i = 0; i < numFiles; i++) {
+                Path file = new Path(directory, "/file-" + i);
+                try (FSDataOutputStream out = fs.create(file, FileSystem.WriteMode.OVERWRITE);
+                        OutputStreamWriter writer =
+                                new OutputStreamWriter(out, StandardCharsets.UTF_8)) {
+                    writer.write("hello-" + i + "\n");
+                }
+                // just in case, wait for the file to exist (should then also be reflected in the
+                // directory's file list below)
+                checkPathExistence(file, true, consistencyToleranceNS);
+            }
 
-			FileStatus[] files = fs.listStatus(directory);
-			assertNotNull(files);
-			assertEquals(3, files.length);
+            FileStatus[] files = fs.listStatus(directory);
+            assertThat(files).isNotNull();
+            assertThat(files.length).isEqualTo(3);
 
-			for (FileStatus status : files) {
-				assertFalse(status.isDir());
-			}
+            for (FileStatus status : files) {
+                assertThat(status.isDir()).isFalse();
+            }
 
-			// now that there are files, the directory must exist
-			assertTrue(fs.exists(directory));
-		}
-		finally {
-			// clean up
-			fs.delete(directory, true);
-		}
+            // now that there are files, the directory must exist
+            assertThat(fs.exists(directory)).isTrue();
+        } finally {
+            // clean up
+            cleanupDirectoryWithRetry(fs, directory, consistencyToleranceNS);
+        }
+    }
 
-		// now directory must be gone
-		checkPathExistence(directory, false, deadline);
-	}
+    @AfterAll
+    static void teardown() throws IOException, InterruptedException {
+        try {
+            if (fs != null) {
+                cleanupDirectoryWithRetry(fs, basePath, consistencyToleranceNS);
+            }
+        } finally {
+            FileSystem.initialize(new Configuration());
+        }
+    }
 
-	@AfterClass
-	public static void teardown() throws IOException, InterruptedException {
-		try {
-			if (fs != null) {
-				// clean up
-				fs.delete(basePath, true);
-
-				// now directory must be gone
-				checkPathExistence(basePath, false, deadline);
-			}
-		}
-		finally {
-			FileSystem.initialize(new Configuration());
-		}
-	}
+    private static void cleanupDirectoryWithRetry(
+            FileSystem fs, Path path, long consistencyToleranceNS)
+            throws IOException, InterruptedException {
+        fs.delete(path, true);
+        long deadline = System.nanoTime() + consistencyToleranceNS;
+        while (fs.exists(path) && System.nanoTime() - deadline < 0) {
+            fs.delete(path, true);
+            Thread.sleep(50L);
+        }
+        assertThat(fs.exists(path)).isFalse();
+    }
 }

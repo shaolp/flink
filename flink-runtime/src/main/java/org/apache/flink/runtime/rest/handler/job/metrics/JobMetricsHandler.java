@@ -18,7 +18,6 @@
 
 package org.apache.flink.runtime.rest.handler.job.metrics;
 
-import org.apache.flink.api.common.time.Time;
 import org.apache.flink.runtime.rest.handler.HandlerRequest;
 import org.apache.flink.runtime.rest.handler.legacy.metrics.MetricFetcher;
 import org.apache.flink.runtime.rest.handler.legacy.metrics.MetricStore;
@@ -31,27 +30,28 @@ import org.apache.flink.runtime.webmonitor.retriever.GatewayRetriever;
 
 import javax.annotation.Nullable;
 
+import java.time.Duration;
 import java.util.Map;
 
 /**
- * Request handler that returns for a given job a list of all available metrics or the values for a set of metrics.
+ * Request handler that returns for a given job a list of all available metrics or the values for a
+ * set of metrics.
  */
 public class JobMetricsHandler extends AbstractMetricsHandler<JobMetricsMessageParameters> {
 
-	public JobMetricsHandler(
-			final GatewayRetriever<? extends RestfulGateway> leaderRetriever,
-			final Time timeout,
-			final Map<String, String> headers,
-			final MetricFetcher metricFetcher) {
-		super(leaderRetriever, timeout, headers, JobMetricsHeaders.getInstance(), metricFetcher);
-	}
+    public JobMetricsHandler(
+            final GatewayRetriever<? extends RestfulGateway> leaderRetriever,
+            final Duration timeout,
+            final Map<String, String> headers,
+            final MetricFetcher metricFetcher) {
+        super(leaderRetriever, timeout, headers, JobMetricsHeaders.getInstance(), metricFetcher);
+    }
 
-	@Nullable
-	@Override
-	protected MetricStore.ComponentMetricStore getComponentMetricStore(
-		final HandlerRequest<EmptyRequestBody, JobMetricsMessageParameters> request,
-		final MetricStore metricStore) {
-		return metricStore.getJobMetricStore(request.getPathParameter(JobIDPathParameter.class).toString());
-	}
-
+    @Nullable
+    @Override
+    protected MetricStore.ComponentMetricStore getComponentMetricStore(
+            final HandlerRequest<EmptyRequestBody> request, final MetricStore metricStore) {
+        return metricStore.getJobMetricStore(
+                request.getPathParameter(JobIDPathParameter.class).toString());
+    }
 }

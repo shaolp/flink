@@ -23,158 +23,166 @@ import org.apache.flink.runtime.io.network.partition.ResultPartitionID;
 import org.apache.flink.runtime.iterative.event.AllWorkersDoneEvent;
 import org.apache.flink.runtime.iterative.event.TerminationEvent;
 import org.apache.flink.runtime.util.event.EventListener;
-import org.apache.flink.util.TestLogger;
 
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.ExpectedException;
+import org.junit.jupiter.api.Test;
 
-import static junit.framework.TestCase.assertTrue;
 import static org.apache.flink.util.Preconditions.checkArgument;
 import static org.apache.flink.util.Preconditions.checkState;
-import static org.junit.Assert.assertFalse;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/**
- * Basic tests for {@link TaskEventDispatcher}.
- */
-public class TaskEventDispatcherTest extends TestLogger {
+/** Basic tests for {@link TaskEventDispatcher}. */
+class TaskEventDispatcherTest {
 
-	@Rule
-	public ExpectedException expectedException = ExpectedException.none();
+    @Test
+    void registerPartitionTwice() {
+        ResultPartitionID partitionId = new ResultPartitionID();
+        TaskEventDispatcher ted = new TaskEventDispatcher();
+        ted.registerPartition(partitionId);
 
-	@Test
-	public void registerPartitionTwice() throws Exception {
-		ResultPartitionID partitionId = new ResultPartitionID();
-		TaskEventDispatcher ted = new TaskEventDispatcher();
-		ted.registerPartition(partitionId);
+        assertThatThrownBy(() -> ted.registerPartition(partitionId))
+                .hasMessageContaining("already registered at task event dispatcher")
+                .isInstanceOf(IllegalStateException.class);
+    }
 
-		expectedException.expect(IllegalStateException.class);
-		expectedException.expectMessage("already registered at task event dispatcher");
+    @Test
+    void subscribeToEventNotRegistered() {
+        TaskEventDispatcher ted = new TaskEventDispatcher();
+        assertThatThrownBy(
+                        () ->
+                                ted.subscribeToEvent(
+                                        new ResultPartitionID(),
+                                        new ZeroShotEventListener(),
+                                        TaskEvent.class))
+                .hasMessageContaining("not registered at task event dispatcher")
+                .isInstanceOf(IllegalStateException.class);
+    }
 
-		ted.registerPartition(partitionId);
-	}
+    /**
+     * Tests {@link TaskEventDispatcher#publish(ResultPartitionID, TaskEvent)} and {@link
+     * TaskEventDispatcher#subscribeToEvent(ResultPartitionID, EventListener, Class)} methods.
+     */
+    @Test
+    void publishSubscribe() {
+        ResultPartitionID partitionId1 = new ResultPartitionID();
+        ResultPartitionID partitionId2 = new ResultPartitionID();
+        TaskEventDispatcher ted = new TaskEventDispatcher();
 
-	@Test
-	public void subscribeToEventNotRegistered() throws Exception {
-		TaskEventDispatcher ted = new TaskEventDispatcher();
+        AllWorkersDoneEvent event1 = new AllWorkersDoneEvent();
+        TerminationEvent event2 = new TerminationEvent();
+        assertThat(ted.publish(partitionId1, event1)).isFalse();
 
-		expectedException.expect(IllegalStateException.class);
-		expectedException.expectMessage("not registered at task event dispatcher");
+        ted.registerPartition(partitionId1);
+        ted.registerPartition(partitionId2);
 
-		ted.subscribeToEvent(new ResultPartitionID(), new ZeroShotEventListener(), TaskEvent.class);
-	}
+        // no event listener subscribed yet, but the event is forwarded to a TaskEventHandler
+        assertThat(ted.publish(partitionId1, event1)).isTrue();
 
-	/**
-	 * Tests {@link TaskEventDispatcher#publish(ResultPartitionID, TaskEvent)} and {@link TaskEventDispatcher#subscribeToEvent(ResultPartitionID, EventListener, Class)} methods.
-	 */
-	@Test
-	public void publishSubscribe() throws Exception {
-		ResultPartitionID partitionId1 = new ResultPartitionID();
-		ResultPartitionID partitionId2 = new ResultPartitionID();
-		TaskEventDispatcher ted = new TaskEventDispatcher();
+        OneShotEventListener eventListener1a = new OneShotEventListener(event1);
+        ZeroShotEventListener eventListener1b = new ZeroShotEventListener();
+        ZeroShotEventListener eventListener2 = new ZeroShotEventListener();
+        OneShotEventListener eventListener3 = new OneShotEventListener(event2);
+        ted.subscribeToEvent(partitionId1, eventListener1a, AllWorkersDoneEvent.class);
+        ted.subscribeToEvent(partitionId2, eventListener1b, AllWorkersDoneEvent.class);
+        ted.subscribeToEvent(partitionId1, eventListener2, TaskEvent.class);
+        ted.subscribeToEvent(partitionId1, eventListener3, TerminationEvent.class);
 
-		AllWorkersDoneEvent event1 = new AllWorkersDoneEvent();
-		TerminationEvent event2 = new TerminationEvent();
-		assertFalse(ted.publish(partitionId1, event1));
+        assertThat(ted.publish(partitionId1, event1)).isTrue();
+        assertThat(eventListener1a.fired)
+                .withFailMessage("listener should have fired for AllWorkersDoneEvent")
+                .isTrue();
+        assertThat(eventListener3.fired)
+                .withFailMessage("listener should not have fired for AllWorkersDoneEvent")
+                .isFalse();
 
-		ted.registerPartition(partitionId1);
-		ted.registerPartition(partitionId2);
+        // publish another event, verify that only the right subscriber is called
+        assertThat(ted.publish(partitionId1, event2)).isTrue();
+        assertThat(eventListener3.fired)
+                .withFailMessage("listener should have fired for TerminationEvent")
+                .isTrue();
+    }
 
-		// no event listener subscribed yet, but the event is forwarded to a TaskEventHandler
-		assertTrue(ted.publish(partitionId1, event1));
+    @Test
+    void unregisterPartition() {
+        ResultPartitionID partitionId1 = new ResultPartitionID();
+        ResultPartitionID partitionId2 = new ResultPartitionID();
+        TaskEventDispatcher ted = new TaskEventDispatcher();
 
-		OneShotEventListener eventListener1a = new OneShotEventListener(event1);
-		ZeroShotEventListener eventListener1b = new ZeroShotEventListener();
-		ZeroShotEventListener eventListener2 = new ZeroShotEventListener();
-		OneShotEventListener eventListener3 = new OneShotEventListener(event2);
-		ted.subscribeToEvent(partitionId1, eventListener1a, AllWorkersDoneEvent.class);
-		ted.subscribeToEvent(partitionId2, eventListener1b, AllWorkersDoneEvent.class);
-		ted.subscribeToEvent(partitionId1, eventListener2, TaskEvent.class);
-		ted.subscribeToEvent(partitionId1, eventListener3, TerminationEvent.class);
+        AllWorkersDoneEvent event = new AllWorkersDoneEvent();
+        assertThat(ted.publish(partitionId1, event)).isFalse();
 
-		assertTrue(ted.publish(partitionId1, event1));
-		assertTrue("listener should have fired for AllWorkersDoneEvent", eventListener1a.fired);
-		assertFalse("listener should not have fired for AllWorkersDoneEvent", eventListener3.fired);
+        ted.registerPartition(partitionId1);
+        ted.registerPartition(partitionId2);
 
-		// publish another event, verify that only the right subscriber is called
-		assertTrue(ted.publish(partitionId1, event2));
-		assertTrue("listener should have fired for TerminationEvent", eventListener3.fired);
-	}
+        OneShotEventListener eventListener1a = new OneShotEventListener(event);
+        ZeroShotEventListener eventListener1b = new ZeroShotEventListener();
+        OneShotEventListener eventListener2 = new OneShotEventListener(event);
+        ted.subscribeToEvent(partitionId1, eventListener1a, AllWorkersDoneEvent.class);
+        ted.subscribeToEvent(partitionId2, eventListener1b, AllWorkersDoneEvent.class);
+        ted.subscribeToEvent(partitionId1, eventListener2, AllWorkersDoneEvent.class);
 
-	@Test
-	public void unregisterPartition() throws Exception {
-		ResultPartitionID partitionId1 = new ResultPartitionID();
-		ResultPartitionID partitionId2 = new ResultPartitionID();
-		TaskEventDispatcher ted = new TaskEventDispatcher();
+        ted.unregisterPartition(partitionId2);
 
-		AllWorkersDoneEvent event = new AllWorkersDoneEvent();
-		assertFalse(ted.publish(partitionId1, event));
+        // publish something for partitionId1 triggering all according listeners
+        assertThat(ted.publish(partitionId1, event)).isTrue();
+        assertThat(eventListener1a.fired)
+                .withFailMessage("listener should have fired for AllWorkersDoneEvent")
+                .isTrue();
+        assertThat(eventListener2.fired)
+                .withFailMessage("listener should have fired for AllWorkersDoneEvent")
+                .isTrue();
 
-		ted.registerPartition(partitionId1);
-		ted.registerPartition(partitionId2);
+        // now publish something for partitionId2 which should not trigger any listeners
+        assertThat(ted.publish(partitionId2, event)).isFalse();
+    }
 
-		OneShotEventListener eventListener1a = new OneShotEventListener(event);
-		ZeroShotEventListener eventListener1b = new ZeroShotEventListener();
-		OneShotEventListener eventListener2 = new OneShotEventListener(event);
-		ted.subscribeToEvent(partitionId1, eventListener1a, AllWorkersDoneEvent.class);
-		ted.subscribeToEvent(partitionId2, eventListener1b, AllWorkersDoneEvent.class);
-		ted.subscribeToEvent(partitionId1, eventListener2, AllWorkersDoneEvent.class);
+    @Test
+    void clearAll() throws Exception {
+        ResultPartitionID partitionId = new ResultPartitionID();
+        TaskEventDispatcher ted = new TaskEventDispatcher();
+        ted.registerPartition(partitionId);
 
-		ted.unregisterPartition(partitionId2);
+        //noinspection unchecked
+        ZeroShotEventListener eventListener1 = new ZeroShotEventListener();
+        ted.subscribeToEvent(partitionId, eventListener1, AllWorkersDoneEvent.class);
 
-		// publish something for partitionId1 triggering all according listeners
-		assertTrue(ted.publish(partitionId1, event));
-		assertTrue("listener should have fired for AllWorkersDoneEvent", eventListener1a.fired);
-		assertTrue("listener should have fired for AllWorkersDoneEvent", eventListener2.fired);
+        ted.clearAll();
 
-		// now publish something for partitionId2 which should not trigger any listeners
-		assertFalse(ted.publish(partitionId2, event));
-	}
+        assertThat(ted.publish(partitionId, new AllWorkersDoneEvent())).isFalse();
+    }
 
-	@Test
-	public void clearAll() throws Exception {
-		ResultPartitionID partitionId = new ResultPartitionID();
-		TaskEventDispatcher ted = new TaskEventDispatcher();
-		ted.registerPartition(partitionId);
+    /**
+     * Event listener that expects a given {@link TaskEvent} once in its {@link #onEvent(TaskEvent)}
+     * call and will fail for any subsequent call.
+     *
+     * <p>Be sure to check that {@link #fired} is <tt>true</tt> to ensure that this handle has been
+     * called once.
+     */
+    private static class OneShotEventListener implements EventListener<TaskEvent> {
+        private final TaskEvent expected;
+        boolean fired = false;
 
-		//noinspection unchecked
-		ZeroShotEventListener eventListener1 = new ZeroShotEventListener();
-		ted.subscribeToEvent(partitionId, eventListener1, AllWorkersDoneEvent.class);
+        OneShotEventListener(TaskEvent expected) {
+            this.expected = expected;
+        }
 
-		ted.clearAll();
+        public void onEvent(TaskEvent actual) {
+            checkState(!fired, "Should only fire once");
+            fired = true;
+            checkArgument(
+                    actual == expected,
+                    "Fired on unexpected event: %s (expected: %s)",
+                    actual,
+                    expected);
+        }
+    }
 
-		assertFalse(ted.publish(partitionId, new AllWorkersDoneEvent()));
-	}
-
-	/**
-	 * Event listener that expects a given {@link TaskEvent} once in its {@link #onEvent(TaskEvent)}
-	 * call and will fail for any subsequent call.
-	 *
-	 * <p>Be sure to check that {@link #fired} is <tt>true</tt> to ensure that this handle has been
-	 * called once.
-	 */
-	private static class OneShotEventListener implements EventListener<TaskEvent> {
-		private final TaskEvent expected;
-		boolean fired = false;
-
-		OneShotEventListener(TaskEvent expected) {
-			this.expected = expected;
-		}
-
-		public void onEvent(TaskEvent actual) {
-			checkState(!fired, "Should only fire once");
-			fired = true;
-			checkArgument(actual == expected,
-				"Fired on unexpected event: %s (expected: %s)", actual, expected);
-		}
-	}
-
-	/**
-	 * Event listener which ensures that it's {@link #onEvent(TaskEvent)} method is never called.
-	 */
-	private static class ZeroShotEventListener implements EventListener<TaskEvent> {
-		public void onEvent(TaskEvent actual) {
-			throw new IllegalStateException("Should never fire");
-		}
-	}
+    /**
+     * Event listener which ensures that it's {@link #onEvent(TaskEvent)} method is never called.
+     */
+    private static class ZeroShotEventListener implements EventListener<TaskEvent> {
+        public void onEvent(TaskEvent actual) {
+            throw new IllegalStateException("Should never fire");
+        }
+    }
 }

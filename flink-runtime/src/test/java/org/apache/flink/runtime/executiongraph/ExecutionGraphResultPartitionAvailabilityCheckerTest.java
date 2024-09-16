@@ -18,54 +18,60 @@
 
 package org.apache.flink.runtime.executiongraph;
 
-import org.apache.flink.runtime.executiongraph.failover.flip1.ResultPartitionAvailabilityChecker;
+import org.apache.flink.runtime.executiongraph.failover.ResultPartitionAvailabilityChecker;
 import org.apache.flink.runtime.io.network.partition.ResultPartitionID;
-import org.apache.flink.runtime.io.network.partition.TestingPartitionTracker;
+import org.apache.flink.runtime.io.network.partition.TestingJobMasterPartitionTracker;
 import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
-import org.apache.flink.util.TestLogger;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Function;
 
-import static org.junit.Assert.assertEquals;
+import static org.apache.flink.runtime.executiongraph.ExecutionGraphTestUtils.createExecutionAttemptId;
+import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * Tests for {@link ExecutionGraphResultPartitionAvailabilityChecker}.
- */
-public class ExecutionGraphResultPartitionAvailabilityCheckerTest extends TestLogger {
+/** Tests for {@link ExecutionGraphResultPartitionAvailabilityChecker}. */
+class ExecutionGraphResultPartitionAvailabilityCheckerTest {
 
-	@Test
-	public void testPartitionAvailabilityCheck() {
+    @Test
+    void testPartitionAvailabilityCheck() {
 
-		final IntermediateResultPartitionID irp1ID = new IntermediateResultPartitionID();
-		final IntermediateResultPartitionID irp2ID = new IntermediateResultPartitionID();
-		final IntermediateResultPartitionID irp3ID = new IntermediateResultPartitionID();
-		final IntermediateResultPartitionID irp4ID = new IntermediateResultPartitionID();
+        final IntermediateResultPartitionID irp1ID = new IntermediateResultPartitionID();
+        final IntermediateResultPartitionID irp2ID = new IntermediateResultPartitionID();
+        final IntermediateResultPartitionID irp3ID = new IntermediateResultPartitionID();
+        final IntermediateResultPartitionID irp4ID = new IntermediateResultPartitionID();
 
-		final Map<IntermediateResultPartitionID, Boolean> expectedAvailability =
-			new HashMap<IntermediateResultPartitionID, Boolean>() {{
-				put(irp1ID, true);
-				put(irp2ID, false);
-				put(irp3ID, false);
-				put(irp4ID, true);
-			}};
+        final Map<IntermediateResultPartitionID, Boolean> expectedAvailability =
+                new HashMap<IntermediateResultPartitionID, Boolean>() {
+                    {
+                        put(irp1ID, true);
+                        put(irp2ID, false);
+                        put(irp3ID, false);
+                        put(irp4ID, true);
+                    }
+                };
 
-		// let the partition tracker respect the expected availability result
-		final TestingPartitionTracker partitionTracker = new TestingPartitionTracker();
-		partitionTracker.setIsPartitionTrackedFunction(rpID -> expectedAvailability.get(rpID.getPartitionId()));
+        // let the partition tracker respect the expected availability result
+        final TestingJobMasterPartitionTracker partitionTracker =
+                new TestingJobMasterPartitionTracker();
+        partitionTracker.setIsPartitionTrackedFunction(
+                rpID -> expectedAvailability.get(rpID.getPartitionId()));
 
-		// the execution attempt ID should make no difference in this case
-		final Function<IntermediateResultPartitionID, ResultPartitionID> partitionIDMapper =
-			intermediateResultPartitionID -> new ResultPartitionID(intermediateResultPartitionID, new ExecutionAttemptID());
+        // the execution attempt ID should make no difference in this case
+        final Function<IntermediateResultPartitionID, ResultPartitionID> partitionIDMapper =
+                intermediateResultPartitionID ->
+                        new ResultPartitionID(
+                                intermediateResultPartitionID, createExecutionAttemptId());
 
-		final ResultPartitionAvailabilityChecker resultPartitionAvailabilityChecker =
-			new ExecutionGraphResultPartitionAvailabilityChecker(partitionIDMapper, partitionTracker);
+        final ResultPartitionAvailabilityChecker resultPartitionAvailabilityChecker =
+                new ExecutionGraphResultPartitionAvailabilityChecker(
+                        partitionIDMapper, partitionTracker);
 
-		for (IntermediateResultPartitionID irpID : expectedAvailability.keySet()) {
-			assertEquals(expectedAvailability.get(irpID), resultPartitionAvailabilityChecker.isAvailable(irpID));
-		}
-	}
+        for (IntermediateResultPartitionID irpID : expectedAvailability.keySet()) {
+            assertThat(expectedAvailability.get(irpID))
+                    .isEqualTo(resultPartitionAvailabilityChecker.isAvailable(irpID));
+        }
+    }
 }

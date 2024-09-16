@@ -17,42 +17,74 @@
 
 package org.apache.flink.api.common.state;
 
-import org.apache.flink.api.common.time.Time;
+import org.apache.flink.api.common.state.StateTtlConfig.CleanupStrategies;
+import org.apache.flink.api.common.state.StateTtlConfig.IncrementalCleanupStrategy;
+import org.apache.flink.api.common.state.StateTtlConfig.RocksdbCompactFilterCleanupStrategy;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
+import java.time.Duration;
+import java.util.Arrays;
+import java.util.List;
 
-/**
- * Tests for the {@link StateTtlConfig}.
- */
-public class StateTtlConfigTest {
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-	@Test
-	public void testStateTtlConfigBuildWithCleanupInBackground() {
-		StateTtlConfig ttlConfig = StateTtlConfig
-			.newBuilder(Time.seconds(1))
-			.cleanupInBackground()
-			.build();
+/** Tests for the {@link StateTtlConfig}. */
+class StateTtlConfigTest {
 
-		assertNotNull(ttlConfig.getCleanupStrategies());
+    @Test
+    void testStateTtlConfigBuildWithoutCleanupInBackground() {
+        StateTtlConfig ttlConfig =
+                StateTtlConfig.newBuilder(Duration.ofSeconds(1))
+                        .disableCleanupInBackground()
+                        .build();
 
-		StateTtlConfig.CleanupStrategies cleanupStrategies = ttlConfig.getCleanupStrategies();
-		StateTtlConfig.IncrementalCleanupStrategy incrementalCleanupStrategy =
-			cleanupStrategies.getIncrementalCleanupStrategy();
-		StateTtlConfig.RocksdbCompactFilterCleanupStrategy rocksdbCleanupStrategy =
-			cleanupStrategies.getRocksdbCompactFilterCleanupStrategy();
+        assertThat(ttlConfig.getCleanupStrategies()).isNotNull();
 
-		assertTrue(cleanupStrategies.isCleanupInBackground());
-		assertNotNull(incrementalCleanupStrategy);
-		assertNotNull(rocksdbCleanupStrategy);
-		assertTrue(cleanupStrategies.inRocksdbCompactFilter());
-		assertEquals(5, incrementalCleanupStrategy.getCleanupSize());
-		assertFalse(incrementalCleanupStrategy.runCleanupForEveryRecord());
-		assertEquals(1000, rocksdbCleanupStrategy.getQueryTimeAfterNumEntries());
-	}
+        CleanupStrategies cleanupStrategies = ttlConfig.getCleanupStrategies();
+        IncrementalCleanupStrategy incrementalCleanupStrategy =
+                cleanupStrategies.getIncrementalCleanupStrategy();
+        RocksdbCompactFilterCleanupStrategy rocksdbCleanupStrategy =
+                cleanupStrategies.getRocksdbCompactFilterCleanupStrategy();
 
+        assertThat(cleanupStrategies.isCleanupInBackground()).isFalse();
+        assertThat(incrementalCleanupStrategy).isNull();
+        assertThat(rocksdbCleanupStrategy).isNull();
+        assertThat(cleanupStrategies.inRocksdbCompactFilter()).isFalse();
+    }
+
+    @Test
+    void testStateTtlConfigBuildWithCleanupInBackground() {
+        StateTtlConfig ttlConfig = StateTtlConfig.newBuilder(Duration.ofSeconds(1)).build();
+
+        assertThat(ttlConfig.getCleanupStrategies()).isNotNull();
+
+        CleanupStrategies cleanupStrategies = ttlConfig.getCleanupStrategies();
+        IncrementalCleanupStrategy incrementalCleanupStrategy =
+                cleanupStrategies.getIncrementalCleanupStrategy();
+        RocksdbCompactFilterCleanupStrategy rocksdbCleanupStrategy =
+                cleanupStrategies.getRocksdbCompactFilterCleanupStrategy();
+
+        assertThat(cleanupStrategies.isCleanupInBackground()).isTrue();
+        assertThat(incrementalCleanupStrategy).isNotNull();
+        assertThat(rocksdbCleanupStrategy).isNull();
+        assertThat(cleanupStrategies.inRocksdbCompactFilter()).isTrue();
+        assertThat(incrementalCleanupStrategy.getCleanupSize()).isEqualTo(5);
+        assertThat(incrementalCleanupStrategy.runCleanupForEveryRecord()).isFalse();
+    }
+
+    @Test
+    void testStateTtlConfigBuildWithNonPositiveCleanupIncrementalSize() {
+        List<Integer> illegalCleanUpSizes = Arrays.asList(0, -2);
+
+        for (Integer illegalCleanUpSize : illegalCleanUpSizes) {
+            assertThatThrownBy(
+                            () ->
+                                    StateTtlConfig.newBuilder(Duration.ofSeconds(1))
+                                            .cleanupIncrementally(illegalCleanUpSize, false)
+                                            .build())
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+    }
 }

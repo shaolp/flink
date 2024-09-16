@@ -23,45 +23,45 @@ import org.apache.flink.api.java.ExecutionEnvironment;
 import org.apache.flink.api.java.tuple.Tuple3;
 import org.apache.flink.api.java.tuple.Tuple5;
 import org.apache.flink.test.operators.util.CollectionDataSets;
-import org.apache.flink.test.util.JavaProgramTestBase;
+import org.apache.flink.test.util.JavaProgramTestBaseJUnit4;
 
 import java.util.List;
 
-/**
- * Integration tests for {@link DataSet#project}.
- */
-public class ProjectITCase extends JavaProgramTestBase {
+import static org.apache.flink.test.util.TestBaseUtils.compareResultAsTuples;
 
-	@Override
-	protected void testProgram() throws Exception {
-		/*
-		 * Projection with tuple fields indexes
-		 */
+/** Integration tests for {@link DataSet#project}. */
+public class ProjectITCase extends JavaProgramTestBaseJUnit4 {
 
-		final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
+    @Override
+    protected void testProgram() throws Exception {
+        /*
+         * Projection with tuple fields indexes
+         */
 
-		DataSet<Tuple5<Integer, Long, Integer, String, Long>> ds = CollectionDataSets.get5TupleDataSet(env);
-		DataSet<Tuple3<String, Long, Integer>> projDs = ds.
-				project(3, 4, 2);
-		List<Tuple3<String, Long, Integer>> result = projDs.collect();
+        final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
 
-		String expectedResult = "Hallo,1,0\n" +
-				"Hallo Welt,2,1\n" +
-				"Hallo Welt wie,1,2\n" +
-				"Hallo Welt wie gehts?,2,3\n" +
-				"ABC,2,4\n" +
-				"BCD,3,5\n" +
-				"CDE,2,6\n" +
-				"DEF,1,7\n" +
-				"EFG,1,8\n" +
-				"FGH,2,9\n" +
-				"GHI,1,10\n" +
-				"HIJ,3,11\n" +
-				"IJK,3,12\n" +
-				"JKL,2,13\n" +
-				"KLM,2,14\n";
+        DataSet<Tuple5<Integer, Long, Integer, String, Long>> ds =
+                CollectionDataSets.get5TupleDataSet(env);
+        DataSet<Tuple3<String, Long, Integer>> projDs = ds.project(3, 4, 2);
+        List<Tuple3<String, Long, Integer>> result = projDs.collect();
 
-		compareResultAsTuples(result, expectedResult);
-	}
+        String expectedResult =
+                "Hallo,1,0\n"
+                        + "Hallo Welt,2,1\n"
+                        + "Hallo Welt wie,1,2\n"
+                        + "Hallo Welt wie gehts?,2,3\n"
+                        + "ABC,2,4\n"
+                        + "BCD,3,5\n"
+                        + "CDE,2,6\n"
+                        + "DEF,1,7\n"
+                        + "EFG,1,8\n"
+                        + "FGH,2,9\n"
+                        + "GHI,1,10\n"
+                        + "HIJ,3,11\n"
+                        + "IJK,3,12\n"
+                        + "JKL,2,13\n"
+                        + "KLM,2,14\n";
 
+        compareResultAsTuples(result, expectedResult);
+    }
 }

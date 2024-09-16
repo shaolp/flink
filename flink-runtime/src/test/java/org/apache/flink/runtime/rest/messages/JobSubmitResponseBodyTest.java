@@ -19,19 +19,21 @@
 package org.apache.flink.runtime.rest.messages;
 
 import org.apache.flink.runtime.rest.messages.job.JobSubmitResponseBody;
+import org.apache.flink.testutils.junit.extensions.parameterized.NoOpTestExtension;
 
-/**
- * Tests for {@link JobSubmitResponseBody}.
- */
-public class JobSubmitResponseBodyTest extends RestResponseMarshallingTestBase<JobSubmitResponseBody> {
+import org.junit.jupiter.api.extension.ExtendWith;
 
-	@Override
-	protected Class<JobSubmitResponseBody> getTestResponseClass() {
-		return JobSubmitResponseBody.class;
-	}
+/** Tests for {@link JobSubmitResponseBody}. */
+@ExtendWith(NoOpTestExtension.class)
+class JobSubmitResponseBodyTest extends RestResponseMarshallingTestBase<JobSubmitResponseBody> {
 
-	@Override
-	protected JobSubmitResponseBody getTestResponseInstance() throws Exception {
-		return new JobSubmitResponseBody("/url");
-	}
+    @Override
+    protected Class<JobSubmitResponseBody> getTestResponseClass() {
+        return JobSubmitResponseBody.class;
+    }
+
+    @Override
+    protected JobSubmitResponseBody getTestResponseInstance() throws Exception {
+        return new JobSubmitResponseBody("/url");
+    }
 }

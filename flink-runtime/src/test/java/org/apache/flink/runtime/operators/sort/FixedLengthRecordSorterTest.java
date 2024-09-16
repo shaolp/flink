@@ -18,13 +18,9 @@
 
 package org.apache.flink.runtime.operators.sort;
 
-import java.util.List;
-import java.util.Random;
-
 import org.apache.flink.api.common.typeutils.TypeComparator;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.core.memory.MemorySegment;
-import org.apache.flink.core.memory.MemoryType;
 import org.apache.flink.runtime.io.disk.ChannelReaderInputViewIterator;
 import org.apache.flink.runtime.io.disk.iomanager.BlockChannelReader;
 import org.apache.flink.runtime.io.disk.iomanager.BlockChannelWriter;
@@ -34,6 +30,7 @@ import org.apache.flink.runtime.io.disk.iomanager.FileIOChannel;
 import org.apache.flink.runtime.io.disk.iomanager.IOManager;
 import org.apache.flink.runtime.io.disk.iomanager.IOManagerAsync;
 import org.apache.flink.runtime.memory.MemoryManager;
+import org.apache.flink.runtime.memory.MemoryManagerBuilder;
 import org.apache.flink.runtime.operators.testutils.DummyInvokable;
 import org.apache.flink.runtime.operators.testutils.RandomIntPairGenerator;
 import org.apache.flink.runtime.operators.testutils.UniformIntPairGenerator;
@@ -42,444 +39,469 @@ import org.apache.flink.runtime.operators.testutils.types.IntPairComparator;
 import org.apache.flink.runtime.operators.testutils.types.IntPairSerializer;
 import org.apache.flink.util.MutableObjectIterator;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
-public class FixedLengthRecordSorterTest {
-	
-	private static final long SEED = 649180756312423613L;
+import java.util.List;
+import java.util.Random;
 
-	private static final int MEMORY_SIZE = 1024 * 1024 * 64;
-	
-	private static final int MEMORY_PAGE_SIZE = 32 * 1024; 
+import static org.assertj.core.api.Assertions.assertThat;
 
-	private MemoryManager memoryManager;
+class FixedLengthRecordSorterTest {
 
-	private IOManager ioManager;
-	
-	private TypeSerializer<IntPair> serializer;
-	
-	private TypeComparator<IntPair> comparator;
+    private static final long SEED = 649180756312423613L;
 
+    private static final int MEMORY_SIZE = 1024 * 1024 * 64;
 
-	@Before
-	public void beforeTest() {
-		this.memoryManager = new MemoryManager(MEMORY_SIZE, 1, MEMORY_PAGE_SIZE, MemoryType.HEAP, true);
-		this.ioManager = new IOManagerAsync();
-		this.serializer = new IntPairSerializer();
-		this.comparator = new IntPairComparator();
-	}
+    private static final int MEMORY_PAGE_SIZE = 32 * 1024;
 
-	@After
-	public void afterTest() throws Exception {
-		if (!this.memoryManager.verifyEmpty()) {
-			Assert.fail("Memory Leak: Some memory has not been returned to the memory manager.");
-		}
+    private MemoryManager memoryManager;
 
-		if (this.ioManager != null) {
-			ioManager.close();
-			ioManager = null;
-		}
-		
-		if (this.memoryManager != null) {
-			this.memoryManager.shutdown();
-			this.memoryManager = null;
-		}
-	}
+    private IOManager ioManager;
 
-	private FixedLengthRecordSorter<IntPair> newSortBuffer(List<MemorySegment> memory) throws Exception {
-		return new FixedLengthRecordSorter<IntPair>(this.serializer, this.comparator, memory);
-	}
+    private TypeSerializer<IntPair> serializer;
 
-	@Test
-	public void testWriteAndRead() throws Exception {
-		final int numSegments = MEMORY_SIZE / MEMORY_PAGE_SIZE;
-		final List<MemorySegment> memory = this.memoryManager.allocatePages(new DummyInvokable(), numSegments);
-		
-		FixedLengthRecordSorter<IntPair> sorter = newSortBuffer(memory);
-		RandomIntPairGenerator generator = new RandomIntPairGenerator(SEED);
-		
-//		long startTime = System.currentTimeMillis();
-		// write the records
-		IntPair record = new IntPair();
-		int num = -1;
-		do {
-			generator.next(record);
-			num++;
-		}
-		while (sorter.write(record) && num < 3354624);
-//		System.out.println("WRITE TIME " + (System.currentTimeMillis() - startTime));
-		
-		// re-read the records
-		generator.reset();
-		IntPair readTarget = new IntPair();
-		
-//		startTime = System.currentTimeMillis();
-		int i = 0;
-		while (i < num) {
-			generator.next(record);
-			readTarget = sorter.getRecord(readTarget, i++);
-			
-			int rk = readTarget.getKey();
-			int gk = record.getKey();
-			
-			int rv = readTarget.getValue();
-			int gv = record.getValue();
-			
-			if (gk != rk) {
-				Assert.fail("The re-read key is wrong " + i);
-			}
-			if (gv != rv) {
-				Assert.fail("The re-read value is wrong");
-			}
-		}
-//		System.out.println("READ TIME " + (System.currentTimeMillis() - startTime));
-//		System.out.println("RECORDS " + num);
-		
-		// release the memory occupied by the buffers
-		sorter.dispose();
-		this.memoryManager.release(memory);
-	}
-	
-	@Test
-	public void testWriteAndIterator() throws Exception {
-		final int numSegments = MEMORY_SIZE / MEMORY_PAGE_SIZE;
-		final List<MemorySegment> memory = this.memoryManager.allocatePages(new DummyInvokable(), numSegments);
-		
-		FixedLengthRecordSorter<IntPair> sorter = newSortBuffer(memory);
-		RandomIntPairGenerator generator = new RandomIntPairGenerator(SEED);
-		
-		// write the records
-		IntPair record = new IntPair();
-		int num = -1;
-		do {
-			generator.next(record);
-			num++;
-		}
-		while (sorter.write(record));
-		
-		// re-read the records
-		generator.reset();
-		
-		MutableObjectIterator<IntPair> iter = sorter.getIterator();
-		IntPair readTarget = new IntPair();
-		int count = 0;
-		
-		while ((readTarget = iter.next(readTarget)) != null) {
-			count++;
-			
-			generator.next(record);
-			
-			int rk = readTarget.getKey();
-			int gk = record.getKey();
-			
-			int rv = readTarget.getValue();
-			int gv = record.getValue();
-			
-			Assert.assertEquals("The re-read key is wrong", gk, rk);
-			Assert.assertEquals("The re-read value is wrong", gv, rv);
-		}
-		
-		Assert.assertEquals("Incorrect number of records", num, count);
-		
-		// release the memory occupied by the buffers
-		sorter.dispose();
-		this.memoryManager.release(memory);
-	}
-	
-	@Test
-	public void testReset() throws Exception {
-		final int numSegments = MEMORY_SIZE / MEMORY_PAGE_SIZE;
-		final List<MemorySegment> memory = this.memoryManager.allocatePages(new DummyInvokable(), numSegments);
-		
-		FixedLengthRecordSorter<IntPair> sorter = newSortBuffer(memory);
-		RandomIntPairGenerator generator = new RandomIntPairGenerator(SEED);
-		
-		// write the buffer full with the first set of records
-		IntPair record = new IntPair();
-		int num = -1;
-		do {
-			generator.next(record);
-			num++;
-		}
-		while (sorter.write(record) && num < 3354624);
-		
-		sorter.reset();
-		
-		// write a second sequence of records. since the values are of fixed length, we must be able to write an equal number
-		generator.reset();
-		
-		// write the buffer full with the first set of records
-		int num2 = -1;
-		do {
-			generator.next(record);
-			num2++;
-		}
-		while (sorter.write(record) && num2 < 3354624);
-		
-		Assert.assertEquals("The number of records written after the reset was not the same as before.", num, num2);
-		
-		// re-read the records
-		generator.reset();
-		IntPair readTarget = new IntPair();
-		
-		int i = 0;
-		while (i < num) {
-			generator.next(record);
-			readTarget = sorter.getRecord(readTarget, i++);
-			
-			int rk = readTarget.getKey();
-			int gk = record.getKey();
-			
-			int rv = readTarget.getValue();
-			int gv = record.getValue();
-			
-			Assert.assertEquals("The re-read key is wrong", gk, rk);
-			Assert.assertEquals("The re-read value is wrong", gv, rv);
-		}
-		
-		// release the memory occupied by the buffers
-		sorter.dispose();
-		this.memoryManager.release(memory);
-	}
-	
-	/**
-	 * The swap test fills the sort buffer and swaps all elements such that they are
-	 * backwards. It then resets the generator, goes backwards through the buffer
-	 * and compares for equality.
-	 */
-	@Test
-	public void testSwap() throws Exception {
-		final int numSegments = MEMORY_SIZE / MEMORY_PAGE_SIZE;
-		final List<MemorySegment> memory = this.memoryManager.allocatePages(new DummyInvokable(), numSegments);
-		
-		FixedLengthRecordSorter<IntPair> sorter = newSortBuffer(memory);
-		RandomIntPairGenerator generator = new RandomIntPairGenerator(SEED);
-		
-		// write the records
-		IntPair record = new IntPair();
-		int num = -1;
-		do {
-			generator.next(record);
-			num++;
-		}
-		while (sorter.write(record) && num < 3354624);
-		
-		// swap the records
-		int start = 0, end = num - 1;
-		while (start < end) {
-			sorter.swap(start++, end--);
-		}
-		
-		// re-read the records
-		generator.reset();
-		IntPair readTarget = new IntPair();
-		
-		int i = num - 1;
-		while (i >= 0) {
-			generator.next(record);
-			readTarget = sorter.getRecord(readTarget, i--);
-			
-			int rk = readTarget.getKey();
-			int gk = record.getKey();
-			
-			int rv = readTarget.getValue();
-			int gv = record.getValue();
-			
-			Assert.assertEquals("The re-read key is wrong", gk, rk);
-			Assert.assertEquals("The re-read value is wrong", gv, rv);
-		}
-		
-		// release the memory occupied by the buffers
-		sorter.dispose();
-		this.memoryManager.release(memory);
-	}
-	
-	/**
-	 * The compare test creates a sorted stream, writes it to the buffer and
-	 * compares random elements. It expects that earlier elements are lower than later
-	 * ones.
-	 */
-	@Test
-	public void testCompare() throws Exception {
-		final int numSegments = MEMORY_SIZE / MEMORY_PAGE_SIZE;
-		final List<MemorySegment> memory = this.memoryManager.allocatePages(new DummyInvokable(), numSegments);
-		
-		FixedLengthRecordSorter<IntPair> sorter = newSortBuffer(memory);
-		UniformIntPairGenerator generator = new UniformIntPairGenerator(Integer.MAX_VALUE, 1, true);
-		
-		// write the records
-		IntPair record = new IntPair();
-		int num = -1;
-		do {
-			generator.next(record);
-			num++;
-		}
-		while (sorter.write(record) && num < 3354624);
-		
-		// compare random elements
-		Random rnd = new Random(SEED << 1);
-		for (int i = 0; i < 2 * num; i++) {
-			int pos1 = rnd.nextInt(num);
-			int pos2 = rnd.nextInt(num);
-			
-			int cmp = sorter.compare(pos1, pos2);
-			
-			if (pos1 < pos2) {
-				Assert.assertTrue(cmp <= 0);
-			}
-			else {
-				Assert.assertTrue(cmp >= 0);
-			}
-		}
-		
-		// release the memory occupied by the buffers
-		sorter.dispose();
-		this.memoryManager.release(memory);
-	}
-	
-	@Test
-	public void testSort() throws Exception {
-		final int NUM_RECORDS = 559273;
-		final int numSegments = MEMORY_SIZE / MEMORY_PAGE_SIZE;
-		final List<MemorySegment> memory = this.memoryManager.allocatePages(new DummyInvokable(), numSegments);
-		
-		FixedLengthRecordSorter<IntPair> sorter = newSortBuffer(memory);
-		RandomIntPairGenerator generator = new RandomIntPairGenerator(SEED);
-		
-		// write the records
-		IntPair record = new IntPair();
-		int num = -1;
-		do {
-			generator.next(record);
-			num++;
-		}
-		while (sorter.write(record) && num < NUM_RECORDS);
-		
-		QuickSort qs = new QuickSort();
-		qs.sort(sorter);
-		
-		MutableObjectIterator<IntPair> iter = sorter.getIterator();
-		IntPair readTarget = new IntPair();
-		
-		int current;
-		int last;
-		
-		iter.next(readTarget);
-		last = readTarget.getKey();
-		
-		while ((readTarget = iter.next(readTarget)) != null) {
-			current = readTarget.getKey();
-			
-			final int cmp = last - current;
-			if (cmp > 0) {
-				Assert.fail("Next key is not larger or equal to previous key.");
-			}
-			last = current;
-		}
-		
-		// release the memory occupied by the buffers
-		sorter.dispose();
-		this.memoryManager.release(memory);
-	}
+    private TypeComparator<IntPair> comparator;
 
-	@Test
-	public void testFlushFullMemoryPage() throws Exception {
-		// Insert IntPair which would fill 2 memory pages.
-		final int NUM_RECORDS = 2 * MEMORY_PAGE_SIZE / 8;
-		final List<MemorySegment> memory = this.memoryManager.allocatePages(new DummyInvokable(), 3);
+    @BeforeEach
+    void beforeTest() {
+        this.memoryManager =
+                MemoryManagerBuilder.newBuilder()
+                        .setMemorySize(MEMORY_SIZE)
+                        .setPageSize(MEMORY_PAGE_SIZE)
+                        .build();
+        this.ioManager = new IOManagerAsync();
+        this.serializer = new IntPairSerializer();
+        this.comparator = new IntPairComparator();
+    }
 
-		FixedLengthRecordSorter<IntPair> sorter = newSortBuffer(memory);
-		UniformIntPairGenerator generator = new UniformIntPairGenerator(Integer.MAX_VALUE, 1, false);
+    @AfterEach
+    void afterTest() throws Exception {
+        assertThat(this.memoryManager.verifyEmpty())
+                .withFailMessage(
+                        "Memory Leak: Some memory has not been returned to the memory manager.")
+                .isTrue();
 
-		// write the records
-		IntPair record = new IntPair();
-		int num = -1;
-		do {
-			generator.next(record);
-			num++;
-		}
-		while (sorter.write(record) && num < NUM_RECORDS);
+        if (this.ioManager != null) {
+            ioManager.close();
+            ioManager = null;
+        }
 
-		FileIOChannel.ID channelID = this.ioManager.createChannelEnumerator().next();
-		BlockChannelWriter<MemorySegment> blockChannelWriter = this.ioManager.createBlockChannelWriter(channelID);
-		final List<MemorySegment> writeBuffer = this.memoryManager.allocatePages(new DummyInvokable(), 3);
-		ChannelWriterOutputView outputView = new ChannelWriterOutputView(blockChannelWriter, writeBuffer, writeBuffer.get(0).size());
+        if (this.memoryManager != null) {
+            this.memoryManager.shutdown();
+            this.memoryManager = null;
+        }
+    }
 
-		sorter.writeToOutput(outputView, 0, NUM_RECORDS);
+    private FixedLengthRecordSorter<IntPair> newSortBuffer(List<MemorySegment> memory)
+            throws Exception {
+        return new FixedLengthRecordSorter<IntPair>(this.serializer, this.comparator, memory);
+    }
 
-		this.memoryManager.release(outputView.close());
+    @Test
+    void testWriteAndRead() throws Exception {
+        final int numSegments = MEMORY_SIZE / MEMORY_PAGE_SIZE;
+        final List<MemorySegment> memory =
+                this.memoryManager.allocatePages(new DummyInvokable(), numSegments);
 
-		BlockChannelReader<MemorySegment> blockChannelReader = this.ioManager.createBlockChannelReader(channelID);
-		final List<MemorySegment> readBuffer = this.memoryManager.allocatePages(new DummyInvokable(), 3);
-		ChannelReaderInputView readerInputView = new ChannelReaderInputView(blockChannelReader, readBuffer, false);
-		final List<MemorySegment> dataBuffer = this.memoryManager.allocatePages(new DummyInvokable(), 3);
-		ChannelReaderInputViewIterator<IntPair> iterator = new ChannelReaderInputViewIterator(readerInputView, dataBuffer, this.serializer);
+        FixedLengthRecordSorter<IntPair> sorter = newSortBuffer(memory);
+        RandomIntPairGenerator generator = new RandomIntPairGenerator(SEED);
 
-		record = iterator.next(record);
-		int i =0;
-		while (record != null) {
-			Assert.assertEquals(i, record.getKey());
-			record = iterator.next(record);
-			i++;
-		}
+        //		long startTime = System.currentTimeMillis();
+        // write the records
+        IntPair record = new IntPair();
+        int num = -1;
+        do {
+            generator.next(record);
+            num++;
+        } while (sorter.write(record) && num < 3354624);
+        //		System.out.println("WRITE TIME " + (System.currentTimeMillis() - startTime));
 
-		Assert.assertEquals(NUM_RECORDS, i);
+        // re-read the records
+        generator.reset();
+        IntPair readTarget = new IntPair();
 
-		this.memoryManager.release(dataBuffer);
-		// release the memory occupied by the buffers
-		sorter.dispose();
-		this.memoryManager.release(memory);
-	}
+        //		startTime = System.currentTimeMillis();
+        int i = 0;
+        while (i < num) {
+            generator.next(record);
+            readTarget = sorter.getRecord(readTarget, i++);
 
-	@Test
-	public void testFlushPartialMemoryPage() throws Exception {
-		// Insert IntPair which would fill 2 memory pages.
-		final int NUM_RECORDS = 2 * MEMORY_PAGE_SIZE / 8;
-		final List<MemorySegment> memory = this.memoryManager.allocatePages(new DummyInvokable(), 3);
+            int rk = readTarget.getKey();
+            int gk = record.getKey();
 
-		FixedLengthRecordSorter<IntPair> sorter = newSortBuffer(memory);
-		UniformIntPairGenerator generator = new UniformIntPairGenerator(Integer.MAX_VALUE, 1, false);
+            int rv = readTarget.getValue();
+            int gv = record.getValue();
 
-		// write the records
-		IntPair record = new IntPair();
-		int num = -1;
-		do {
-			generator.next(record);
-			num++;
-		}
-		while (sorter.write(record) && num < NUM_RECORDS);
+            assertThat(rk).withFailMessage("The re-read key is wrong %d", i).isEqualTo(gk);
+            assertThat(rv).withFailMessage("The re-read value is wrong %d", i).isEqualTo(gv);
+        }
+        //		System.out.println("READ TIME " + (System.currentTimeMillis() - startTime));
+        //		System.out.println("RECORDS " + num);
 
-		FileIOChannel.ID channelID = this.ioManager.createChannelEnumerator().next();
-		BlockChannelWriter<MemorySegment> blockChannelWriter = this.ioManager.createBlockChannelWriter(channelID);
-		final List<MemorySegment> writeBuffer = this.memoryManager.allocatePages(new DummyInvokable(), 3);
-		ChannelWriterOutputView outputView = new ChannelWriterOutputView(blockChannelWriter, writeBuffer, writeBuffer.get(0).size());
+        // release the memory occupied by the buffers
+        sorter.dispose();
+        this.memoryManager.release(memory);
+    }
 
-		sorter.writeToOutput(outputView, 1, NUM_RECORDS - 1);
+    @Test
+    void testWriteAndIterator() throws Exception {
+        final int numSegments = MEMORY_SIZE / MEMORY_PAGE_SIZE;
+        final List<MemorySegment> memory =
+                this.memoryManager.allocatePages(new DummyInvokable(), numSegments);
 
-		this.memoryManager.release(outputView.close());
+        FixedLengthRecordSorter<IntPair> sorter = newSortBuffer(memory);
+        RandomIntPairGenerator generator = new RandomIntPairGenerator(SEED);
 
-		BlockChannelReader<MemorySegment> blockChannelReader = this.ioManager.createBlockChannelReader(channelID);
-		final List<MemorySegment> readBuffer = this.memoryManager.allocatePages(new DummyInvokable(), 3);
-		ChannelReaderInputView readerInputView = new ChannelReaderInputView(blockChannelReader, readBuffer, false);
-		final List<MemorySegment> dataBuffer = this.memoryManager.allocatePages(new DummyInvokable(), 3);
-		ChannelReaderInputViewIterator<IntPair> iterator = new ChannelReaderInputViewIterator(readerInputView, dataBuffer, this.serializer);
+        // write the records
+        IntPair record = new IntPair();
+        int num = -1;
+        do {
+            generator.next(record);
+            num++;
+        } while (sorter.write(record));
 
-		record = iterator.next(record);
-		int i =1;
-		while (record != null) {
-			Assert.assertEquals(i, record.getKey());
-			record = iterator.next(record);
-			i++;
-		}
+        // re-read the records
+        generator.reset();
 
-		Assert.assertEquals(NUM_RECORDS, i);
+        MutableObjectIterator<IntPair> iter = sorter.getIterator();
+        IntPair readTarget = new IntPair();
+        int count = 0;
 
-		this.memoryManager.release(dataBuffer);
-		// release the memory occupied by the buffers
-		sorter.dispose();
-		this.memoryManager.release(memory);
-	}
+        while ((readTarget = iter.next(readTarget)) != null) {
+            count++;
+
+            generator.next(record);
+
+            int rk = readTarget.getKey();
+            int gk = record.getKey();
+
+            int rv = readTarget.getValue();
+            int gv = record.getValue();
+
+            assertThat(rk).withFailMessage("The re-read key is wrong").isEqualTo(gk);
+            assertThat(rv).withFailMessage("The re-read value is wrong").isEqualTo(gv);
+        }
+
+        assertThat(count).withFailMessage("Incorrect number of records").isEqualTo(num);
+
+        // release the memory occupied by the buffers
+        sorter.dispose();
+        this.memoryManager.release(memory);
+    }
+
+    @Test
+    void testReset() throws Exception {
+        final int numSegments = MEMORY_SIZE / MEMORY_PAGE_SIZE;
+        final List<MemorySegment> memory =
+                this.memoryManager.allocatePages(new DummyInvokable(), numSegments);
+
+        FixedLengthRecordSorter<IntPair> sorter = newSortBuffer(memory);
+        RandomIntPairGenerator generator = new RandomIntPairGenerator(SEED);
+
+        // write the buffer full with the first set of records
+        IntPair record = new IntPair();
+        int num = -1;
+        do {
+            generator.next(record);
+            num++;
+        } while (sorter.write(record) && num < 3354624);
+
+        sorter.reset();
+
+        // write a second sequence of records. since the values are of fixed length, we must be able
+        // to write an equal number
+        generator.reset();
+
+        // write the buffer full with the first set of records
+        int num2 = -1;
+        do {
+            generator.next(record);
+            num2++;
+        } while (sorter.write(record) && num2 < 3354624);
+
+        assertThat(num2)
+                .withFailMessage(
+                        "The number of records written after the reset was not the same as before.")
+                .isEqualTo(num);
+
+        // re-read the records
+        generator.reset();
+        IntPair readTarget = new IntPair();
+
+        int i = 0;
+        while (i < num) {
+            generator.next(record);
+            readTarget = sorter.getRecord(readTarget, i++);
+
+            int rk = readTarget.getKey();
+            int gk = record.getKey();
+
+            int rv = readTarget.getValue();
+            int gv = record.getValue();
+
+            assertThat(rk).withFailMessage("The re-read key is wrong %d", i).isEqualTo(gk);
+            assertThat(rv).withFailMessage("The re-read value is wrong %d", i).isEqualTo(gv);
+        }
+
+        // release the memory occupied by the buffers
+        sorter.dispose();
+        this.memoryManager.release(memory);
+    }
+
+    /**
+     * The swap test fills the sort buffer and swaps all elements such that they are backwards. It
+     * then resets the generator, goes backwards through the buffer and compares for equality.
+     */
+    @Test
+    void testSwap() throws Exception {
+        final int numSegments = MEMORY_SIZE / MEMORY_PAGE_SIZE;
+        final List<MemorySegment> memory =
+                this.memoryManager.allocatePages(new DummyInvokable(), numSegments);
+
+        FixedLengthRecordSorter<IntPair> sorter = newSortBuffer(memory);
+        RandomIntPairGenerator generator = new RandomIntPairGenerator(SEED);
+
+        // write the records
+        IntPair record = new IntPair();
+        int num = -1;
+        do {
+            generator.next(record);
+            num++;
+        } while (sorter.write(record) && num < 3354624);
+
+        // swap the records
+        int start = 0, end = num - 1;
+        while (start < end) {
+            sorter.swap(start++, end--);
+        }
+
+        // re-read the records
+        generator.reset();
+        IntPair readTarget = new IntPair();
+
+        int i = num - 1;
+        while (i >= 0) {
+            generator.next(record);
+            readTarget = sorter.getRecord(readTarget, i--);
+
+            int rk = readTarget.getKey();
+            int gk = record.getKey();
+
+            int rv = readTarget.getValue();
+            int gv = record.getValue();
+
+            assertThat(rk).withFailMessage("The re-read key is wrong %d", i).isEqualTo(gk);
+            assertThat(rv).withFailMessage("The re-read value is wrong %d", i).isEqualTo(gv);
+        }
+
+        // release the memory occupied by the buffers
+        sorter.dispose();
+        this.memoryManager.release(memory);
+    }
+
+    /**
+     * The compare test creates a sorted stream, writes it to the buffer and compares random
+     * elements. It expects that earlier elements are lower than later ones.
+     */
+    @Test
+    void testCompare() throws Exception {
+        final int numSegments = MEMORY_SIZE / MEMORY_PAGE_SIZE;
+        final List<MemorySegment> memory =
+                this.memoryManager.allocatePages(new DummyInvokable(), numSegments);
+
+        FixedLengthRecordSorter<IntPair> sorter = newSortBuffer(memory);
+        UniformIntPairGenerator generator = new UniformIntPairGenerator(Integer.MAX_VALUE, 1, true);
+
+        // write the records
+        IntPair record = new IntPair();
+        int num = -1;
+        do {
+            generator.next(record);
+            num++;
+        } while (sorter.write(record) && num < 3354624);
+
+        // compare random elements
+        Random rnd = new Random(SEED << 1);
+        for (int i = 0; i < 2 * num; i++) {
+            int pos1 = rnd.nextInt(num);
+            int pos2 = rnd.nextInt(num);
+
+            int cmp = sorter.compare(pos1, pos2);
+
+            if (pos1 < pos2) {
+                assertThat(cmp).isLessThanOrEqualTo(0);
+            } else {
+                assertThat(cmp).isGreaterThanOrEqualTo(0);
+            }
+        }
+
+        // release the memory occupied by the buffers
+        sorter.dispose();
+        this.memoryManager.release(memory);
+    }
+
+    @Test
+    void testSort() throws Exception {
+        final int NUM_RECORDS = 559273;
+        final int numSegments = MEMORY_SIZE / MEMORY_PAGE_SIZE;
+        final List<MemorySegment> memory =
+                this.memoryManager.allocatePages(new DummyInvokable(), numSegments);
+
+        FixedLengthRecordSorter<IntPair> sorter = newSortBuffer(memory);
+        RandomIntPairGenerator generator = new RandomIntPairGenerator(SEED);
+
+        // write the records
+        IntPair record = new IntPair();
+        int num = -1;
+        do {
+            generator.next(record);
+            num++;
+        } while (sorter.write(record) && num < NUM_RECORDS);
+
+        QuickSort qs = new QuickSort();
+        qs.sort(sorter);
+
+        MutableObjectIterator<IntPair> iter = sorter.getIterator();
+        IntPair readTarget = new IntPair();
+
+        int current;
+        int last;
+
+        iter.next(readTarget);
+        last = readTarget.getKey();
+
+        while ((readTarget = iter.next(readTarget)) != null) {
+            current = readTarget.getKey();
+
+            final int cmp = last - current;
+            assertThat(cmp)
+                    .withFailMessage("Next key is not larger or equal to previous key.")
+                    .isLessThanOrEqualTo(0);
+            last = current;
+        }
+
+        // release the memory occupied by the buffers
+        sorter.dispose();
+        this.memoryManager.release(memory);
+    }
+
+    @Test
+    void testFlushFullMemoryPage() throws Exception {
+        // Insert IntPair which would fill 2 memory pages.
+        final int NUM_RECORDS = 2 * MEMORY_PAGE_SIZE / 8;
+        final List<MemorySegment> memory =
+                this.memoryManager.allocatePages(new DummyInvokable(), 3);
+
+        FixedLengthRecordSorter<IntPair> sorter = newSortBuffer(memory);
+        UniformIntPairGenerator generator =
+                new UniformIntPairGenerator(Integer.MAX_VALUE, 1, false);
+
+        // write the records
+        IntPair record = new IntPair();
+        int num = -1;
+        do {
+            generator.next(record);
+            num++;
+        } while (sorter.write(record) && num < NUM_RECORDS);
+
+        FileIOChannel.ID channelID = this.ioManager.createChannelEnumerator().next();
+        BlockChannelWriter<MemorySegment> blockChannelWriter =
+                this.ioManager.createBlockChannelWriter(channelID);
+        final List<MemorySegment> writeBuffer =
+                this.memoryManager.allocatePages(new DummyInvokable(), 3);
+        ChannelWriterOutputView outputView =
+                new ChannelWriterOutputView(
+                        blockChannelWriter, writeBuffer, writeBuffer.get(0).size());
+
+        sorter.writeToOutput(outputView, 0, NUM_RECORDS);
+
+        this.memoryManager.release(outputView.close());
+
+        BlockChannelReader<MemorySegment> blockChannelReader =
+                this.ioManager.createBlockChannelReader(channelID);
+        final List<MemorySegment> readBuffer =
+                this.memoryManager.allocatePages(new DummyInvokable(), 3);
+        ChannelReaderInputView readerInputView =
+                new ChannelReaderInputView(blockChannelReader, readBuffer, false);
+        final List<MemorySegment> dataBuffer =
+                this.memoryManager.allocatePages(new DummyInvokable(), 3);
+        ChannelReaderInputViewIterator<IntPair> iterator =
+                new ChannelReaderInputViewIterator(readerInputView, dataBuffer, this.serializer);
+
+        record = iterator.next(record);
+        int i = 0;
+        while (record != null) {
+            assertThat(record.getKey()).isEqualTo(i);
+            record = iterator.next(record);
+            i++;
+        }
+
+        assertThat(i).isEqualTo(NUM_RECORDS);
+
+        this.memoryManager.release(dataBuffer);
+        // release the memory occupied by the buffers
+        sorter.dispose();
+        this.memoryManager.release(memory);
+    }
+
+    @Test
+    void testFlushPartialMemoryPage() throws Exception {
+        // Insert IntPair which would fill 2 memory pages.
+        final int NUM_RECORDS = 2 * MEMORY_PAGE_SIZE / 8;
+        final List<MemorySegment> memory =
+                this.memoryManager.allocatePages(new DummyInvokable(), 3);
+
+        FixedLengthRecordSorter<IntPair> sorter = newSortBuffer(memory);
+        UniformIntPairGenerator generator =
+                new UniformIntPairGenerator(Integer.MAX_VALUE, 1, false);
+
+        // write the records
+        IntPair record = new IntPair();
+        int num = -1;
+        do {
+            generator.next(record);
+            num++;
+        } while (sorter.write(record) && num < NUM_RECORDS);
+
+        FileIOChannel.ID channelID = this.ioManager.createChannelEnumerator().next();
+        BlockChannelWriter<MemorySegment> blockChannelWriter =
+                this.ioManager.createBlockChannelWriter(channelID);
+        final List<MemorySegment> writeBuffer =
+                this.memoryManager.allocatePages(new DummyInvokable(), 3);
+        ChannelWriterOutputView outputView =
+                new ChannelWriterOutputView(
+                        blockChannelWriter, writeBuffer, writeBuffer.get(0).size());
+
+        sorter.writeToOutput(outputView, 1, NUM_RECORDS - 1);
+
+        this.memoryManager.release(outputView.close());
+
+        BlockChannelReader<MemorySegment> blockChannelReader =
+                this.ioManager.createBlockChannelReader(channelID);
+        final List<MemorySegment> readBuffer =
+                this.memoryManager.allocatePages(new DummyInvokable(), 3);
+        ChannelReaderInputView readerInputView =
+                new ChannelReaderInputView(blockChannelReader, readBuffer, false);
+        final List<MemorySegment> dataBuffer =
+                this.memoryManager.allocatePages(new DummyInvokable(), 3);
+        ChannelReaderInputViewIterator<IntPair> iterator =
+                new ChannelReaderInputViewIterator(readerInputView, dataBuffer, this.serializer);
+
+        record = iterator.next(record);
+        int i = 1;
+        while (record != null) {
+            assertThat(record.getKey()).isEqualTo(i);
+            record = iterator.next(record);
+            i++;
+        }
+
+        assertThat(i).isEqualTo(NUM_RECORDS);
+
+        this.memoryManager.release(dataBuffer);
+        // release the memory occupied by the buffers
+        sorter.dispose();
+        this.memoryManager.release(memory);
+    }
 }

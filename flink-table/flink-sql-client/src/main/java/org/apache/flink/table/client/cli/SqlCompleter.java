@@ -19,7 +19,6 @@
 package org.apache.flink.table.client.cli;
 
 import org.apache.flink.table.client.gateway.Executor;
-import org.apache.flink.table.client.gateway.SessionContext;
 import org.apache.flink.table.client.gateway.SqlExecutionException;
 
 import org.jline.reader.Candidate;
@@ -32,65 +31,27 @@ import org.slf4j.LoggerFactory;
 
 import java.util.List;
 
-/**
- * SQL code completer.
- */
+/** SQL code completer. */
 public class SqlCompleter implements Completer {
 
-	private static final Logger LOG = LoggerFactory.getLogger(SqlCompleter.class);
+    private static final Logger LOG = LoggerFactory.getLogger(SqlCompleter.class);
+    private final Executor executor;
 
-	public static final String[] COMMAND_HINTS = getCommandHints();
+    public SqlCompleter(Executor executor) {
+        this.executor = executor;
+    }
 
-	private SessionContext context;
+    public void complete(LineReader reader, ParsedLine line, List<Candidate> candidates) {
+        String statement = line.line();
+        try {
+            executor.completeStatement(statement, line.cursor())
+                    .forEach(hint -> candidates.add(createCandidate(hint)));
+        } catch (SqlExecutionException e) {
+            LOG.debug("Could not complete statement at {} : {}.", line.cursor(), statement, e);
+        }
+    }
 
-	private Executor executor;
-
-	public SqlCompleter(SessionContext context, Executor executor) {
-		this.context = context;
-		this.executor = executor;
-	}
-
-	public void complete(LineReader reader, ParsedLine line, List<Candidate> candidates) {
-		String statement = line.line();
-
-		// remove ';' at the end
-		if (statement.endsWith(";")) {
-			statement = statement.substring(0, statement.length() - 1);
-		}
-
-		// handle SQL client specific commands
-		final String statementNormalized = statement.toUpperCase().trim();
-		for (String commandHint : COMMAND_HINTS) {
-			if (commandHint.startsWith(statementNormalized) && line.cursor() < commandHint.length()) {
-				candidates.add(createCandidate(commandHint));
-			}
-		}
-
-		// fallback to Table API hinting
-		try {
-			executor.completeStatement(context, statement, line.cursor())
-				.forEach(hint -> candidates.add(createCandidate(hint)));
-		} catch (SqlExecutionException e) {
-			LOG.debug("Could not complete statement at " + line.cursor() + ":" + statement, e);
-		}
-	}
-
-	private Candidate createCandidate(String hint) {
-		return new Candidate(AttributedString.stripAnsi(hint), hint, null, null, null, null, true);
-	}
-
-	private static String[] getCommandHints() {
-		final SqlCommandParser.SqlCommand[] commands = SqlCommandParser.SqlCommand.values();
-		final String[] hints = new String[commands.length];
-		for (int i = 0; i < commands.length; i++) {
-			final SqlCommandParser.SqlCommand command = commands[i];
-			// add final ";" for convenience if no operands can follow
-			if (command.hasOperands()) {
-				hints[i] = command.toString();
-			} else {
-				hints[i] = command.toString() + ";";
-			}
-		}
-		return hints;
-	}
+    private Candidate createCandidate(String hint) {
+        return new Candidate(AttributedString.stripAnsi(hint), hint, null, null, null, null, true);
+    }
 }

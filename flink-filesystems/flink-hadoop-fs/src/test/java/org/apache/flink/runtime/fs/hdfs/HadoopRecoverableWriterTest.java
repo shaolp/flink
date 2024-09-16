@@ -22,74 +22,74 @@ import org.apache.flink.core.fs.AbstractRecoverableWriterTest;
 import org.apache.flink.core.fs.FileSystem;
 import org.apache.flink.core.fs.Path;
 import org.apache.flink.runtime.util.HadoopUtils;
+import org.apache.flink.testutils.junit.utils.TempDirUtils;
 import org.apache.flink.util.OperatingSystem;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdfs.MiniDFSCluster;
-import org.junit.AfterClass;
-import org.junit.Assume;
-import org.junit.BeforeClass;
-import org.junit.ClassRule;
-import org.junit.rules.TemporaryFolder;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
 
-/**
- * Tests for the {@link HadoopRecoverableWriter}.
- */
-public class HadoopRecoverableWriterTest extends AbstractRecoverableWriterTest {
+import static org.assertj.core.api.Assumptions.assumeThat;
 
-	@ClassRule
-	public static final TemporaryFolder TEMP_FOLDER = new TemporaryFolder();
+/** Tests for the {@link HadoopRecoverableWriter}. */
+class HadoopRecoverableWriterTest extends AbstractRecoverableWriterTest {
 
-	private static MiniDFSCluster hdfsCluster;
+    @TempDir private static java.nio.file.Path tempFolder;
 
-	/** The cached file system instance. */
-	private static FileSystem fileSystem;
+    private static MiniDFSCluster hdfsCluster;
 
-	private static Path basePath;
+    /** The cached file system instance. */
+    private static FileSystem fileSystem;
 
-	@BeforeClass
-	public static void testHadoopVersion() {
-		Assume.assumeTrue(HadoopUtils.isMinHadoopVersion(2, 7));
-	}
+    private static Path basePath;
 
-	@BeforeClass
-	public static void verifyOS() {
-		Assume.assumeTrue("HDFS cluster cannot be started on Windows without extensions.", !OperatingSystem.isWindows());
-	}
+    @BeforeAll
+    static void testHadoopVersion() {
+        assumeThat(HadoopUtils.isMinHadoopVersion(2, 6)).isTrue();
+    }
 
-	@BeforeClass
-	public static void createHDFS() throws Exception {
-		final File baseDir = TEMP_FOLDER.newFolder();
+    @BeforeAll
+    static void verifyOS() {
+        assumeThat(OperatingSystem.isWindows()).isFalse();
+    }
 
-		final Configuration hdConf = new Configuration();
-		hdConf.set(MiniDFSCluster.HDFS_MINIDFS_BASEDIR, baseDir.getAbsolutePath());
+    @BeforeAll
+    static void createHDFS() throws Exception {
+        final File baseDir = TempDirUtils.newFolder(tempFolder);
 
-		final MiniDFSCluster.Builder builder = new MiniDFSCluster.Builder(hdConf);
-		hdfsCluster = builder.build();
+        final Configuration hdConf = new Configuration();
+        hdConf.set(MiniDFSCluster.HDFS_MINIDFS_BASEDIR, baseDir.getAbsolutePath());
 
-		final org.apache.hadoop.fs.FileSystem hdfs = hdfsCluster.getFileSystem();
+        final MiniDFSCluster.Builder builder = new MiniDFSCluster.Builder(hdConf);
+        hdfsCluster = builder.build();
 
-		fileSystem = new HadoopFileSystem(hdfs);
-		basePath = new Path(hdfs.getUri() + "/tests");
-	}
+        final org.apache.hadoop.fs.FileSystem hdfs = hdfsCluster.getFileSystem();
 
-	@AfterClass
-	public static void destroyHDFS() throws Exception {
-		if (hdfsCluster != null) {
-			hdfsCluster.getFileSystem().delete(new org.apache.hadoop.fs.Path(basePath.toUri()), true);
-			hdfsCluster.shutdown();
-		}
-	}
+        fileSystem = new HadoopFileSystem(hdfs);
+        basePath = new Path(hdfs.getUri() + "/tests");
+    }
 
-	@Override
-	public Path getBasePath() {
-		return basePath;
-	}
+    @AfterAll
+    static void destroyHDFS() throws Exception {
+        if (hdfsCluster != null) {
+            hdfsCluster
+                    .getFileSystem()
+                    .delete(new org.apache.hadoop.fs.Path(basePath.toUri()), true);
+            hdfsCluster.shutdown();
+        }
+    }
 
-	@Override
-	public FileSystem initializeFileSystem() {
-		return fileSystem;
-	}
+    @Override
+    public Path getBasePath() {
+        return basePath;
+    }
+
+    @Override
+    public FileSystem initializeFileSystem() {
+        return fileSystem;
+    }
 }

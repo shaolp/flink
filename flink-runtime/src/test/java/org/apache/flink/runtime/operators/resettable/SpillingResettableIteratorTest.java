@@ -18,210 +18,250 @@
 
 package org.apache.flink.runtime.operators.resettable;
 
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.NoSuchElementException;
-
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.api.common.typeutils.base.IntValueSerializer;
-import org.apache.flink.core.memory.MemoryType;
 import org.apache.flink.runtime.io.disk.iomanager.IOManager;
 import org.apache.flink.runtime.io.disk.iomanager.IOManagerAsync;
 import org.apache.flink.runtime.jobgraph.tasks.AbstractInvokable;
 import org.apache.flink.runtime.memory.MemoryManager;
+import org.apache.flink.runtime.memory.MemoryManagerBuilder;
 import org.apache.flink.runtime.operators.testutils.DummyInvokable;
 import org.apache.flink.types.IntValue;
 
-import org.junit.Assert;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
-public class SpillingResettableIteratorTest {
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.NoSuchElementException;
 
-	private static final int NUM_TESTRECORDS = 50000;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.fail;
 
-	private static final int MEMORY_CAPACITY = 10 * 1024 * 1024;
-	
-	private final AbstractInvokable memOwner = new DummyInvokable();
+class SpillingResettableIteratorTest {
 
-	private IOManager ioman;
+    private static final int NUM_TESTRECORDS = 50000;
 
-	private MemoryManager memman;
+    private static final int MEMORY_CAPACITY = 10 * 1024 * 1024;
 
-	private Iterator<IntValue> reader;
-	
-	private final TypeSerializer<IntValue> serializer = new IntValueSerializer();
+    private final AbstractInvokable memOwner = new DummyInvokable();
 
-	
-	@Before
-	public void startup() {
-		// set up IO and memory manager
-		this.memman = new MemoryManager(MEMORY_CAPACITY, 1, 32 * 1024, MemoryType.HEAP, true);
-		this.ioman = new IOManagerAsync();
+    private IOManager ioman;
 
-		// create test objects
-		ArrayList<IntValue> objects = new ArrayList<IntValue>(NUM_TESTRECORDS);
+    private MemoryManager memman;
 
-		for (int i = 0; i < NUM_TESTRECORDS; ++i) {
-			IntValue tmp = new IntValue(i);
-			objects.add(tmp);
-		}
-		this.reader = objects.iterator();
-	}
+    private Iterator<IntValue> reader;
 
-	@After
-	public void shutdown() throws Exception {
-		this.ioman.close();
-		this.ioman = null;
+    private final TypeSerializer<IntValue> serializer = new IntValueSerializer();
 
-		if (!this.memman.verifyEmpty()) {
-			Assert.fail("A memory leak has occurred: Not all memory was properly returned to the memory manager.");
-		}
-		this.memman.shutdown();
-		this.memman = null;
-	}
+    @BeforeEach
+    void startup() {
+        // set up IO and memory manager
+        this.memman = MemoryManagerBuilder.newBuilder().setMemorySize(MEMORY_CAPACITY).build();
+        this.ioman = new IOManagerAsync();
 
-	/**
-	 * Tests the resettable iterator with too few memory, so that the data
-	 * has to be written to disk.
-	 */
-	@Test
-	public void testResettableIterator() {
-		try {
-			// create the resettable Iterator
-			SpillingResettableIterator<IntValue> iterator = new SpillingResettableIterator<IntValue>(
-					this.reader, this.serializer, this.memman, this.ioman, 2, this.memOwner);
-			// open the iterator
-			iterator.open();
+        // create test objects
+        ArrayList<IntValue> objects = new ArrayList<IntValue>(NUM_TESTRECORDS);
 
-			// now test walking through the iterator
-			int count = 0;
-			while (iterator.hasNext()) {
-				Assert.assertEquals("In initial run, element " + count + " does not match expected value!", count++,
-					iterator.next().getValue());
-			}
-			Assert.assertEquals("Too few elements were deserialzied in initial run!", NUM_TESTRECORDS, count);
-			// test resetting the iterator a few times
-			for (int j = 0; j < 10; ++j) {
-				count = 0;
-				iterator.reset();
-				// now we should get the same results
-				while (iterator.hasNext()) {
-					Assert.assertEquals("After reset nr. " + j + 1 + " element " + count
-						+ " does not match expected value!", count++, iterator.next().getValue());
-				}
-				Assert.assertEquals("Too few elements were deserialzied after reset nr. " + j + 1 + "!", NUM_TESTRECORDS,
-					count);
-			}
-			// close the iterator
-			iterator.close();
-		} catch (Exception ex)  {
-			ex.printStackTrace();
-			Assert.fail("Test encountered an exception.");
-		}
-	}
+        for (int i = 0; i < NUM_TESTRECORDS; ++i) {
+            IntValue tmp = new IntValue(i);
+            objects.add(tmp);
+        }
+        this.reader = objects.iterator();
+    }
 
-	/**
-	 * Tests the resettable iterator with enough memory so that all data
-	 * is kept locally in a membuffer.
-	 */
-	@Test
-	public void testResettableIteratorInMemory() {
-		try {
-			// create the resettable Iterator
-			SpillingResettableIterator<IntValue> iterator = new SpillingResettableIterator<IntValue>(
-					this.reader, this.serializer, this.memman, this.ioman, 20, this.memOwner);
-			// open the iterator
-			iterator.open();
+    @AfterEach
+    void shutdown() throws Exception {
+        this.ioman.close();
+        this.ioman = null;
 
-			// now test walking through the iterator
-			int count = 0;
-			while (iterator.hasNext()) {
-				Assert.assertEquals("In initial run, element " + count + " does not match expected value!", count++,
-					iterator.next().getValue());
-			}
-			Assert.assertEquals("Too few elements were deserialzied in initial run!", NUM_TESTRECORDS, count);
-			// test resetting the iterator a few times
-			for (int j = 0; j < 10; ++j) {
-				count = 0;
-				iterator.reset();
-				// now we should get the same results
-				while (iterator.hasNext()) {
-					Assert.assertEquals("After reset nr. " + j + 1 + " element " + count
-						+ " does not match expected value!", count++, iterator.next().getValue());
-				}
-				Assert.assertEquals("Too few elements were deserialzied after reset nr. " + j + 1 + "!", NUM_TESTRECORDS,
-					count);
-			}
-			// close the iterator
-			iterator.close();
-		} catch (Exception ex)  {
-			ex.printStackTrace();
-			Assert.fail("Test encountered an exception.");
-		}
-	}
+        assertThat(this.memman.verifyEmpty())
+                .withFailMessage(
+                        "A memory leak has occurred: Not all memory was properly returned to the memory manager.")
+                .isTrue();
+        this.memman.shutdown();
+        this.memman = null;
+    }
 
-	/**
-	 * Tests whether multiple call of hasNext() changes the state of the iterator
-	 */
-	@Test
-	public void testHasNext() {
-		try {
-			// create the resettable Iterator
-			SpillingResettableIterator<IntValue> iterator = new SpillingResettableIterator<IntValue>(
-					this.reader, this.serializer, this.memman, this.ioman, 2, this.memOwner);
-			// open the iterator
-			iterator.open();
-	
-			int cnt = 0;
-			while (iterator.hasNext()) {
-				iterator.hasNext();
-				iterator.next();
-				cnt++;
-			}
-	
-			Assert.assertTrue(cnt + " elements read from iterator, but " + NUM_TESTRECORDS + " expected",
-				cnt == NUM_TESTRECORDS);
-			
-			iterator.close();
-		} catch (Exception ex)  {
-			ex.printStackTrace();
-			Assert.fail("Test encountered an exception.");
-		}
-	}
+    /**
+     * Tests the resettable iterator with too few memory, so that the data has to be written to
+     * disk.
+     */
+    @Test
+    void testResettableIterator() {
+        try {
+            // create the resettable Iterator
+            SpillingResettableIterator<IntValue> iterator =
+                    new SpillingResettableIterator<IntValue>(
+                            this.reader,
+                            this.serializer,
+                            this.memman,
+                            this.ioman,
+                            2,
+                            this.memOwner);
+            // open the iterator
+            iterator.open();
 
-	/**
-	 * Test whether next() depends on previous call of hasNext()
-	 */
-	@Test
-	public void testNext() {
-		try {
-			// create the resettable Iterator
-			SpillingResettableIterator<IntValue> iterator = new SpillingResettableIterator<IntValue>(
-					this.reader, this.serializer, this.memman, this.ioman, 2, this.memOwner);
-			// open the iterator
-			iterator.open();
-	
-			IntValue record;
-			int cnt = 0;
-			while (cnt < NUM_TESTRECORDS) {
-				record = iterator.next();
-				Assert.assertTrue("Record was not read from iterator", record != null);
-				cnt++;
-			}
-	
-			try {
-				record = iterator.next();
-				Assert.fail("Too many records were read from iterator.");
-			} catch (NoSuchElementException nseex) {
-				// expected
-			}
-			
-			iterator.close();
-		} catch (Exception ex)  {
-			ex.printStackTrace();
-			Assert.fail("Test encountered an exception.");
-		}
-	}
+            // now test walking through the iterator
+            int count = 0;
+            while (iterator.hasNext()) {
+                assertThat(iterator.next().getValue())
+                        .withFailMessage(
+                                "In initial run, element %d does not match expected value!", count)
+                        .isEqualTo(count++);
+            }
+            assertThat(count)
+                    .withFailMessage("Too few elements were deserialized in initial run!")
+                    .isEqualTo(NUM_TESTRECORDS);
+            // test resetting the iterator a few times
+            for (int j = 0; j < 10; ++j) {
+                count = 0;
+                iterator.reset();
+                // now we should get the same results
+                while (iterator.hasNext()) {
+                    assertThat(iterator.next().getValue())
+                            .withFailMessage(
+                                    "After reset nr. %d element %d does not match expected value!",
+                                    j + 1, count)
+                            .isEqualTo(count++);
+                }
+                assertThat(count)
+                        .withFailMessage(
+                                "Too few elements were deserialized after reset nr. %d!", j + 1)
+                        .isEqualTo(NUM_TESTRECORDS);
+            }
+            // close the iterator
+            iterator.close();
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            fail("Test encountered an exception.");
+        }
+    }
+
+    /**
+     * Tests the resettable iterator with enough memory so that all data is kept locally in a
+     * membuffer.
+     */
+    @Test
+    void testResettableIteratorInMemory() {
+        try {
+            // create the resettable Iterator
+            SpillingResettableIterator<IntValue> iterator =
+                    new SpillingResettableIterator<IntValue>(
+                            this.reader,
+                            this.serializer,
+                            this.memman,
+                            this.ioman,
+                            20,
+                            this.memOwner);
+            // open the iterator
+            iterator.open();
+
+            // now test walking through the iterator
+            int count = 0;
+            while (iterator.hasNext()) {
+                assertThat(iterator.next().getValue())
+                        .withFailMessage(
+                                "In initial run, element %d does not match expected value!", count)
+                        .isEqualTo(count++);
+            }
+            assertThat(count)
+                    .withFailMessage("Too few elements were deserialized in initial run!")
+                    .isEqualTo(NUM_TESTRECORDS);
+            // test resetting the iterator a few times
+            for (int j = 0; j < 10; ++j) {
+                count = 0;
+                iterator.reset();
+                // now we should get the same results
+                while (iterator.hasNext()) {
+                    assertThat(iterator.next().getValue())
+                            .withFailMessage(
+                                    "After reset nr. %d element %d does not match expected value!",
+                                    j + 1, count)
+                            .isEqualTo(count++);
+                }
+                assertThat(count)
+                        .withFailMessage(
+                                "Too few elements were deserialized after reset nr. %d!", j + 1)
+                        .isEqualTo(NUM_TESTRECORDS);
+            }
+            // close the iterator
+            iterator.close();
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            fail("Test encountered an exception.");
+        }
+    }
+
+    /** Tests whether multiple call of hasNext() changes the state of the iterator */
+    @Test
+    void testHasNext() {
+        try {
+            // create the resettable Iterator
+            SpillingResettableIterator<IntValue> iterator =
+                    new SpillingResettableIterator<IntValue>(
+                            this.reader,
+                            this.serializer,
+                            this.memman,
+                            this.ioman,
+                            2,
+                            this.memOwner);
+            // open the iterator
+            iterator.open();
+
+            int cnt = 0;
+            while (iterator.hasNext()) {
+                iterator.hasNext();
+                iterator.next();
+                cnt++;
+            }
+
+            assertThat(cnt)
+                    .withFailMessage(
+                            "%d elements read from iterator, but %d expected", cnt, NUM_TESTRECORDS)
+                    .isEqualTo(NUM_TESTRECORDS);
+
+            iterator.close();
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            fail("Test encountered an exception.");
+        }
+    }
+
+    /** Test whether next() depends on previous call of hasNext() */
+    @Test
+    void testNext() {
+        try {
+            // create the resettable Iterator
+            SpillingResettableIterator<IntValue> iterator =
+                    new SpillingResettableIterator<IntValue>(
+                            this.reader,
+                            this.serializer,
+                            this.memman,
+                            this.ioman,
+                            2,
+                            this.memOwner);
+            // open the iterator
+            iterator.open();
+
+            IntValue record;
+            int cnt = 0;
+            while (cnt < NUM_TESTRECORDS) {
+                record = iterator.next();
+                assertThat(record).withFailMessage("Record was not read from iterator").isNotNull();
+                cnt++;
+            }
+
+            assertThatThrownBy(iterator::next)
+                    .withFailMessage("Too many records were read from iterator.")
+                    .isInstanceOf(NoSuchElementException.class);
+
+            iterator.close();
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            fail("Test encountered an exception.");
+        }
+    }
 }

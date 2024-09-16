@@ -31,6 +31,7 @@ import java.io.StringWriter;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Arrays;
+import java.util.concurrent.TimeUnit;
 
 import static org.apache.flink.runtime.testutils.CommonTestUtils.createTemporaryLog4JProperties;
 import static org.apache.flink.runtime.testutils.CommonTestUtils.getCurrentClasspath;
@@ -38,326 +39,328 @@ import static org.apache.flink.runtime.testutils.CommonTestUtils.getJavaCommandP
 import static org.apache.flink.util.Preconditions.checkArgument;
 import static org.apache.flink.util.Preconditions.checkNotNull;
 import static org.apache.flink.util.Preconditions.checkState;
-import static org.junit.Assert.fail;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.fail;
 
-/**
- * A {@link Process} running a separate JVM.
- */
+/** A {@link Process} running a separate JVM. */
 public abstract class TestJvmProcess {
 
-	private static final Logger LOG = LoggerFactory.getLogger(TestJvmProcess.class);
+    private static final Logger LOG = LoggerFactory.getLogger(TestJvmProcess.class);
 
-	/** Lock to guard {@link #startProcess()} and {@link #destroy()} calls. */
-	private final Object createDestroyLock = new Object();
+    /** Lock to guard {@link #startProcess()} and {@link #destroy()} calls. */
+    private final Object createDestroyLock = new Object();
 
-	/** The java command path */
-	private final String javaCommandPath;
+    /** The java command path */
+    private final String javaCommandPath;
 
-	/** The log4j configuration path. */
-	private final String log4jConfigFilePath;
+    /** The log4j configuration path. */
+    private final String log4jConfigFilePath;
 
-	/** Shutdown hook for resource cleanup */
-	private final Thread shutdownHook;
+    /** Shutdown hook for resource cleanup */
+    private final Thread shutdownHook;
 
-	/** JVM process memory (set for both '-Xms' and '-Xmx'). */
-	private int jvmMemoryInMb = 80;
+    /** JVM process memory (set for both '-Xms' and '-Xmx'). */
+    private int jvmMemoryInMb = 80;
 
-	/** The JVM process */
-	private volatile Process process;
+    /** The JVM process */
+    private volatile Process process;
 
-	/** Writer for the process output */
-	private volatile StringWriter processOutput;
+    /** Writer for the process output */
+    private volatile StringWriter processOutput;
 
-	/** flag to mark the process as already destroyed */
-	private volatile boolean destroyed;
+    /** flag to mark the process as already destroyed */
+    private volatile boolean destroyed;
 
+    public TestJvmProcess() throws Exception {
+        this(getJavaCommandPath(), createTemporaryLog4JProperties().getPath());
+    }
 
-	public TestJvmProcess() throws Exception {
-		this(getJavaCommandPath(), createTemporaryLog4JProperties().getPath());
-	}
+    public TestJvmProcess(String javaCommandPath, String log4jConfigFilePath) {
+        this.javaCommandPath = checkNotNull(javaCommandPath, "Java command path");
+        this.log4jConfigFilePath = checkNotNull(log4jConfigFilePath, "log4j config file path");
 
-	public TestJvmProcess(String javaCommandPath, String log4jConfigFilePath) {
-		this.javaCommandPath = checkNotNull(javaCommandPath, "Java command path");
-		this.log4jConfigFilePath = checkNotNull(log4jConfigFilePath, "log4j config file path");
+        this.shutdownHook =
+                new Thread(
+                        new Runnable() {
+                            @Override
+                            public void run() {
+                                try {
+                                    destroy();
+                                } catch (Throwable t) {
+                                    LOG.error("Error during process cleanup shutdown hook.", t);
+                                }
+                            }
+                        });
+    }
 
-		this.shutdownHook = new Thread(new Runnable() {
-			@Override
-			public void run() {
-				try {
-					destroy();
-				}
-				catch (Throwable t) {
-					LOG.error("Error during process cleanup shutdown hook.", t);
-				}
-			}
-		});
-	}
+    /** Returns the name of the process. */
+    public abstract String getName();
 
-	/**
-	 * Returns the name of the process.
-	 */
-	public abstract String getName();
+    /**
+     * Returns the arguments to the JVM.
+     *
+     * <p>These can be parsed by the main method of the entry point class.
+     */
+    public abstract String[] getMainMethodArgs();
 
-	/**
-	 * Returns the arguments to the JVM.
-	 *
-	 * <p>These can be parsed by the main method of the entry point class.
-	 */
-	public abstract String[] getJvmArgs();
+    /**
+     * Returns the name of the class to run.
+     *
+     * <p>Arguments to the main method can be specified via {@link #getMainMethodArgs()}.
+     */
+    public abstract String getEntryPointClassName();
 
-	/**
-	 * Returns the name of the class to run.
-	 *
-	 * <p>Arguments to the main method can be specified via {@link #getJvmArgs()}.
-	 */
-	public abstract String getEntryPointClassName();
+    // ---------------------------------------------------------------------------------------------
 
-	// ---------------------------------------------------------------------------------------------
+    /**
+     * Sets the memory for the process (<code>-Xms</code> and <code>-Xmx</code> flags) (>= 80).
+     *
+     * @param jvmMemoryInMb Amount of memory in Megabytes for the JVM (>= 80).
+     */
+    public void setJVMMemory(int jvmMemoryInMb) {
+        checkArgument(jvmMemoryInMb >= 80, "Process JVM Requires at least 80 MBs of memory.");
+        checkState(process == null, "Cannot set memory after process was started");
 
-	/**
-	 * Sets the memory for the process (<code>-Xms</code> and <code>-Xmx</code> flags) (>= 80).
-	 *
-	 * @param jvmMemoryInMb Amount of memory in Megabytes for the JVM (>= 80).
-	 */
-	public void setJVMMemory(int jvmMemoryInMb) {
-		checkArgument(jvmMemoryInMb >= 80, "Process JVM Requires at least 80 MBs of memory.");
-		checkState(process == null, "Cannot set memory after process was started");
+        this.jvmMemoryInMb = jvmMemoryInMb;
+    }
 
-		this.jvmMemoryInMb = jvmMemoryInMb;
-	}
+    /**
+     * Creates and starts the {@link Process}.
+     *
+     * <p><strong>Important:</strong> Don't forget to call {@link #destroy()} to prevent resource
+     * leaks. The created process will be child process and is not guaranteed to terminate when the
+     * parent process terminates.
+     */
+    public void startProcess() throws IOException {
+        String[] cmd =
+                new String[] {
+                    javaCommandPath,
+                    "-Dlog.level=DEBUG",
+                    "-Dlog4j.configurationFile=file:" + log4jConfigFilePath,
+                    "-Xms" + jvmMemoryInMb + "m",
+                    "-Xmx" + jvmMemoryInMb + "m",
+                    "-classpath",
+                    getCurrentClasspath(),
+                    "-XX:+IgnoreUnrecognizedVMOptions"
+                };
 
-	/**
-	 * Creates and starts the {@link Process}.
-	 *
-	 * <strong>Important:</strong> Don't forget to call {@link #destroy()} to prevent
-	 * resource leaks. The created process will be child process and is not guaranteed to
-	 * terminate when the parent process terminates.
-	 */
-	public void startProcess() throws IOException {
-		String[] cmd = new String[] {
-				javaCommandPath,
-				"-Dlog.level=DEBUG",
-				"-Dlog4j.configuration=file:" + log4jConfigFilePath,
-				"-Xms" + jvmMemoryInMb + "m",
-				"-Xmx" + jvmMemoryInMb + "m",
-				"-classpath", getCurrentClasspath(),
-				getEntryPointClassName() };
+        final String moduleConfig = System.getProperty("surefire.module.config");
+        if (moduleConfig != null) {
+            cmd = ArrayUtils.addAll(cmd, moduleConfig.trim().split("\\s+"));
+        }
 
-		String[] jvmArgs = getJvmArgs();
+        cmd = ArrayUtils.add(cmd, getEntryPointClassName());
 
-		if (jvmArgs != null && jvmArgs.length > 0) {
-			cmd = ArrayUtils.addAll(cmd, jvmArgs);
-		}
+        String[] mainMethodArgs = getMainMethodArgs();
 
-		synchronized (createDestroyLock) {
-			checkState(process == null, "process already started");
+        if (mainMethodArgs != null && mainMethodArgs.length > 0) {
+            cmd = ArrayUtils.addAll(cmd, mainMethodArgs);
+        }
 
-			LOG.debug("Running command '{}'.", Arrays.toString(cmd));
-			this.process = new ProcessBuilder(cmd).start();
+        synchronized (createDestroyLock) {
+            checkState(process == null, "process already started");
 
-			// Forward output
-			this.processOutput = new StringWriter();
-			new CommonTestUtils.PipeForwarder(process.getErrorStream(), processOutput);
+            LOG.debug("Running command '{}'.", Arrays.toString(cmd));
+            this.process = new ProcessBuilder(cmd).start();
 
-			try {
-				// Add JVM shutdown hook to call shutdown of service
-				Runtime.getRuntime().addShutdownHook(shutdownHook);
-			}
-			catch (IllegalStateException ignored) {
-				// JVM is already shutting down. No need to do this.
-			}
-			catch (Throwable t) {
-				LOG.error("Cannot register process cleanup shutdown hook.", t);
-			}
-		}
-	}
+            // Forward output
+            this.processOutput = new StringWriter();
+            new CommonTestUtils.PipeForwarder(process.getErrorStream(), processOutput);
 
-	public void printProcessLog() {
-		checkState(processOutput != null, "not started");
+            try {
+                // Add JVM shutdown hook to call shutdown of service
+                Runtime.getRuntime().addShutdownHook(shutdownHook);
+            } catch (IllegalStateException ignored) {
+                // JVM is already shutting down. No need to do this.
+            } catch (Throwable t) {
+                LOG.error("Cannot register process cleanup shutdown hook.", t);
+            }
+        }
+    }
 
-		System.out.println("-----------------------------------------");
-		System.out.println(" BEGIN SPAWNED PROCESS LOG FOR " + getName());
-		System.out.println("-----------------------------------------");
+    public void printProcessLog() {
+        checkState(processOutput != null, "not started");
 
-		String out = processOutput.toString();
-		if (out == null || out.length() == 0) {
-			System.out.println("(EMPTY)");
-		}
-		else {
-			System.out.println(out);
-		}
+        System.out.println("-----------------------------------------");
+        System.out.println(" BEGIN SPAWNED PROCESS LOG FOR " + getName());
+        System.out.println("-----------------------------------------");
 
-		System.out.println("-----------------------------------------");
-		System.out.println("		END SPAWNED PROCESS LOG " + getName());
-		System.out.println("-----------------------------------------");
-	}
+        String out = processOutput.toString();
+        if (out == null || out.length() == 0) {
+            System.out.println("(EMPTY)");
+        } else {
+            System.out.println(out);
+        }
 
-	public void destroy() {
-		synchronized (createDestroyLock) {
-			checkState(process != null, "process not started");
+        System.out.println("-----------------------------------------");
+        System.out.println("		END SPAWNED PROCESS LOG " + getName());
+        System.out.println("-----------------------------------------");
+    }
 
-			if (destroyed) {
-				// already done
-				return;
-			}
+    public void destroy() throws InterruptedException {
+        synchronized (createDestroyLock) {
+            checkState(process != null, "process not started");
 
-			LOG.info("Destroying " + getName() + " process.");
+            if (destroyed) {
+                // already done
+                return;
+            }
 
-			try {
-				// try to call "destroyForcibly()" on Java 8
-				boolean destroyed = false;
-				try {
-					Method m = process.getClass().getMethod("destroyForcibly");
-					m.setAccessible(true);
-					m.invoke(process);
-					destroyed = true;
-				}
-				catch (NoSuchMethodException ignored) {
-					// happens on Java 7
-				}
-				catch (Throwable t) {
-					LOG.error("Failed to forcibly destroy process", t);
-				}
+            LOG.info("Destroying " + getName() + " process.");
 
-				// if it was not destroyed, call the regular destroy method
-				if (!destroyed) {
-					try {
-						process.destroy();
-					}
-					catch (Throwable t) {
-						LOG.error("Error while trying to destroy process.", t);
-					}
-				}
-			}
-			finally {
-				destroyed = true;
-				ShutdownHookUtil.removeShutdownHook(shutdownHook, getClass().getSimpleName(), LOG);
-			}
-		}
-	}
+            try {
+                process.destroyForcibly();
+                process.waitFor();
+            } finally {
+                destroyed = true;
+                ShutdownHookUtil.removeShutdownHook(shutdownHook, getClass().getSimpleName(), LOG);
+            }
+        }
+    }
 
-	public String getProcessOutput() {
-		if (processOutput != null) {
-			return processOutput.toString();
-		}
-		else {
-			return null;
-		}
-	}
+    public String getProcessOutput() {
+        if (processOutput != null) {
+            return processOutput.toString();
+        } else {
+            return null;
+        }
+    }
 
-	/**
-	 * Gets the process ID, if possible. This method currently only work on UNIX-based
-	 * operating systems. On others, it returns {@code -1}.
-	 * 
-	 * @return The process ID, or -1, if the ID cannot be determined.
-	 */
-	public long getProcessId() {
-		checkState(process != null, "process not started");
+    /**
+     * Gets the process ID, if possible. This method currently only work on UNIX-based operating
+     * systems. On others, it returns {@code -1}.
+     *
+     * @return The process ID, or -1, if the ID cannot be determined.
+     */
+    public long getProcessId() {
+        checkState(process != null, "process not started");
 
-		try {
-			Class<? extends Process> clazz = process.getClass();
-			if (clazz.getName().equals("java.lang.UNIXProcess")) {
-				Field pidField = clazz.getDeclaredField("pid");
-				pidField.setAccessible(true);
-				return pidField.getLong(process);
-			} else if (clazz.getName().equals("java.lang.ProcessImpl")) {
-				Method pid = clazz.getDeclaredMethod("pid");
-				pid.setAccessible(true);
-				return (long) pid.invoke(process);
-			} else {
-				return -1;
-			}
-		}
-		catch (Throwable ignored) {
-			return -1;
-		}
-	}
+        try {
+            Class<? extends Process> clazz = process.getClass();
+            if (clazz.getName().equals("java.lang.UNIXProcess")) {
+                Field pidField = clazz.getDeclaredField("pid");
+                pidField.setAccessible(true);
+                return pidField.getLong(process);
+            } else if (clazz.getName().equals("java.lang.ProcessImpl")) {
+                Method pid = clazz.getDeclaredMethod("pid");
+                pid.setAccessible(true);
+                return (long) pid.invoke(process);
+            } else {
+                return -1;
+            }
+        } catch (Throwable ignored) {
+            return -1;
+        }
+    }
 
-	public boolean isAlive() {
-		if (destroyed) {
-			return false;
-		} else {
-			try {
-				// the method throws an exception as long as the
-				// process is alive
-				process.exitValue();
-				return false;
-			}
-			catch (IllegalThreadStateException ignored) {
-				// thi
-				return true;
-			}
-		}
-	}
+    public boolean isAlive() {
+        if (destroyed) {
+            return false;
+        } else {
+            try {
+                // the method throws an exception as long as the
+                // process is alive
+                process.exitValue();
+                return false;
+            } catch (IllegalThreadStateException ignored) {
+                // thi
+                return true;
+            }
+        }
+    }
 
-	public void waitFor() throws InterruptedException {
-		Process process = this.process;
-		if (process != null) {
-			process.waitFor();
-		} else {
-			throw new IllegalStateException("process not started");
-		}
-	}
+    public void waitFor() throws InterruptedException {
+        Process process = this.process;
+        if (process != null) {
+            process.waitFor();
+        } else {
+            throw new IllegalStateException("process not started");
+        }
+    }
 
-	// ---------------------------------------------------------------------------------------------
-	// File based synchronization utilities
-	// ---------------------------------------------------------------------------------------------
+    public boolean waitFor(long timeout, TimeUnit unit) throws InterruptedException {
+        final Process process = this.process;
+        if (process != null) {
+            return process.waitFor(timeout, unit);
+        } else {
+            throw new IllegalStateException("process not started");
+        }
+    }
 
-	public static void touchFile(File file) throws IOException {
-		if (!file.exists()) {
-			new FileOutputStream(file).close();
-		}
-		if (!file.setLastModified(System.currentTimeMillis())) {
-			throw new IOException("Could not touch the file.");
-		}
-	}
+    public int exitCode() {
+        Process process = this.process;
+        if (process != null) {
+            return process.exitValue();
+        } else {
+            throw new IllegalStateException("process not started");
+        }
+    }
 
-	public static void waitForMarkerFile(File file, long timeoutMillis) throws InterruptedException {
-		final long deadline = System.nanoTime() + timeoutMillis * 1_000_000;
+    // ---------------------------------------------------------------------------------------------
+    // File based synchronization utilities
+    // ---------------------------------------------------------------------------------------------
 
-		boolean exists;
-		while (!(exists = file.exists()) && System.nanoTime() < deadline) {
-			Thread.sleep(10);
-		}
+    public static void touchFile(File file) throws IOException {
+        if (!file.exists()) {
+            new FileOutputStream(file).close();
+        }
+        if (!file.setLastModified(System.currentTimeMillis())) {
+            throw new IOException("Could not touch the file.");
+        }
+    }
 
-		if (!exists) {
-			fail("The marker file was not found within " + timeoutMillis + " msecs");
-		}
-	}
-	
-	public static void waitForMarkerFiles(File basedir, String prefix, int num, long timeout) {
-		long now = System.currentTimeMillis();
-		final long deadline = now + timeout;
+    public static void waitForMarkerFile(File file, long timeoutMillis)
+            throws InterruptedException {
+        final long deadline = System.nanoTime() + timeoutMillis * 1_000_000;
 
+        boolean exists;
+        while (!(exists = file.exists()) && System.nanoTime() < deadline) {
+            Thread.sleep(10);
+        }
 
-		while (now < deadline) {
-			boolean allFound = true;
+        assertThat(exists)
+                .withFailMessage("The marker file was not found within %s msecs", timeoutMillis)
+                .isTrue();
+    }
 
-			for (int i = 0; i < num; i++) {
-				File nextToCheck = new File(basedir, prefix + i);
-				if (!nextToCheck.exists()) {
-					allFound = false;
-					break;
-				}
-			}
+    public static void killProcessWithSigTerm(long pid) throws Exception {
+        // send it a regular kill command (SIG_TERM)
+        final Process kill = Runtime.getRuntime().exec("kill " + pid);
+        kill.waitFor();
+        assertThat(kill.exitValue())
+                .withFailMessage("failed to send SIG_TERM to process %s", pid)
+                .isZero();
+    }
 
-			if (allFound) {
-				return;
-			}
-			else {
-				// not all found, wait for a bit
-				try {
-					Thread.sleep(10);
-				}
-				catch (InterruptedException e) {
-					throw new RuntimeException(e);
-				}
+    public static void waitForMarkerFiles(File basedir, String prefix, int num, long timeout) {
+        long now = System.currentTimeMillis();
+        final long deadline = now + timeout;
 
-				now = System.currentTimeMillis();
-			}
-		}
+        while (now < deadline) {
+            boolean allFound = true;
 
-		fail("The tasks were not started within time (" + timeout + "msecs)");
-	}
+            for (int i = 0; i < num; i++) {
+                File nextToCheck = new File(basedir, prefix + i);
+                if (!nextToCheck.exists()) {
+                    allFound = false;
+                    break;
+                }
+            }
 
+            if (allFound) {
+                return;
+            } else {
+                // not all found, wait for a bit
+                try {
+                    Thread.sleep(10);
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
+
+                now = System.currentTimeMillis();
+            }
+        }
+
+        fail("The tasks were not started within time (" + timeout + "msecs)");
+    }
 }

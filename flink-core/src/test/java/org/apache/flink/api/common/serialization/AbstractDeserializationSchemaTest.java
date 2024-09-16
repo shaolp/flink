@@ -26,127 +26,116 @@ import org.apache.flink.util.FlinkRuntimeException;
 
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.util.JSONPObject;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import java.io.IOException;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.fail;
+/** Tests for {@link AbstractDeserializationSchema}. */
+class AbstractDeserializationSchemaTest {
 
-/**
- * Tests for {@link AbstractDeserializationSchema}.
- */
-@SuppressWarnings("serial")
-public class AbstractDeserializationSchemaTest {
+    @Test
+    void testTypeExtractionTuple() {
+        TypeInformation<Tuple2<byte[], byte[]>> type = new TupleSchema().getProducedType();
+        TypeInformation<Tuple2<byte[], byte[]>> expected =
+                TypeInformation.of(new TypeHint<Tuple2<byte[], byte[]>>() {});
+        assertThat(type).isEqualTo(expected);
+    }
 
-	@Test
-	public void testTypeExtractionTuple() {
-		TypeInformation<Tuple2<byte[], byte[]>> type = new TupleSchema().getProducedType();
-		TypeInformation<Tuple2<byte[], byte[]>> expected = TypeInformation.of(new TypeHint<Tuple2<byte[], byte[]>>(){});
-		assertEquals(expected, type);
-	}
+    @Test
+    void testTypeExtractionTupleAnonymous() {
+        TypeInformation<Tuple2<byte[], byte[]>> type =
+                new AbstractDeserializationSchema<Tuple2<byte[], byte[]>>() {
+                    @Override
+                    public Tuple2<byte[], byte[]> deserialize(byte[] message) {
+                        throw new UnsupportedOperationException();
+                    }
+                }.getProducedType();
 
-	@Test
-	public void testTypeExtractionTupleAnonymous() {
-		TypeInformation<Tuple2<byte[], byte[]>> type = new AbstractDeserializationSchema<Tuple2<byte[], byte[]>>() {
-			@Override
-			public Tuple2<byte[], byte[]> deserialize(byte[] message) throws IOException {
-				throw new UnsupportedOperationException();
-			}
-		}.getProducedType();
+        TypeInformation<Tuple2<byte[], byte[]>> expected =
+                TypeInformation.of(new TypeHint<Tuple2<byte[], byte[]>>() {});
+        assertThat(type).isEqualTo(expected);
+    }
 
-		TypeInformation<Tuple2<byte[], byte[]>> expected = TypeInformation.of(new TypeHint<Tuple2<byte[], byte[]>>(){});
-		assertEquals(expected, type);
-	}
+    @Test
+    void testTypeExtractionGeneric() {
+        TypeInformation<JSONPObject> type = new JsonSchema().getProducedType();
+        TypeInformation<JSONPObject> expected = TypeInformation.of(new TypeHint<JSONPObject>() {});
+        assertThat(type).isEqualTo(expected);
+    }
 
-	@Test
-	public void testTypeExtractionGeneric() {
-		TypeInformation<JSONPObject> type = new JsonSchema().getProducedType();
-		TypeInformation<JSONPObject> expected = TypeInformation.of(new TypeHint<JSONPObject>(){});
-		assertEquals(expected, type);
-	}
+    @Test
+    void testTypeExtractionGenericAnonymous() {
+        TypeInformation<JSONPObject> type =
+                new AbstractDeserializationSchema<JSONPObject>() {
+                    @Override
+                    public JSONPObject deserialize(byte[] message) {
+                        throw new UnsupportedOperationException();
+                    }
+                }.getProducedType();
 
-	@Test
-	public void testTypeExtractionGenericAnonymous() {
-		TypeInformation<JSONPObject> type = new AbstractDeserializationSchema<JSONPObject>() {
-			@Override
-			public JSONPObject deserialize(byte[] message) throws IOException {
-				throw new UnsupportedOperationException();
-			}
-		}.getProducedType();
+        TypeInformation<JSONPObject> expected = TypeInformation.of(new TypeHint<JSONPObject>() {});
+        assertThat(type).isEqualTo(expected);
+    }
 
-		TypeInformation<JSONPObject> expected = TypeInformation.of(new TypeHint<JSONPObject>(){});
-		assertEquals(expected, type);
-	}
+    @Test
+    void testTypeExtractionRawException() {
+        assertThatThrownBy(RawSchema::new).isInstanceOf(FlinkRuntimeException.class);
+    }
 
-	@Test
-	public void testTypeExtractionRawException() {
-		try {
-			new RawSchema();
-			fail();
-		} catch (FlinkRuntimeException e) {
-			// expected
-		}
-	}
+    @Test
+    void testTypeExtractionGenericException() {
+        assertThatThrownBy(GenericSchema::new).isInstanceOf(FlinkRuntimeException.class);
+    }
 
-	@Test
-	public void testTypeExtractionGenericException() {
-		try {
-			new GenericSchema<>();
-			fail();
-		} catch (FlinkRuntimeException e) {
-			// expected
-		}
-	}
+    @Test
+    void testIndirectGenericExtension() {
+        TypeInformation<String> type = new IndirectExtension().getProducedType();
+        assertThat(type).isEqualTo(BasicTypeInfo.STRING_TYPE_INFO);
+    }
 
-	@Test
-	public void testIndirectGenericExtension() {
-		TypeInformation<String> type = new IndirectExtension().getProducedType();
-		assertEquals(BasicTypeInfo.STRING_TYPE_INFO, type);
-	}
+    // ------------------------------------------------------------------------
+    //  Test types
+    // ------------------------------------------------------------------------
 
-	// ------------------------------------------------------------------------
-	//  Test types
-	// ------------------------------------------------------------------------
+    private static class TupleSchema extends AbstractDeserializationSchema<Tuple2<byte[], byte[]>> {
 
-	private static class TupleSchema extends AbstractDeserializationSchema<Tuple2<byte[], byte[]>> {
+        @Override
+        public Tuple2<byte[], byte[]> deserialize(byte[] message) {
+            throw new UnsupportedOperationException();
+        }
+    }
 
-		@Override
-		public Tuple2<byte[], byte[]> deserialize(byte[] message) throws IOException {
-			throw new UnsupportedOperationException();
-		}
-	}
+    private static class JsonSchema extends AbstractDeserializationSchema<JSONPObject> {
 
-	private static class JsonSchema extends AbstractDeserializationSchema<JSONPObject> {
+        @Override
+        public JSONPObject deserialize(byte[] message) {
+            throw new UnsupportedOperationException();
+        }
+    }
 
-		@Override
-		public JSONPObject deserialize(byte[] message) throws IOException {
-			throw new UnsupportedOperationException();
-		}
-	}
+    @SuppressWarnings("rawtypes")
+    private static class RawSchema extends AbstractDeserializationSchema {
 
-	@SuppressWarnings("rawtypes")
-	private static class RawSchema extends AbstractDeserializationSchema {
+        @Override
+        public Object deserialize(byte[] message) {
+            throw new UnsupportedOperationException();
+        }
+    }
 
-		@Override
-		public Object deserialize(byte[] message) throws IOException {
-			throw new UnsupportedOperationException();
-		}
-	}
+    private static class GenericSchema<T> extends AbstractDeserializationSchema<T> {
 
-	private static class GenericSchema<T> extends AbstractDeserializationSchema<T> {
+        @Override
+        public T deserialize(byte[] message) {
+            throw new UnsupportedOperationException();
+        }
+    }
 
-		@Override
-		public T deserialize(byte[] message) throws IOException {
-			throw new UnsupportedOperationException();
-		}
-	}
+    private static class IndirectExtension extends GenericSchema<String> {
 
-	private static class IndirectExtension extends GenericSchema<String> {
-
-		@Override
-		public String deserialize(byte[] message) throws IOException {
-			throw new UnsupportedOperationException();
-		}
-	}
+        @Override
+        public String deserialize(byte[] message) {
+            throw new UnsupportedOperationException();
+        }
+    }
 }

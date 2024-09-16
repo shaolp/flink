@@ -18,25 +18,29 @@
 
 package org.apache.flink.runtime.shuffle;
 
+import org.apache.flink.annotation.PublicEvolving;
 import org.apache.flink.configuration.ConfigOption;
 import org.apache.flink.configuration.ConfigOptions;
 
-/**
- *  Options to configure shuffle service.
- */
+/** Options to configure shuffle service. */
+@PublicEvolving
 @SuppressWarnings("WeakerAccess")
 public class ShuffleServiceOptions {
 
-	private ShuffleServiceOptions() {
-	}
+    public static final String NETTY_SHUFFLE_SERVICE_FACTORY_CLASS =
+            "org.apache.flink.runtime.io.network.NettyShuffleServiceFactory";
 
-	/**
-	 * The full class name of the shuffle service factory implementation to be used by the cluster.
-	 */
-	public static final ConfigOption<String> SHUFFLE_SERVICE_FACTORY_CLASS = ConfigOptions
-		.key("shuffle-service-factory.class")
-		.defaultValue("org.apache.flink.runtime.io.network.NettyShuffleServiceFactory")
-		.withDescription("The full class name of the shuffle service factory implementation to be used by the cluster. " +
-			"The default implementation uses Netty for network communication and local memory as well disk space " +
-			"to store results on a TaskExecutor.");
+    private ShuffleServiceOptions() {}
+
+    /**
+     * The full class name of the shuffle service factory implementation to be used by the cluster.
+     */
+    public static final ConfigOption<String> SHUFFLE_SERVICE_FACTORY_CLASS =
+            ConfigOptions.key("shuffle-service-factory.class")
+                    .stringType()
+                    .defaultValue(NETTY_SHUFFLE_SERVICE_FACTORY_CLASS)
+                    .withDescription(
+                            "The full class name of the shuffle service factory implementation to be used by the cluster. "
+                                    + "The default implementation uses Netty for network communication and local memory as well disk space "
+                                    + "to store results on a TaskExecutor.");
 }

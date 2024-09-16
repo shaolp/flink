@@ -22,51 +22,48 @@ import org.apache.flink.runtime.checkpoint.AbstractCheckpointStats;
 import org.apache.flink.runtime.checkpoint.CheckpointStatsStatus;
 import org.apache.flink.runtime.rest.handler.job.checkpoints.CheckpointStatsCache;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-/**
- * Tests for the CheckpointStatsCache.
- */
-public class CheckpointStatsCacheTest {
+/** Tests for the CheckpointStatsCache. */
+class CheckpointStatsCacheTest {
 
-	@Test
-	public void testZeroSizeCache() throws Exception {
-		AbstractCheckpointStats checkpoint = createCheckpoint(0, CheckpointStatsStatus.COMPLETED);
+    @Test
+    void testZeroSizeCache() throws Exception {
+        AbstractCheckpointStats checkpoint = createCheckpoint(0, CheckpointStatsStatus.COMPLETED);
 
-		CheckpointStatsCache cache = new CheckpointStatsCache(0);
-		cache.tryAdd(checkpoint);
-		assertNull(cache.tryGet(0L));
-	}
+        CheckpointStatsCache cache = new CheckpointStatsCache(0);
+        cache.tryAdd(checkpoint);
+        assertThat(cache.tryGet(0L)).isNull();
+    }
 
-	@Test
-	public void testCacheAddAndGet() throws Exception {
-		AbstractCheckpointStats chk0 = createCheckpoint(0, CheckpointStatsStatus.COMPLETED);
-		AbstractCheckpointStats chk1 = createCheckpoint(1, CheckpointStatsStatus.COMPLETED);
-		AbstractCheckpointStats chk2 = createCheckpoint(2, CheckpointStatsStatus.IN_PROGRESS);
+    @Test
+    void testCacheAddAndGet() throws Exception {
+        AbstractCheckpointStats chk0 = createCheckpoint(0, CheckpointStatsStatus.COMPLETED);
+        AbstractCheckpointStats chk1 = createCheckpoint(1, CheckpointStatsStatus.COMPLETED);
+        AbstractCheckpointStats chk2 = createCheckpoint(2, CheckpointStatsStatus.IN_PROGRESS);
 
-		CheckpointStatsCache cache = new CheckpointStatsCache(1);
-		cache.tryAdd(chk0);
-		assertEquals(chk0, cache.tryGet(0));
+        CheckpointStatsCache cache = new CheckpointStatsCache(1);
+        cache.tryAdd(chk0);
+        assertThat(cache.tryGet(0)).isEqualTo(chk0);
 
-		cache.tryAdd(chk1);
-		assertNull(cache.tryGet(0));
-		assertEquals(chk1, cache.tryGet(1));
+        cache.tryAdd(chk1);
+        assertThat(cache.tryGet(0)).isNull();
+        assertThat(cache.tryGet(1)).isEqualTo(chk1);
 
-		cache.tryAdd(chk2);
-		assertNull(cache.tryGet(2));
-		assertNull(cache.tryGet(0));
-		assertEquals(chk1, cache.tryGet(1));
-	}
+        cache.tryAdd(chk2);
+        assertThat(cache.tryGet(2)).isNull();
+        assertThat(cache.tryGet(0)).isNull();
+        assertThat(cache.tryGet(1)).isEqualTo(chk1);
+    }
 
-	private AbstractCheckpointStats createCheckpoint(long id, CheckpointStatsStatus status) {
-		AbstractCheckpointStats checkpoint = mock(AbstractCheckpointStats.class);
-		when(checkpoint.getCheckpointId()).thenReturn(id);
-		when(checkpoint.getStatus()).thenReturn(status);
-		return checkpoint;
-	}
+    private AbstractCheckpointStats createCheckpoint(long id, CheckpointStatsStatus status) {
+        AbstractCheckpointStats checkpoint = mock(AbstractCheckpointStats.class);
+        when(checkpoint.getCheckpointId()).thenReturn(id);
+        when(checkpoint.getStatus()).thenReturn(status);
+        return checkpoint;
+    }
 }

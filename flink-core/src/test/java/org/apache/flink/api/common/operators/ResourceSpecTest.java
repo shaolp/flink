@@ -18,199 +18,268 @@
 
 package org.apache.flink.api.common.operators;
 
+import org.apache.flink.api.common.resources.CPUResource;
+import org.apache.flink.api.common.resources.ExternalResource;
 import org.apache.flink.core.testutils.CommonTestUtils;
-import org.apache.flink.util.TestLogger;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotEquals;
-import static org.junit.Assert.assertSame;
-import static org.junit.Assert.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Tests for ResourceSpec class, including its all public api: isValid, lessThanOrEqual, equals, hashCode and merge.
+ * Tests for ResourceSpec class, including its all public api: isValid, lessThanOrEqual, equals,
+ * hashCode and merge.
  */
-public class ResourceSpecTest extends TestLogger {
+class ResourceSpecTest {
+    private static final String EXTERNAL_RESOURCE_NAME = "gpu";
 
-	@Test
-	public void testIsValid() throws Exception {
-		ResourceSpec rs = ResourceSpec.newBuilder().setCpuCores(1.0).setHeapMemoryInMB(100).build();
-		assertTrue(rs.isValid());
+    @Test
+    void testLessThanOrEqualWhenBothSpecified() {
+        ResourceSpec rs1 = ResourceSpec.newBuilder(1.0, 100).build();
+        ResourceSpec rs2 = ResourceSpec.newBuilder(1.0, 100).build();
+        assertThat(rs1.lessThanOrEqual(rs2)).isTrue();
+        assertThat(rs2.lessThanOrEqual(rs1)).isTrue();
 
-		rs = ResourceSpec.newBuilder().
-				setCpuCores(1.0).
-				setHeapMemoryInMB(100).
-				setGPUResource(1).
-				build();
-		assertTrue(rs.isValid());
+        ResourceSpec rs3 =
+                ResourceSpec.newBuilder(1.0, 100)
+                        .setExtendedResource(new ExternalResource(EXTERNAL_RESOURCE_NAME, 1.1))
+                        .build();
+        assertThat(rs1.lessThanOrEqual(rs3)).isTrue();
+        assertThat(rs3.lessThanOrEqual(rs1)).isFalse();
 
-		rs = ResourceSpec.newBuilder().
-				setCpuCores(1.0).
-				setHeapMemoryInMB(100).
-				setGPUResource(-1).
-				build();
-		assertFalse(rs.isValid());
-	}
+        ResourceSpec rs4 =
+                ResourceSpec.newBuilder(1.0, 100)
+                        .setExtendedResource(new ExternalResource(EXTERNAL_RESOURCE_NAME, 2.2))
+                        .build();
+        assertThat(rs4.lessThanOrEqual(rs3)).isFalse();
+        assertThat(rs3.lessThanOrEqual(rs4)).isTrue();
+    }
 
-	@Test
-	public void testLessThanOrEqual() throws Exception {
-		ResourceSpec rs1 = ResourceSpec.newBuilder().setCpuCores(1.0).setHeapMemoryInMB(100).build();
-		ResourceSpec rs2 = ResourceSpec.newBuilder().setCpuCores(1.0).setHeapMemoryInMB(100).build();
-		assertTrue(rs1.lessThanOrEqual(rs2));
-		assertTrue(rs2.lessThanOrEqual(rs1));
+    @Test
+    void testLessThanOrEqualWhenBothUnknown() {
+        assertThat(ResourceSpec.UNKNOWN.lessThanOrEqual(ResourceSpec.UNKNOWN)).isTrue();
+    }
 
-		ResourceSpec rs3 = ResourceSpec.newBuilder().
-				setCpuCores(1.0).
-				setHeapMemoryInMB(100).
-				setGPUResource(1.1).
-				build();
-		assertTrue(rs1.lessThanOrEqual(rs3));
-		assertFalse(rs3.lessThanOrEqual(rs1));
+    @Test
+    void testLessThanOrEqualWhenUnknownWithSpecified() {
+        assertThatThrownBy(
+                        () ->
+                                ResourceSpec.UNKNOWN.lessThanOrEqual(
+                                        ResourceSpec.newBuilder(1.0, 100).build()))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
 
-		ResourceSpec rs4 = ResourceSpec.newBuilder().
-				setCpuCores(1.0).
-				setHeapMemoryInMB(100).
-				setGPUResource(2.2).
-				build();
-		assertFalse(rs4.lessThanOrEqual(rs3));
-		assertTrue(rs3.lessThanOrEqual(rs4));
-	}
+    @Test
+    void testLessThanOrEqualWhenSpecifiedWithUnknown() {
+        // final ResourceSpec rs1 = ResourceSpec.newBuilder(1.0, 100).build();
+        // assertThat(rs1.lessThanOrEqual(ResourceSpec.UNKNOWN)).isTrue();
 
-	@Test
-	public void testEquals() throws Exception {
-		ResourceSpec rs1 = ResourceSpec.newBuilder().setCpuCores(1.0).setHeapMemoryInMB(100).build();
-		ResourceSpec rs2 = ResourceSpec.newBuilder().setCpuCores(1.0).setHeapMemoryInMB(100).build();
-		assertEquals(rs1, rs2);
-		assertEquals(rs2, rs1);
+        assertThatThrownBy(
+                        () ->
+                                ResourceSpec.newBuilder(1.0, 100)
+                                        .build()
+                                        .lessThanOrEqual(ResourceSpec.UNKNOWN))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
 
-		ResourceSpec rs3 = ResourceSpec.newBuilder().
-				setCpuCores(1.0).
-				setHeapMemoryInMB(100).
-				setGPUResource(2.2).
-				build();
-		ResourceSpec rs4 = ResourceSpec.newBuilder().
-				setCpuCores(1.0).
-				setHeapMemoryInMB(100).
-				setGPUResource(1).
-				build();
-		assertNotEquals(rs3, rs4);
+    @Test
+    void testEquals() {
+        ResourceSpec rs1 = ResourceSpec.newBuilder(1.0, 100).build();
+        ResourceSpec rs2 = ResourceSpec.newBuilder(1.0, 100).build();
+        assertThat(rs2).isEqualTo(rs1);
+        assertThat(rs1).isEqualTo(rs2);
 
-		ResourceSpec rs5 = ResourceSpec.newBuilder().
-				setCpuCores(1.0).
-				setHeapMemoryInMB(100).
-				setGPUResource(2.2).
-				build();
-		assertEquals(rs3, rs5);
-	}
+        ResourceSpec rs3 =
+                ResourceSpec.newBuilder(1.0, 100)
+                        .setExtendedResource(new ExternalResource(EXTERNAL_RESOURCE_NAME, 2.2))
+                        .build();
+        ResourceSpec rs4 =
+                ResourceSpec.newBuilder(1.0, 100)
+                        .setExtendedResource(new ExternalResource(EXTERNAL_RESOURCE_NAME, 1))
+                        .build();
+        assertThat(rs4).isNotEqualTo(rs3);
 
-	@Test
-	public void testHashCode() throws Exception {
-		ResourceSpec rs1 = ResourceSpec.newBuilder().setCpuCores(1.0).setHeapMemoryInMB(100).build();
-		ResourceSpec rs2 = ResourceSpec.newBuilder().setCpuCores(1.0).setHeapMemoryInMB(100).build();
-		assertEquals(rs1.hashCode(), rs2.hashCode());
+        ResourceSpec rs5 =
+                ResourceSpec.newBuilder(1.0, 100)
+                        .setExtendedResource(new ExternalResource(EXTERNAL_RESOURCE_NAME, 2.2))
+                        .build();
+        assertThat(rs5).isEqualTo(rs3);
+    }
 
-		ResourceSpec rs3 = ResourceSpec.newBuilder().
-				setCpuCores(1.0).
-				setHeapMemoryInMB(100).
-				setGPUResource(2.2).
-				build();
-		ResourceSpec rs4 = ResourceSpec.newBuilder().
-				setCpuCores(1.0).
-				setHeapMemoryInMB(100).
-				setGPUResource(1).
-				build();
-		assertNotEquals(rs3.hashCode(), rs4.hashCode());
+    @Test
+    void testHashCode() {
+        ResourceSpec rs1 = ResourceSpec.newBuilder(1.0, 100).build();
+        ResourceSpec rs2 = ResourceSpec.newBuilder(1.0, 100).build();
+        assertThat(rs2).hasSameHashCodeAs(rs1);
 
-		ResourceSpec rs5 = ResourceSpec.newBuilder().
-				setCpuCores(1.0).
-				setHeapMemoryInMB(100).
-				setGPUResource(2.2).
-				build();
-		assertEquals(rs3.hashCode(), rs5.hashCode());
-	}
+        ResourceSpec rs3 =
+                ResourceSpec.newBuilder(1.0, 100)
+                        .setExtendedResource(new ExternalResource(EXTERNAL_RESOURCE_NAME, 2.2))
+                        .build();
+        ResourceSpec rs4 =
+                ResourceSpec.newBuilder(1.0, 100)
+                        .setExtendedResource(new ExternalResource(EXTERNAL_RESOURCE_NAME, 1))
+                        .build();
+        assertThat(rs4.hashCode()).isNotEqualTo(rs3.hashCode());
 
-	@Test
-	public void testMerge() throws Exception {
-		ResourceSpec rs1 = ResourceSpec.newBuilder().
-				setCpuCores(1.0).
-				setHeapMemoryInMB(100).
-				setGPUResource(1.1).
-				build();
-		ResourceSpec rs2 = ResourceSpec.newBuilder().setCpuCores(1.0).setHeapMemoryInMB(100).build();
+        ResourceSpec rs5 =
+                ResourceSpec.newBuilder(1.0, 100)
+                        .setExtendedResource(new ExternalResource(EXTERNAL_RESOURCE_NAME, 2.2))
+                        .build();
+        assertThat(rs5).hasSameHashCodeAs(rs3);
+    }
 
-		ResourceSpec rs3 = rs1.merge(rs2);
-		assertEquals(1.1, rs3.getGPUResource(), 0.000001);
+    @Test
+    void testMerge() {
+        ResourceSpec rs1 =
+                ResourceSpec.newBuilder(1.0, 100)
+                        .setExtendedResource(new ExternalResource(EXTERNAL_RESOURCE_NAME, 1.1))
+                        .build();
+        ResourceSpec rs2 = ResourceSpec.newBuilder(1.0, 100).build();
 
-		ResourceSpec rs4 = rs1.merge(rs3);
-		assertEquals(2.2, rs4.getGPUResource(), 0.000001);
-	}
+        ResourceSpec rs3 = rs1.merge(rs2);
+        assertThat(rs3.getCpuCores()).isEqualTo(new CPUResource(2.0));
+        assertThat(rs3.getTaskHeapMemory().getMebiBytes()).isEqualTo(200);
+        assertThat(rs3.getExtendedResource(EXTERNAL_RESOURCE_NAME))
+                .hasValue(new ExternalResource(EXTERNAL_RESOURCE_NAME, 1.1));
 
-	@Test
-	public void testSerializable() throws Exception {
-		ResourceSpec rs1 = ResourceSpec.newBuilder().
-				setCpuCores(1.0).
-				setHeapMemoryInMB(100).
-				setGPUResource(1.1).
-				build();
+        ResourceSpec rs4 = rs1.merge(rs3);
+        assertThat(rs4.getExtendedResource(EXTERNAL_RESOURCE_NAME))
+                .hasValue(new ExternalResource(EXTERNAL_RESOURCE_NAME, 2.2));
+    }
 
-		ResourceSpec rs2 = CommonTestUtils.createCopySerializable(rs1);
-		assertEquals(rs1, rs2);
-	}
+    @Test
+    void testSerializable() throws Exception {
+        ResourceSpec rs1 =
+                ResourceSpec.newBuilder(1.0, 100)
+                        .setExtendedResource(new ExternalResource(EXTERNAL_RESOURCE_NAME, 1.1))
+                        .build();
 
-	@Test
-	public void testMergeThisUnknown() throws Exception {
-		final ResourceSpec spec1 = ResourceSpec.UNKNOWN;
-		final ResourceSpec spec2 = ResourceSpec.newBuilder()
-				.setCpuCores(1.0)
-				.setHeapMemoryInMB(100)
-				.setGPUResource(1.1)
-				.build();
+        ResourceSpec rs2 = CommonTestUtils.createCopySerializable(rs1);
+        assertThat(rs2).isEqualTo(rs1);
+    }
 
-		final ResourceSpec merged = spec1.merge(spec2);
+    @Test
+    void testMergeThisUnknown() {
+        final ResourceSpec spec1 = ResourceSpec.UNKNOWN;
+        final ResourceSpec spec2 =
+                ResourceSpec.newBuilder(1.0, 100)
+                        .setExtendedResource(new ExternalResource(EXTERNAL_RESOURCE_NAME, 1.1))
+                        .build();
 
-		assertEquals(ResourceSpec.UNKNOWN, merged);
-	}
+        final ResourceSpec merged = spec1.merge(spec2);
 
-	@Test
-	public void testMergeOtherUnknown() throws Exception {
-		final ResourceSpec spec1 = ResourceSpec.newBuilder()
-			.setCpuCores(1.0)
-			.setHeapMemoryInMB(100)
-			.setGPUResource(1.1)
-			.build();
-		final ResourceSpec spec2 = ResourceSpec.UNKNOWN;
+        assertThat(merged).isEqualTo(ResourceSpec.UNKNOWN);
+    }
 
-		final ResourceSpec merged = spec1.merge(spec2);
+    @Test
+    void testMergeOtherUnknown() {
+        final ResourceSpec spec1 =
+                ResourceSpec.newBuilder(1.0, 100)
+                        .setExtendedResource(new ExternalResource(EXTERNAL_RESOURCE_NAME, 1.1))
+                        .build();
+        final ResourceSpec spec2 = ResourceSpec.UNKNOWN;
 
-		assertEquals(ResourceSpec.UNKNOWN, merged);
-	}
+        final ResourceSpec merged = spec1.merge(spec2);
 
-	@Test
-	public void testMergeBothUnknown() throws Exception {
-		final ResourceSpec spec1 = ResourceSpec.UNKNOWN;
-		final ResourceSpec spec2 = ResourceSpec.UNKNOWN;
+        assertThat(merged).isEqualTo(ResourceSpec.UNKNOWN);
+    }
 
-		final ResourceSpec merged = spec1.merge(spec2);
+    @Test
+    void testMergeBothUnknown() {
+        final ResourceSpec spec1 = ResourceSpec.UNKNOWN;
+        final ResourceSpec spec2 = ResourceSpec.UNKNOWN;
 
-		assertEquals(ResourceSpec.UNKNOWN, merged);
-	}
+        final ResourceSpec merged = spec1.merge(spec2);
 
-	@Test
-	public void testMergeWithSerializationCopy() throws Exception {
-		final ResourceSpec spec1 = CommonTestUtils.createCopySerializable(ResourceSpec.UNKNOWN);
-		final ResourceSpec spec2 = CommonTestUtils.createCopySerializable(ResourceSpec.UNKNOWN);
+        assertThat(merged).isEqualTo(ResourceSpec.UNKNOWN);
+    }
 
-		final ResourceSpec merged = spec1.merge(spec2);
+    @Test
+    void testMergeWithSerializationCopy() throws Exception {
+        final ResourceSpec spec1 = CommonTestUtils.createCopySerializable(ResourceSpec.UNKNOWN);
+        final ResourceSpec spec2 = CommonTestUtils.createCopySerializable(ResourceSpec.UNKNOWN);
 
-		assertEquals(ResourceSpec.UNKNOWN, merged);
-	}
+        final ResourceSpec merged = spec1.merge(spec2);
 
-	@Test
-	public void testSingletonPropertyOfUnknown() throws Exception {
-		final ResourceSpec copiedSpec = CommonTestUtils.createCopySerializable(ResourceSpec.UNKNOWN);
+        assertThat(merged).isEqualTo(ResourceSpec.UNKNOWN);
+    }
 
-		assertSame(ResourceSpec.UNKNOWN, copiedSpec);
-	}
+    @Test
+    void testSingletonPropertyOfUnknown() throws Exception {
+        final ResourceSpec copiedSpec =
+                CommonTestUtils.createCopySerializable(ResourceSpec.UNKNOWN);
+
+        assertThat(copiedSpec).isSameAs(ResourceSpec.UNKNOWN);
+    }
+
+    @Test
+    void testSubtract() {
+        final ResourceSpec rs1 =
+                ResourceSpec.newBuilder(1.0, 100)
+                        .setExtendedResource(new ExternalResource(EXTERNAL_RESOURCE_NAME, 1.1))
+                        .build();
+        final ResourceSpec rs2 =
+                ResourceSpec.newBuilder(0.2, 100)
+                        .setExtendedResource(new ExternalResource(EXTERNAL_RESOURCE_NAME, 0.5))
+                        .build();
+
+        final ResourceSpec subtracted = rs1.subtract(rs2);
+        assertThat(subtracted.getCpuCores()).isEqualTo(new CPUResource(0.8));
+        assertThat(subtracted.getTaskHeapMemory().getMebiBytes()).isZero();
+        assertThat(subtracted.getExtendedResource(EXTERNAL_RESOURCE_NAME))
+                .contains(new ExternalResource(EXTERNAL_RESOURCE_NAME, 0.6));
+    }
+
+    @Test
+    void testSubtractOtherHasLargerResources() {
+        final ResourceSpec rs1 = ResourceSpec.newBuilder(1.0, 100).build();
+        final ResourceSpec rs2 = ResourceSpec.newBuilder(0.2, 200).build();
+
+        assertThatThrownBy(() -> rs1.subtract(rs2)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void testSubtractThisUnknown() {
+        final ResourceSpec rs1 = ResourceSpec.UNKNOWN;
+        final ResourceSpec rs2 =
+                ResourceSpec.newBuilder(0.2, 100)
+                        .setExtendedResource(new ExternalResource(EXTERNAL_RESOURCE_NAME, 0.5))
+                        .build();
+
+        final ResourceSpec subtracted = rs1.subtract(rs2);
+        assertThat(subtracted).isEqualTo(ResourceSpec.UNKNOWN);
+    }
+
+    @Test
+    void testSubtractOtherUnknown() {
+        final ResourceSpec rs1 =
+                ResourceSpec.newBuilder(1.0, 100)
+                        .setExtendedResource(new ExternalResource(EXTERNAL_RESOURCE_NAME, 1.1))
+                        .build();
+        final ResourceSpec rs2 = ResourceSpec.UNKNOWN;
+
+        final ResourceSpec subtracted = rs1.subtract(rs2);
+        assertThat(subtracted).isEqualTo(ResourceSpec.UNKNOWN);
+    }
+
+    @Test
+    void testZeroExtendedResourceFromConstructor() {
+        final ResourceSpec resourceSpec =
+                ResourceSpec.newBuilder(1.0, 100)
+                        .setExtendedResource(new ExternalResource(EXTERNAL_RESOURCE_NAME, 0))
+                        .build();
+        assertThat(resourceSpec.getExtendedResources()).isEmpty();
+    }
+
+    @Test
+    void testZeroExtendedResourceFromSubtract() {
+        final ResourceSpec resourceSpec =
+                ResourceSpec.newBuilder(1.0, 100)
+                        .setExtendedResource(new ExternalResource(EXTERNAL_RESOURCE_NAME, 1.0))
+                        .build();
+
+        assertThat(resourceSpec.subtract(resourceSpec).getExtendedResources()).isEmpty();
+    }
 }

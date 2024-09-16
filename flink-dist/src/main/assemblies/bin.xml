@@ -38,8 +38,10 @@ under the License.
 			<useTransitiveFiltering>true</useTransitiveFiltering>
 
 			<includes>
-				<include>org.slf4j:slf4j-log4j12</include>
-				<include>log4j:log4j</include>
+				<include>org.apache.logging.log4j:log4j-api</include>
+				<include>org.apache.logging.log4j:log4j-core</include>
+				<include>org.apache.logging.log4j:log4j-slf4j-impl</include>
+				<include>org.apache.logging.log4j:log4j-1.2-api</include>
 			</includes>
 		</dependencySet>
 	</dependencySets>
@@ -49,27 +51,79 @@ under the License.
 		<file>
 			<source>target/flink-dist_${scala.binary.version}-${project.version}.jar</source>
 			<outputDirectory>lib/</outputDirectory>
+			<!-- The jar itself is actually scala-free, so we can remove the scala suffix for clarity. -->
+			<destName>flink-dist-${project.version}.jar</destName>
 			<fileMode>0644</fileMode>
 		</file>
 
-		<!-- Table/SQL Uber JAR -->
+		<!-- copy bash utils -->
 		<file>
-			<source>../flink-table/flink-table-uber/target/flink-table-uber_${scala.binary.version}-${project.version}.jar</source>
+			<source>target/bash-java-utils.jar</source>
+			<outputDirectory>bin/</outputDirectory>
+			<fileMode>0644</fileMode>
+		</file>
+
+		<!-- Scala APIs -->
+		<file>
+			<source>../flink-dist-scala/target/flink-dist-scala_${scala.binary.version}-${project.version}.jar</source>
 			<outputDirectory>lib/</outputDirectory>
-			<destName>flink-table_${scala.binary.version}-${project.version}.jar</destName>
+			<destName>flink-scala_${scala.binary.version}-${project.version}.jar</destName>
+			<fileMode>0644</fileMode>
+		</file>
+
+		<!-- Table jars -->
+		<file>
+			<source>../flink-table/flink-table-api-java-uber/target/flink-table-api-java-uber-${project.version}.jar</source>
+			<outputDirectory>lib/</outputDirectory>
+			<destName>flink-table-api-java-uber-${project.version}.jar</destName>
+			<fileMode>0644</fileMode>
+		</file>
+		<file>
+			<source>../flink-table/flink-table-runtime/target/flink-table-runtime-${project.version}.jar</source>
+			<outputDirectory>lib/</outputDirectory>
+			<destName>flink-table-runtime-${project.version}.jar</destName>
+			<fileMode>0644</fileMode>
+		</file>
+		<file>
+			<source>../flink-table/flink-table-planner-loader/target/flink-table-planner-loader-${project.version}.jar</source>
+			<outputDirectory>lib/</outputDirectory>
+			<destName>flink-table-planner-loader-${project.version}.jar</destName>
+			<fileMode>0644</fileMode>
+		</file>
+
+		<!-- CEP (required for SQL MATCH_RECOGNIZE) -->
+		<file>
+			<source>../flink-libraries/flink-cep/target/flink-cep-${project.version}.jar</source>
+			<outputDirectory>lib/</outputDirectory>
+			<destName>flink-cep-${project.version}.jar</destName>
+			<fileMode>0644</fileMode>
+		</file>
+
+		<!-- Built-in connectors and formats -->
+		<file>
+			<source>../flink-connectors/flink-connector-files/target/flink-connector-files-${project.version}.jar</source>
+			<outputDirectory>lib/</outputDirectory>
+			<destName>flink-connector-files-${project.version}.jar</destName>
 			<fileMode>0644</fileMode>
 		</file>
 
 		<file>
-			<source>../flink-table/flink-table-uber-blink/target/flink-table-uber-blink_${scala.binary.version}-${project.version}.jar</source>
+			<source>../flink-formats/flink-csv/target/flink-csv-${project.version}.jar</source>
 			<outputDirectory>lib/</outputDirectory>
-			<destName>flink-table-blink_${scala.binary.version}-${project.version}.jar</destName>
+			<destName>flink-csv-${project.version}.jar</destName>
+			<fileMode>0644</fileMode>
+		</file>
+
+		<file>
+			<source>../flink-formats/flink-json/target/flink-json-${project.version}.jar</source>
+			<outputDirectory>lib/</outputDirectory>
+			<destName>flink-json-${project.version}.jar</destName>
 			<fileMode>0644</fileMode>
 		</file>
 
 		<!-- copy the config file -->
 		<file>
-			<source>src/main/resources/flink-conf.yaml</source>
+			<source>src/main/resources/config.yaml</source>
 			<outputDirectory>conf</outputDirectory>
 			<fileMode>0644</fileMode>
 		</file>
@@ -79,21 +133,9 @@ under the License.
 			<outputDirectory/>
 			<fileMode>0644</fileMode>
 		</file>
-
-		<file>
-			<source>../NOTICE-binary</source>
-			<outputDirectory/>
-			<destName>NOTICE</destName>
-			<fileMode>0644</fileMode>
-		</file>
 	</files>
 
 	<fileSets>
-		<fileSet>
-			<directory>../licenses-binary</directory>
-			<outputDirectory>licenses</outputDirectory>
-			<fileMode>0644</fileMode>
-		</fileSet>
 		<!-- copy start scripts -->
 		<fileSet>
 			<directory>src/main/flink-bin/bin</directory>
@@ -106,13 +148,6 @@ under the License.
 			<directory>src/main/flink-bin/plugins</directory>
 			<outputDirectory>plugins</outputDirectory>
 			<fileMode>0755</fileMode>
-		</fileSet>
-
-		<!-- flink scala shell-->
-		<fileSet>
-			<directory>../flink-scala-shell/start-script/</directory>
-			<outputDirectory>bin</outputDirectory>
-			<fileMode>755</fileMode>
 		</fileSet>
 
 		<!-- copy python scripts -->
@@ -129,11 +164,11 @@ under the License.
 			<fileMode>0755</fileMode>
 		</fileSet>
 
-		<!-- copy SQL client configuration files -->
+		<!-- copy SQL gateway -->
 		<fileSet>
-			<directory>../flink-table/flink-sql-client/conf/</directory>
-			<outputDirectory>conf</outputDirectory>
-			<fileMode>0644</fileMode>
+			<directory>../flink-table/flink-sql-gateway/bin/</directory>
+			<outputDirectory>bin</outputDirectory>
+			<fileMode>0755</fileMode>
 		</fileSet>
 
 		<!-- copy yarn start scripts -->
@@ -143,13 +178,13 @@ under the License.
 			<fileMode>0755</fileMode>
 		</fileSet>
 
-		<!-- copy Mesos start scripts -->
+		<!-- copy kubernetes start scripts -->
 		<fileSet>
-			<directory>src/main/flink-bin/mesos-bin</directory>
+			<directory>src/main/flink-bin/kubernetes-bin</directory>
 			<outputDirectory>bin</outputDirectory>
 			<fileMode>0755</fileMode>
 		</fileSet>
-		
+
 		<!-- copy default configuration -->
 		<fileSet>
 			<directory>src/main/flink-bin/conf</directory>
@@ -195,7 +230,11 @@ under the License.
 			<fileMode>0644</fileMode>
 		</fileSet>
 
-		<!-- copy jar files of the batch examples -->
+		<!-- copy jar files of the batch examples
+		All Flink DataSet APIs are deprecated since Flink 1.18 and will be removed in a future
+		Flink major version. The examples are retained for testing purposes.
+		See https://cwiki.apache.org/confluence/pages/viewpage.action?pageId=158866741.
+		-->
 		<fileSet>
 			<directory>../flink-examples/flink-examples-batch/target</directory>
 			<outputDirectory>examples/batch</outputDirectory>
@@ -220,21 +259,11 @@ under the License.
 			<excludes>
 				<exclude>flink-examples-streaming*.jar</exclude>
 				<exclude>original-*.jar</exclude>
+				<exclude>MatrixVectorMul.jar</exclude>
 			</excludes>
 		</fileSet>
 
 		<!-- copy jar files of the streaming examples -->
-		<fileSet>
-			<directory>../flink-examples/flink-examples-build-helper/flink-examples-streaming-twitter/target</directory>
-			<outputDirectory>examples/streaming</outputDirectory>
-			<fileMode>0644</fileMode>
-			<includes>
-				<include>*.jar</include>
-			</includes>
-			<excludes>
-				<exclude>original-*.jar</exclude>
-			</excludes>
-		</fileSet>
 		<fileSet>
 			<directory>../flink-examples/flink-examples-build-helper/flink-examples-streaming-state-machine/target</directory>
 			<outputDirectory>examples/streaming</outputDirectory>
@@ -247,17 +276,13 @@ under the License.
 			</excludes>
 		</fileSet>
 
-		<!-- copy jar files of the gelly examples -->
+		<!-- copy files of the python examples -->
 		<fileSet>
-			<directory>../flink-libraries/flink-gelly-examples/target</directory>
-			<outputDirectory>examples/gelly</outputDirectory>
-			<fileMode>0644</fileMode>
-			<includes>
-				<include>flink-gelly-examples_${scala.binary.version}-${project.version}.jar</include>
-			</includes>
+			<directory>../flink-python/pyflink/examples</directory>
+			<outputDirectory>examples/python</outputDirectory>
+			<fileMode>0755</fileMode>
 		</fileSet>
 
-		<!-- copy python table example to examples of dist -->
 		<fileSet>
 			<directory>../flink-python/pyflink/table/examples</directory>
 			<outputDirectory>examples/python/table</outputDirectory>

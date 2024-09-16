@@ -18,52 +18,60 @@
 
 package org.apache.flink.runtime.resourcemanager;
 
-import org.apache.flink.api.common.time.Time;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.ResourceManagerOptions;
 import org.apache.flink.runtime.resourcemanager.slotmanager.SlotManagerConfiguration;
 import org.apache.flink.util.ConfigurationException;
 import org.apache.flink.util.Preconditions;
-import org.apache.flink.util.TimeUtils;
 
-/**
- * Configuration class for the {@link ResourceManagerRuntimeServices} class.
- */
+import java.time.Duration;
+
+/** Configuration class for the {@link ResourceManagerRuntimeServices} class. */
 public class ResourceManagerRuntimeServicesConfiguration {
 
-	private final Time jobTimeout;
+    private final Duration jobTimeout;
 
-	private final SlotManagerConfiguration slotManagerConfiguration;
+    private final SlotManagerConfiguration slotManagerConfiguration;
 
-	public ResourceManagerRuntimeServicesConfiguration(Time jobTimeout, SlotManagerConfiguration slotManagerConfiguration) {
-		this.jobTimeout = Preconditions.checkNotNull(jobTimeout);
-		this.slotManagerConfiguration = Preconditions.checkNotNull(slotManagerConfiguration);
-	}
+    public ResourceManagerRuntimeServicesConfiguration(
+            Duration jobTimeout, SlotManagerConfiguration slotManagerConfiguration) {
+        this.jobTimeout = Preconditions.checkNotNull(jobTimeout);
+        this.slotManagerConfiguration = Preconditions.checkNotNull(slotManagerConfiguration);
+    }
 
-	public Time getJobTimeout() {
-		return jobTimeout;
-	}
+    public Duration getJobTimeout() {
+        return jobTimeout;
+    }
 
-	public SlotManagerConfiguration getSlotManagerConfiguration() {
-		return slotManagerConfiguration;
-	}
+    public SlotManagerConfiguration getSlotManagerConfiguration() {
+        return slotManagerConfiguration;
+    }
 
-	// ---------------------------- Static methods ----------------------------------
+    // ---------------------------- Static methods ----------------------------------
 
-	public static ResourceManagerRuntimeServicesConfiguration fromConfiguration(Configuration configuration) throws ConfigurationException {
+    public static ResourceManagerRuntimeServicesConfiguration fromConfiguration(
+            Configuration configuration, WorkerResourceSpecFactory defaultWorkerResourceSpecFactory)
+            throws ConfigurationException {
 
-		final String strJobTimeout = configuration.getString(ResourceManagerOptions.JOB_TIMEOUT);
-		final Time jobTimeout;
+        final Duration jobTimeout;
+        try {
+            jobTimeout = configuration.get(ResourceManagerOptions.JOB_TIMEOUT);
+        } catch (IllegalArgumentException e) {
+            throw new ConfigurationException(
+                    "Could not parse the resource manager's job timeout "
+                            + "value "
+                            + ResourceManagerOptions.JOB_TIMEOUT
+                            + '.',
+                    e);
+        }
 
-		try {
-			jobTimeout = Time.milliseconds(TimeUtils.parseDuration(strJobTimeout).toMillis());
-		} catch (IllegalArgumentException e) {
-			throw new ConfigurationException("Could not parse the resource manager's job timeout " +
-				"value " + ResourceManagerOptions.JOB_TIMEOUT + '.', e);
-		}
+        final WorkerResourceSpec defaultWorkerResourceSpec =
+                defaultWorkerResourceSpecFactory.createDefaultWorkerResourceSpec(configuration);
+        final SlotManagerConfiguration slotManagerConfiguration =
+                SlotManagerConfiguration.fromConfiguration(
+                        configuration, defaultWorkerResourceSpec);
 
-		final SlotManagerConfiguration slotManagerConfiguration = SlotManagerConfiguration.fromConfiguration(configuration);
-
-		return new ResourceManagerRuntimeServicesConfiguration(jobTimeout, slotManagerConfiguration);
-	}
+        return new ResourceManagerRuntimeServicesConfiguration(
+                jobTimeout, slotManagerConfiguration);
+    }
 }

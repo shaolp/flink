@@ -20,36 +20,35 @@ package org.apache.flink.fs.s3hadoop;
 
 import org.apache.flink.core.fs.FileSystemFactory;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.util.ServiceLoader;
 
-import static org.junit.Assert.fail;
+import static org.assertj.core.api.Assertions.fail;
 
-/**
- * This test validates that the S3 file system registers both under s3:// and s3a://.
- */
-public class HadoopS3FileSystemsSchemesTest {
+/** This test validates that the S3 file system registers both under s3:// and s3a://. */
+class HadoopS3FileSystemsSchemesTest {
 
-	@Test
-	public void testS3Factory() {
-		testFactory("s3");
-	}
+    @Test
+    void testS3Factory() {
+        testFactory("s3");
+    }
 
-	@Test
-	public void testS3AFactory() {
-		testFactory("s3a");
-	}
+    @Test
+    void testS3AFactory() {
+        testFactory("s3a");
+    }
 
-	private static void testFactory(String scheme) {
-		ServiceLoader<FileSystemFactory> serviceLoader = ServiceLoader.load(FileSystemFactory.class);
-		for (FileSystemFactory fs : serviceLoader) {
-			if (scheme.equals(fs.getScheme())) {
-				// found the matching scheme
-				return;
-			}
-		}
+    private static void testFactory(String scheme) {
+        ServiceLoader<FileSystemFactory> serviceLoader =
+                ServiceLoader.load(FileSystemFactory.class);
+        for (FileSystemFactory fs : serviceLoader) {
+            if (scheme.equals(fs.getScheme())) {
+                // found the matching scheme
+                return;
+            }
+        }
 
-		fail("No factory available for scheme " + scheme);
-	}
+        fail("No factory available for scheme " + scheme);
+    }
 }

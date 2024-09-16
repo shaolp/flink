@@ -20,230 +20,243 @@ package org.apache.flink.examples.java.relational;
 
 import org.apache.flink.api.common.JobExecutionResult;
 import org.apache.flink.api.common.accumulators.Accumulator;
+import org.apache.flink.api.common.functions.OpenContext;
 import org.apache.flink.api.common.functions.RichFilterFunction;
 import org.apache.flink.api.java.DataSet;
 import org.apache.flink.api.java.ExecutionEnvironment;
 import org.apache.flink.api.java.tuple.Tuple3;
 import org.apache.flink.api.java.utils.ParameterTool;
-import org.apache.flink.configuration.Configuration;
 
 import org.apache.commons.lang3.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 
+import static org.apache.flink.examples.java.util.DataSetDeprecationInfo.DATASET_DEPRECATION_INFO;
+
 /**
- * This program filters lines from a CSV file with empty fields. In doing so, it counts the number of empty fields per
- * column within a CSV file using a custom accumulator for vectors. In this context, empty fields are those, that at
- * most contain whitespace characters like space and tab.
+ * This program filters lines from a CSV file with empty fields. In doing so, it counts the number
+ * of empty fields per column within a CSV file using a custom accumulator for vectors. In this
+ * context, empty fields are those, that at most contain whitespace characters like space and tab.
  *
- * <p>The input file is a plain text CSV file with the semicolon as field separator and double quotes as field delimiters
- * and three columns. See {@link #getDataSet(ExecutionEnvironment, ParameterTool)} for configuration.
+ * <p>The input file is a plain text CSV file with the semicolon as field separator and double
+ * quotes as field delimiters and three columns. See {@link #getDataSet(ExecutionEnvironment,
+ * ParameterTool)} for configuration.
  *
- * <p>Usage: <code>EmptyFieldsCountAccumulator --input &lt;path&gt; --output &lt;path&gt;</code> <br>
+ * <p>Usage: <code>EmptyFieldsCountAccumulator --input &lt;path&gt; --output &lt;path&gt;</code>
+ * <br>
  *
  * <p>This example shows how to use:
+ *
  * <ul>
- * <li>custom accumulators
- * <li>tuple data types
- * <li>inline-defined functions
- * <li>naming large tuple types
+ *   <li>custom accumulators
+ *   <li>tuple data types
+ *   <li>inline-defined functions
+ *   <li>naming large tuple types
  * </ul>
+ *
+ * <p>Note: All Flink DataSet APIs are deprecated since Flink 1.18 and will be removed in a future
+ * Flink major version. You can still build your application in DataSet, but you should move to
+ * either the DataStream and/or Table API. This class is retained for testing purposes.
  */
 @SuppressWarnings("serial")
 public class EmptyFieldsCountAccumulator {
 
-	// *************************************************************************
-	// PROGRAM
-	// *************************************************************************
+    private static final Logger LOGGER = LoggerFactory.getLogger(EmptyFieldsCountAccumulator.class);
 
-	private static final String EMPTY_FIELD_ACCUMULATOR = "empty-fields";
+    // *************************************************************************
+    // PROGRAM
+    // *************************************************************************
 
-	public static void main(final String[] args) throws Exception {
+    private static final String EMPTY_FIELD_ACCUMULATOR = "empty-fields";
 
-		final ParameterTool params = ParameterTool.fromArgs(args);
+    public static void main(final String[] args) throws Exception {
 
-		final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
+        LOGGER.warn(DATASET_DEPRECATION_INFO);
 
-		// make parameters available in the web interface
-		env.getConfig().setGlobalJobParameters(params);
+        final ParameterTool params = ParameterTool.fromArgs(args);
 
-		// get the data set
-		final DataSet<StringTriple> file = getDataSet(env, params);
+        final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
 
-		// filter lines with empty fields
-		final DataSet<StringTriple> filteredLines = file.filter(new EmptyFieldFilter());
+        // make parameters available in the web interface
+        env.getConfig().setGlobalJobParameters(params);
 
-		// Here, we could do further processing with the filtered lines...
-		JobExecutionResult result;
-		// output the filtered lines
-		if (params.has("output")) {
-			filteredLines.writeAsCsv(params.get("output"));
-			// execute program
-			result = env.execute("Accumulator example");
-		} else {
-			System.out.println("Printing result to stdout. Use --output to specify output path.");
-			filteredLines.print();
-			result = env.getLastJobExecutionResult();
-		}
+        // get the data set
+        final DataSet<StringTriple> file = getDataSet(env, params);
 
-		// get the accumulator result via its registration key
-		final List<Integer> emptyFields = result.getAccumulatorResult(EMPTY_FIELD_ACCUMULATOR);
-		System.out.format("Number of detected empty fields per column: %s\n", emptyFields);
-	}
+        // filter lines with empty fields
+        final DataSet<StringTriple> filteredLines = file.filter(new EmptyFieldFilter());
 
-	// *************************************************************************
-	// UTIL METHODS
-	// *************************************************************************
+        // Here, we could do further processing with the filtered lines...
+        JobExecutionResult result;
+        // output the filtered lines
+        if (params.has("output")) {
+            filteredLines.writeAsCsv(params.get("output"));
+            // execute program
+            result = env.execute("Accumulator example");
+        } else {
+            System.out.println("Printing result to stdout. Use --output to specify output path.");
+            filteredLines.print();
+            result = env.getLastJobExecutionResult();
+        }
 
-	@SuppressWarnings("unchecked")
-	private static DataSet<StringTriple> getDataSet(ExecutionEnvironment env, ParameterTool params) {
-		if (params.has("input")) {
-			return env.readCsvFile(params.get("input"))
-				.fieldDelimiter(";")
-				.pojoType(StringTriple.class);
-		} else {
-			System.out.println("Executing EmptyFieldsCountAccumulator example with default input data set.");
-			System.out.println("Use --input to specify file input.");
-			return env.fromCollection(getExampleInputTuples());
-		}
-	}
+        // get the accumulator result via its registration key
+        final List<Integer> emptyFields = result.getAccumulatorResult(EMPTY_FIELD_ACCUMULATOR);
+        System.out.format("Number of detected empty fields per column: %s\n", emptyFields);
+    }
 
-	private static Collection<StringTriple> getExampleInputTuples() {
-		Collection<StringTriple> inputTuples = new ArrayList<StringTriple>();
-		inputTuples.add(new StringTriple("John", "Doe", "Foo Str."));
-		inputTuples.add(new StringTriple("Joe", "Johnson", ""));
-		inputTuples.add(new StringTriple(null, "Kate Morn", "Bar Blvd."));
-		inputTuples.add(new StringTriple("Tim", "Rinny", ""));
-		inputTuples.add(new StringTriple("Alicia", "Jackson", "  "));
-		return inputTuples;
-	}
+    // *************************************************************************
+    // UTIL METHODS
+    // *************************************************************************
 
-	/**
-	 * This function filters all incoming tuples that have one or more empty fields.
-	 * In doing so, it also counts the number of empty fields per attribute with an accumulator (registered under
-	 * {@link EmptyFieldsCountAccumulator#EMPTY_FIELD_ACCUMULATOR}).
-	 */
-	public static final class EmptyFieldFilter extends RichFilterFunction<StringTriple> {
+    @SuppressWarnings("unchecked")
+    private static DataSet<StringTriple> getDataSet(
+            ExecutionEnvironment env, ParameterTool params) {
+        if (params.has("input")) {
+            return env.readCsvFile(params.get("input"))
+                    .fieldDelimiter(";")
+                    .pojoType(StringTriple.class);
+        } else {
+            System.out.println(
+                    "Executing EmptyFieldsCountAccumulator example with default input data set.");
+            System.out.println("Use --input to specify file input.");
+            return env.fromCollection(getExampleInputTuples());
+        }
+    }
 
-		// create a new accumulator in each filter function instance
-		// accumulators can be merged later on
-		private final VectorAccumulator emptyFieldCounter = new VectorAccumulator();
+    private static Collection<StringTriple> getExampleInputTuples() {
+        Collection<StringTriple> inputTuples = new ArrayList<StringTriple>();
+        inputTuples.add(new StringTriple("John", "Doe", "Foo Str."));
+        inputTuples.add(new StringTriple("Joe", "Johnson", ""));
+        inputTuples.add(new StringTriple(null, "Kate Morn", "Bar Blvd."));
+        inputTuples.add(new StringTriple("Tim", "Rinny", ""));
+        inputTuples.add(new StringTriple("Alicia", "Jackson", "  "));
+        return inputTuples;
+    }
 
-		@Override
-		public void open(final Configuration parameters) throws Exception {
-			super.open(parameters);
+    /**
+     * This function filters all incoming tuples that have one or more empty fields. In doing so, it
+     * also counts the number of empty fields per attribute with an accumulator (registered under
+     * {@link EmptyFieldsCountAccumulator#EMPTY_FIELD_ACCUMULATOR}).
+     */
+    public static final class EmptyFieldFilter extends RichFilterFunction<StringTriple> {
 
-			// register the accumulator instance
-			getRuntimeContext().addAccumulator(EMPTY_FIELD_ACCUMULATOR,
-					this.emptyFieldCounter);
-		}
+        // create a new accumulator in each filter function instance
+        // accumulators can be merged later on
+        private final VectorAccumulator emptyFieldCounter = new VectorAccumulator();
 
-		@Override
-		public boolean filter(final StringTriple t) {
-			boolean containsEmptyFields = false;
+        @Override
+        public void open(final OpenContext openContext) throws Exception {
+            super.open(openContext);
 
-			// iterate over the tuple fields looking for empty ones
-			for (int pos = 0; pos < t.getArity(); pos++) {
+            // register the accumulator instance
+            getRuntimeContext().addAccumulator(EMPTY_FIELD_ACCUMULATOR, this.emptyFieldCounter);
+        }
 
-				final String field = t.getField(pos);
-				if (field == null || field.trim().isEmpty()) {
-					containsEmptyFields = true;
+        @Override
+        public boolean filter(final StringTriple t) {
+            boolean containsEmptyFields = false;
 
-					// if an empty field is encountered, update the
-					// accumulator
-					this.emptyFieldCounter.add(pos);
-				}
-			}
+            // iterate over the tuple fields looking for empty ones
+            for (int pos = 0; pos < t.getArity(); pos++) {
 
-			return !containsEmptyFields;
-		}
-	}
+                final String field = t.getField(pos);
+                if (field == null || field.trim().isEmpty()) {
+                    containsEmptyFields = true;
 
-	/**
-	 * This accumulator maintains a vector of counts. Calling {@link #add(Integer)} increments the
-	 * <i>n</i>-th vector component. The size of the vector is automatically managed.
-	 */
-	public static class VectorAccumulator implements Accumulator<Integer, ArrayList<Integer>> {
+                    // if an empty field is encountered, update the
+                    // accumulator
+                    this.emptyFieldCounter.add(pos);
+                }
+            }
 
-		/** Stores the accumulated vector components. */
-		private final ArrayList<Integer> resultVector;
+            return !containsEmptyFields;
+        }
+    }
 
-		public VectorAccumulator(){
-			this(new ArrayList<Integer>());
-		}
+    /**
+     * This accumulator maintains a vector of counts. Calling {@link #add(Integer)} increments the
+     * <i>n</i>-th vector component. The size of the vector is automatically managed.
+     */
+    public static class VectorAccumulator implements Accumulator<Integer, ArrayList<Integer>> {
 
-		public VectorAccumulator(ArrayList<Integer> resultVector){
-			this.resultVector = resultVector;
-		}
+        /** Stores the accumulated vector components. */
+        private final ArrayList<Integer> resultVector;
 
-		/**
-		 * Increases the result vector component at the specified position by 1.
-		 */
-		@Override
-		public void add(Integer position) {
-			updateResultVector(position, 1);
-		}
+        public VectorAccumulator() {
+            this(new ArrayList<Integer>());
+        }
 
-		/**
-		 * Increases the result vector component at the specified position by the specified delta.
-		 */
-		private void updateResultVector(int position, int delta) {
-			// inflate the vector to contain the given position
-			while (this.resultVector.size() <= position) {
-				this.resultVector.add(0);
-			}
+        public VectorAccumulator(ArrayList<Integer> resultVector) {
+            this.resultVector = resultVector;
+        }
 
-			// increment the component value
-			final int component = this.resultVector.get(position);
-			this.resultVector.set(position, component + delta);
-		}
+        /** Increases the result vector component at the specified position by 1. */
+        @Override
+        public void add(Integer position) {
+            updateResultVector(position, 1);
+        }
 
-		@Override
-		public ArrayList<Integer> getLocalValue() {
-			return this.resultVector;
-		}
+        /**
+         * Increases the result vector component at the specified position by the specified delta.
+         */
+        private void updateResultVector(int position, int delta) {
+            // inflate the vector to contain the given position
+            while (this.resultVector.size() <= position) {
+                this.resultVector.add(0);
+            }
 
-		@Override
-		public void resetLocal() {
-			// clear the result vector if the accumulator instance shall be reused
-			this.resultVector.clear();
-		}
+            // increment the component value
+            final int component = this.resultVector.get(position);
+            this.resultVector.set(position, component + delta);
+        }
 
-		@Override
-		public void merge(final Accumulator<Integer, ArrayList<Integer>> other) {
-			// merge two vector accumulators by adding their up their vector components
-			final List<Integer> otherVector = other.getLocalValue();
-			for (int index = 0; index < otherVector.size(); index++) {
-				updateResultVector(index, otherVector.get(index));
-			}
-		}
+        @Override
+        public ArrayList<Integer> getLocalValue() {
+            return this.resultVector;
+        }
 
-		@Override
-		public Accumulator<Integer, ArrayList<Integer>> clone() {
-			return new VectorAccumulator(new ArrayList<Integer>(resultVector));
-		}
+        @Override
+        public void resetLocal() {
+            // clear the result vector if the accumulator instance shall be reused
+            this.resultVector.clear();
+        }
 
-		@Override
-		public String toString() {
-			return StringUtils.join(resultVector, ',');
-		}
-	}
+        @Override
+        public void merge(final Accumulator<Integer, ArrayList<Integer>> other) {
+            // merge two vector accumulators by adding their up their vector components
+            final List<Integer> otherVector = other.getLocalValue();
+            for (int index = 0; index < otherVector.size(); index++) {
+                updateResultVector(index, otherVector.get(index));
+            }
+        }
 
-	/**
-	 * It is recommended to use POJOs (Plain old Java objects) instead of TupleX for
-	 * data types with many fields. Also, POJOs can be used to give large Tuple-types a name.
-	 * <a href="https://ci.apache.org/projects/flink/flink-docs-master/apis/best_practices.html#naming-large-tuplex-types">Source (docs)</a>
-	 */
-	public static class StringTriple extends Tuple3<String, String, String> {
+        @Override
+        public Accumulator<Integer, ArrayList<Integer>> clone() {
+            return new VectorAccumulator(new ArrayList<Integer>(resultVector));
+        }
 
-		public StringTriple() {}
+        @Override
+        public String toString() {
+            return StringUtils.join(resultVector, ',');
+        }
+    }
 
-		public StringTriple(String f0, String f1, String f2) {
-			super(f0, f1, f2);
-		}
+    /**
+     * It is recommended to use POJOs (Plain old Java objects) instead of TupleX for data types with
+     * many fields. Also, POJOs can be used to give large Tuple-types a name. <a
+     * href="https://nightlies.apache.org/flink/flink-docs-master/apis/best_practices.html#naming-large-tuplex-types">Source
+     * (docs)</a>
+     */
+    public static class StringTriple extends Tuple3<String, String, String> {
 
-	}
+        public StringTriple() {}
 
+        public StringTriple(String f0, String f1, String f2) {
+            super(f0, f1, f2);
+        }
+    }
 }

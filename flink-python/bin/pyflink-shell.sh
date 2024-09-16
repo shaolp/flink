@@ -34,14 +34,15 @@ PYFLINK_PYTHON="${PYFLINK_PYTHON:-"python"}"
 export FLINK_BIN_DIR=$FLINK_BIN_DIR
 export FLINK_HOME
 
-# Add pyflink & py4j to PYTHONPATH
+# Add pyflink & py4j & cloudpickle to PYTHONPATH
 export PYTHONPATH="$FLINK_OPT_DIR/python/pyflink.zip:$PYTHONPATH"
 PY4J_ZIP=`echo "$FLINK_OPT_DIR"/python/py4j-*-src.zip`
-export PYTHONPATH="$PY4J_ZIP:$PYTHONPATH"
+CLOUDPICKLE_ZIP=`echo "$FLINK_OPT_DIR"/python/cloudpickle-*-src.zip`
+export PYTHONPATH="$PY4J_ZIP:$CLOUDPICKLE_ZIP:$PYTHONPATH"
 
 PARSER="org.apache.flink.client.python.PythonShellParser"
 function parse_options() {
-    ${JAVA_RUN} ${JVM_ARGS} -cp ${FLINK_CLASSPATH}:${PYTHON_JAR_PATH} ${PARSER} "$@"
+    "${JAVA_RUN}" ${JVM_ARGS} -cp ${FLINK_CLASSPATH}:${PYTHON_JAR_PATH} ${PARSER} "$@"
     printf "%d\0" $?
 }
 
@@ -50,7 +51,7 @@ set +o posix
 # If the command has option --help | -h, the script will directly
 # run the PythonShellParser program to stdout the help message.
 if [[ "$@" =~ '--help' ]] || [[ "$@" =~ '-h' ]]; then
-    ${JAVA_RUN} ${JVM_ARGS} -cp ${FLINK_CLASSPATH}:${PYTHON_JAR_PATH} ${PARSER} "$@"
+    "${JAVA_RUN}" ${JVM_ARGS} -cp ${FLINK_CLASSPATH}:${PYTHON_JAR_PATH} ${PARSER} "$@"
     exit 0
 fi
 OPTIONS=()
@@ -77,6 +78,7 @@ fi
 OPTIONS=("${OPTIONS[@]:0:$LAST}")
 
 export SUBMIT_ARGS=${OPTIONS[@]}
+
 # -i: interactive
 # -m: execute shell.py in the zip package
 ${PYFLINK_PYTHON} -i -m pyflink.shell

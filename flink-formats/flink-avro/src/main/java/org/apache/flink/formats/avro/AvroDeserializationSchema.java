@@ -20,6 +20,8 @@ package org.apache.flink.formats.avro;
 
 import org.apache.flink.api.common.serialization.DeserializationSchema;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
+import org.apache.flink.formats.avro.AvroFormatOptions.AvroEncoding;
+import org.apache.flink.formats.avro.typeutils.AvroFactory;
 import org.apache.flink.formats.avro.typeutils.AvroTypeInfo;
 import org.apache.flink.formats.avro.typeutils.GenericRecordAvroTypeInfo;
 import org.apache.flink.formats.avro.utils.MutableByteArrayInputStream;
@@ -31,6 +33,7 @@ import org.apache.avro.generic.GenericDatumReader;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.io.Decoder;
 import org.apache.avro.io.DecoderFactory;
+import org.apache.avro.io.JsonDecoder;
 import org.apache.avro.specific.SpecificData;
 import org.apache.avro.specific.SpecificDatumReader;
 import org.apache.avro.specific.SpecificRecord;
@@ -38,6 +41,7 @@ import org.apache.avro.specific.SpecificRecord;
 import javax.annotation.Nullable;
 
 import java.io.IOException;
+import java.util.Objects;
 
 /**
  * Deserialization schema that deserializes from Avro binary format.
@@ -46,127 +50,197 @@ import java.io.IOException;
  */
 public class AvroDeserializationSchema<T> implements DeserializationSchema<T> {
 
-	/**
-	 * Creates {@link AvroDeserializationSchema} that produces {@link GenericRecord} using provided schema.
-	 *
-	 * @param schema schema of produced records
-	 * @return deserialized record in form of {@link GenericRecord}
-	 */
-	public static AvroDeserializationSchema<GenericRecord> forGeneric(Schema schema) {
-		return new AvroDeserializationSchema<>(GenericRecord.class, schema);
-	}
+    /**
+     * Creates {@link AvroDeserializationSchema} that produces {@link GenericRecord} using provided
+     * schema.
+     *
+     * @param schema schema of produced records
+     * @return deserialized record in form of {@link GenericRecord}
+     */
+    public static AvroDeserializationSchema<GenericRecord> forGeneric(Schema schema) {
+        return forGeneric(schema, AvroEncoding.BINARY);
+    }
 
-	/**
-	 * Creates {@link AvroDeserializationSchema} that produces classes that were generated from avro schema.
-	 *
-	 * @param tClass class of record to be produced
-	 * @return deserialized record
-	 */
-	public static <T extends SpecificRecord> AvroDeserializationSchema<T> forSpecific(Class<T> tClass) {
-		return new AvroDeserializationSchema<>(tClass, null);
-	}
+    /**
+     * Creates {@link AvroDeserializationSchema} that produces {@link GenericRecord} using provided
+     * schema.
+     *
+     * @param schema schema of produced records
+     * @param encoding Avro serialization approach to use for decoding
+     * @return deserialized record in form of {@link GenericRecord}
+     */
+    public static AvroDeserializationSchema<GenericRecord> forGeneric(
+            Schema schema, AvroEncoding encoding) {
+        return new AvroDeserializationSchema<>(GenericRecord.class, schema, encoding);
+    }
 
-	private static final long serialVersionUID = -6766681879020862312L;
+    /**
+     * Creates {@link AvroDeserializationSchema} that produces classes that were generated from avro
+     * schema.
+     *
+     * @param tClass class of record to be produced
+     * @return deserialized record
+     */
+    public static <T extends SpecificRecord> AvroDeserializationSchema<T> forSpecific(
+            Class<T> tClass) {
+        return forSpecific(tClass, AvroEncoding.BINARY);
+    }
 
-	/** Class to deserialize to. */
-	private final Class<T> recordClazz;
+    /**
+     * Creates {@link AvroDeserializationSchema} that produces classes that were generated from avro
+     * schema.
+     *
+     * @param tClass class of record to be produced
+     * @param encoding Avro serialization approach to use for decoding
+     * @return deserialized record
+     */
+    public static <T extends SpecificRecord> AvroDeserializationSchema<T> forSpecific(
+            Class<T> tClass, AvroEncoding encoding) {
+        return new AvroDeserializationSchema<>(tClass, null, encoding);
+    }
 
-	/** Schema in case of GenericRecord for serialization purpose. */
-	private final String schemaString;
+    private static final long serialVersionUID = -6766681879020862312L;
 
-	/** Reader that deserializes byte array into a record. */
-	private transient GenericDatumReader<T> datumReader;
+    /** Class to deserialize to. */
+    private final Class<T> recordClazz;
 
-	/** Input stream to read message from. */
-	private transient MutableByteArrayInputStream inputStream;
+    /** Schema in case of GenericRecord for serialization purpose. */
+    private final String schemaString;
 
-	/** Avro decoder that decodes binary data. */
-	private transient Decoder decoder;
+    /** Reader that deserializes byte array into a record. */
+    private transient GenericDatumReader<T> datumReader;
 
-	/** Avro schema for the reader. */
-	private transient Schema reader;
+    /** Input stream to read message from. */
+    private transient MutableByteArrayInputStream inputStream;
 
-	/**
-	 * Creates a Avro deserialization schema.
-	 *
-	 * @param recordClazz class to which deserialize. Should be one of:
-	 *                    {@link org.apache.avro.specific.SpecificRecord},
-	 *                    {@link org.apache.avro.generic.GenericRecord}.
-	 * @param reader      reader's Avro schema. Should be provided if recordClazz is
-	 *                    {@link GenericRecord}
-	 */
-	AvroDeserializationSchema(Class<T> recordClazz, @Nullable Schema reader) {
-		Preconditions.checkNotNull(recordClazz, "Avro record class must not be null.");
-		this.recordClazz = recordClazz;
-		this.reader = reader;
-		if (reader != null) {
-			this.schemaString = reader.toString();
-		} else {
-			this.schemaString = null;
-		}
-	}
+    /** Config option for the deserialization approach to use. */
+    private final AvroEncoding encoding;
 
-	GenericDatumReader<T> getDatumReader() {
-		return datumReader;
-	}
+    /** Avro decoder that decodes data. */
+    private transient Decoder decoder;
 
-	Schema getReaderSchema() {
-		return reader;
-	}
+    /** Avro schema for the reader. */
+    private transient Schema reader;
 
-	MutableByteArrayInputStream getInputStream() {
-		return inputStream;
-	}
+    /**
+     * Creates a Avro deserialization schema.
+     *
+     * @param recordClazz class to which deserialize. Should be one of: {@link
+     *     org.apache.avro.specific.SpecificRecord}, {@link org.apache.avro.generic.GenericRecord}.
+     * @param reader reader's Avro schema. Should be provided if recordClazz is {@link
+     *     GenericRecord}
+     * @param encoding encoding approach to use. Identifies the Avro decoder class to use.
+     */
+    AvroDeserializationSchema(
+            Class<T> recordClazz, @Nullable Schema reader, AvroEncoding encoding) {
+        Preconditions.checkNotNull(recordClazz, "Avro record class must not be null.");
+        this.recordClazz = recordClazz;
+        this.reader = reader;
+        if (reader != null) {
+            this.schemaString = reader.toString();
+        } else {
+            this.schemaString = null;
+        }
+        this.encoding = encoding;
+    }
 
-	Decoder getDecoder() {
-		return decoder;
-	}
+    GenericDatumReader<T> getDatumReader() {
+        return datumReader;
+    }
 
-	@Override
-	public T deserialize(byte[] message) throws IOException {
-		// read record
-		checkAvroInitialized();
-		inputStream.setBuffer(message);
-		Schema readerSchema = getReaderSchema();
-		GenericDatumReader<T> datumReader = getDatumReader();
+    Schema getReaderSchema() {
+        return reader;
+    }
 
-		datumReader.setSchema(readerSchema);
+    MutableByteArrayInputStream getInputStream() {
+        return inputStream;
+    }
 
-		return datumReader.read(null, decoder);
-	}
+    Decoder getDecoder() {
+        return decoder;
+    }
 
-	void checkAvroInitialized() {
-		if (datumReader != null) {
-			return;
-		}
+    AvroEncoding getEncoding() {
+        return encoding;
+    }
 
-		ClassLoader cl = Thread.currentThread().getContextClassLoader();
-		if (SpecificRecord.class.isAssignableFrom(recordClazz)) {
-			SpecificData specificData = new SpecificData(cl);
-			this.datumReader = new SpecificDatumReader<>(specificData);
-			this.reader = specificData.getSchema(recordClazz);
-		} else {
-			this.reader = new Schema.Parser().parse(schemaString);
-			GenericData genericData = new GenericData(cl);
-			this.datumReader = new GenericDatumReader<>(null, this.reader, genericData);
-		}
+    @Override
+    public T deserialize(@Nullable byte[] message) throws IOException {
+        if (message == null) {
+            return null;
+        }
+        // read record
+        checkAvroInitialized();
+        inputStream.setBuffer(message);
+        Schema readerSchema = getReaderSchema();
+        GenericDatumReader<T> datumReader = getDatumReader();
 
-		this.inputStream = new MutableByteArrayInputStream();
-		this.decoder = DecoderFactory.get().binaryDecoder(inputStream, null);
-	}
+        datumReader.setSchema(readerSchema);
 
-	@Override
-	public boolean isEndOfStream(T nextElement) {
-		return false;
-	}
+        if (encoding == AvroEncoding.JSON) {
+            ((JsonDecoder) this.decoder).configure(inputStream);
+        }
 
-	@Override
-	@SuppressWarnings("unchecked")
-	public TypeInformation<T> getProducedType() {
-		if (SpecificRecord.class.isAssignableFrom(recordClazz)) {
-			return new AvroTypeInfo(recordClazz);
-		} else {
-			return (TypeInformation<T>) new GenericRecordAvroTypeInfo(this.reader);
-		}
-	}
+        return datumReader.read(null, decoder);
+    }
+
+    void checkAvroInitialized() throws IOException {
+        if (datumReader != null) {
+            return;
+        }
+
+        ClassLoader cl = Thread.currentThread().getContextClassLoader();
+        if (SpecificRecord.class.isAssignableFrom(recordClazz)) {
+            @SuppressWarnings("unchecked")
+            SpecificData specificData =
+                    AvroFactory.getSpecificDataForClass(
+                            (Class<? extends SpecificData>) recordClazz, cl);
+            this.datumReader = new SpecificDatumReader<>(specificData);
+            this.reader = AvroFactory.extractAvroSpecificSchema(recordClazz, specificData);
+        } else {
+            this.reader = new Schema.Parser().parse(schemaString);
+            GenericData genericData = new GenericData(cl);
+            this.datumReader = new GenericDatumReader<>(null, this.reader, genericData);
+        }
+
+        this.inputStream = new MutableByteArrayInputStream();
+
+        if (encoding == AvroEncoding.JSON) {
+            this.decoder = DecoderFactory.get().jsonDecoder(getReaderSchema(), inputStream);
+        } else {
+            this.decoder = DecoderFactory.get().binaryDecoder(inputStream, null);
+        }
+    }
+
+    @Override
+    public boolean isEndOfStream(T nextElement) {
+        return false;
+    }
+
+    @Override
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public TypeInformation<T> getProducedType() {
+        if (SpecificRecord.class.isAssignableFrom(recordClazz)) {
+            return new AvroTypeInfo(recordClazz);
+        } else {
+            return (TypeInformation<T>) new GenericRecordAvroTypeInfo(this.reader);
+        }
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        AvroDeserializationSchema<?> that = (AvroDeserializationSchema<?>) o;
+        return recordClazz.equals(that.recordClazz) && Objects.equals(reader, that.reader);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(recordClazz, reader);
+    }
 }

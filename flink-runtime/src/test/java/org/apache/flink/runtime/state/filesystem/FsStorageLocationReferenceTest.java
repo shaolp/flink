@@ -21,70 +21,91 @@ package org.apache.flink.runtime.state.filesystem;
 import org.apache.flink.core.fs.Path;
 import org.apache.flink.runtime.state.CheckpointStorageLocationReference;
 import org.apache.flink.util.StringUtils;
-import org.apache.flink.util.TestLogger;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Random;
 
-import static org.apache.flink.runtime.state.filesystem.AbstractFsCheckpointStorage.decodePathFromReference;
-import static org.apache.flink.runtime.state.filesystem.AbstractFsCheckpointStorage.encodePathAsReference;
-import static org.junit.Assert.assertEquals;
+import static org.apache.flink.runtime.state.filesystem.AbstractFsCheckpointStorageAccess.decodePathFromReference;
+import static org.apache.flink.runtime.state.filesystem.AbstractFsCheckpointStorageAccess.encodePathAsReference;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/**
- * Tests for the encoding / decoding of storage location references.
- */
-public class FsStorageLocationReferenceTest extends TestLogger {
+/** Tests for the encoding / decoding of storage location references. */
+class FsStorageLocationReferenceTest {
 
-	@Test
-	public void testEncodeAndDecode() throws Exception {
-		final Path path = randomPath(new Random());
+    private static final Logger LOG = LoggerFactory.getLogger(FsStorageLocationReferenceTest.class);
 
-		try {
-			CheckpointStorageLocationReference ref = encodePathAsReference(path);
-			Path decoded = decodePathFromReference(ref);
+    @Test
+    void testEncodeAndDecode() throws Exception {
+        final Path path = randomPath(new Random());
 
-			assertEquals(path, decoded);
-		}
-		catch (Exception | Error e) {
-			// if something goes wrong, help by printing the problematic path
-			log.error("ERROR FOR PATH " + path);
-			throw e;
-		}
-	}
+        try {
+            CheckpointStorageLocationReference ref = encodePathAsReference(path);
+            Path decoded = decodePathFromReference(ref);
 
-	@Test(expected = IllegalArgumentException.class)
-	public void testDecodingTooShortReference() {
-		decodePathFromReference(new CheckpointStorageLocationReference(new byte[2]));
-	}
+            assertThat(decoded).isEqualTo(path);
+        } catch (Exception | Error e) {
+            // if something goes wrong, help by printing the problematic path
+            LOG.error("ERROR FOR PATH " + path);
+            throw e;
+        }
+    }
 
-	@Test(expected = IllegalArgumentException.class)
-	public void testDecodingGarbage() {
-		final byte[] bytes = new byte[] { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C };
-		decodePathFromReference(new CheckpointStorageLocationReference(bytes));
-	}
+    @Test
+    void testDecodingTooShortReference() {
+        assertThatThrownBy(
+                        () ->
+                                decodePathFromReference(
+                                        new CheckpointStorageLocationReference(new byte[2])))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
 
-	@Test(expected = IllegalArgumentException.class)
-	public void testDecodingDefaultReference() {
-		decodePathFromReference(CheckpointStorageLocationReference.getDefault());
-	}
+    @Test
+    void testDecodingGarbage() {
+        final byte[] bytes =
+                new byte[] {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C};
+        assertThatThrownBy(
+                        () ->
+                                decodePathFromReference(
+                                        new CheckpointStorageLocationReference(bytes)))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
 
-	// ------------------------------------------------------------------------
+    @Test
+    void testDecodingDefaultReference() {
+        assertThatThrownBy(
+                        () ->
+                                decodePathFromReference(
+                                        CheckpointStorageLocationReference.getDefault()))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
 
-	private static Path randomPath(Random rnd) {
-		final StringBuilder path = new StringBuilder();
+    // ------------------------------------------------------------------------
 
-		// scheme
-		path.append(StringUtils.getRandomString(rnd, 1, 5, 'a', 'z'));
-		path.append("://");
-		path.append(StringUtils.getRandomString(rnd, 10, 20)); // authority
-		path.append(rnd.nextInt(50000) + 1); // port
+    private static Path randomPath(Random rnd) {
+        while (true) {
+            try {
+                final StringBuilder path = new StringBuilder();
 
-		for (int i = rnd.nextInt(5) + 1; i > 0; i--) {
-			path.append('/');
-			path.append(StringUtils.getRandomString(rnd, 3, 15));
-		}
+                // scheme
+                path.append(StringUtils.getRandomString(rnd, 1, 5, 'a', 'z'));
+                path.append("://");
+                path.append(StringUtils.getRandomString(rnd, 10, 20)); // authority
+                path.append(":");
+                path.append(rnd.nextInt(50000) + 1); // port
 
-		return new Path(path.toString());
-	}
+                for (int j = rnd.nextInt(5) + 1; j > 0; j--) {
+                    path.append('/');
+                    path.append(StringUtils.getRandomString(rnd, 3, 15));
+                }
+
+                return new Path(path.toString());
+            } catch (Throwable t) {
+                // ignore the exception and retry
+            }
+        }
+    }
 }

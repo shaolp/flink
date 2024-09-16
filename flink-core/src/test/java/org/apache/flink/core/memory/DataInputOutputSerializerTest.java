@@ -22,102 +22,121 @@ import org.apache.flink.testutils.serialization.types.SerializationTestType;
 import org.apache.flink.testutils.serialization.types.SerializationTestTypeFactory;
 import org.apache.flink.testutils.serialization.types.Util;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
+import java.util.Random;
 
-/**
- * Tests for the combination of {@link DataOutputSerializer} and {@link DataInputDeserializer}.
- */
-public class DataInputOutputSerializerTest {
+import static org.assertj.core.api.Assertions.assertThat;
 
-	@Test
-	public void testWrapAsByteBuffer() {
-		SerializationTestType randomInt = Util.randomRecord(SerializationTestTypeFactory.INT);
+/** Tests for the combination of {@link DataOutputSerializer} and {@link DataInputDeserializer}. */
+class DataInputOutputSerializerTest {
 
-		DataOutputSerializer serializer = new DataOutputSerializer(randomInt.length());
-		MemorySegment segment = MemorySegmentFactory.allocateUnpooledSegment(randomInt.length());
+    @Test
+    void testWrapAsByteBuffer() throws IOException {
+        SerializationTestType randomInt = Util.randomRecord(SerializationTestTypeFactory.INT);
 
-		try {
-			// empty buffer, read buffer should be empty
-			ByteBuffer wrapper = serializer.wrapAsByteBuffer();
+        DataOutputSerializer serializer = new DataOutputSerializer(randomInt.length());
+        MemorySegment segment = MemorySegmentFactory.allocateUnpooledSegment(randomInt.length());
 
-			Assert.assertEquals(0, wrapper.position());
-			Assert.assertEquals(0, wrapper.limit());
+        // empty buffer, read buffer should be empty
+        ByteBuffer wrapper = serializer.wrapAsByteBuffer();
 
-			// write to data output, read buffer should still be empty
-			randomInt.write(serializer);
+        assertThat(wrapper.position()).isZero();
+        assertThat(wrapper.limit()).isZero();
 
-			Assert.assertEquals(0, wrapper.position());
-			Assert.assertEquals(0, wrapper.limit());
+        // write to data output, read buffer should still be empty
+        randomInt.write(serializer);
 
-			// get updated read buffer, read buffer should contain written data
-			wrapper = serializer.wrapAsByteBuffer();
+        assertThat(wrapper.position()).isZero();
+        assertThat(wrapper.limit()).isZero();
 
-			Assert.assertEquals(0, wrapper.position());
-			Assert.assertEquals(randomInt.length(), wrapper.limit());
+        // get updated read buffer, read buffer should contain written data
+        wrapper = serializer.wrapAsByteBuffer();
 
-			// clear data output, read buffer should still contain written data
-			serializer.clear();
+        assertThat(wrapper.position()).isZero();
+        assertThat(wrapper.limit()).isEqualTo(randomInt.length());
 
-			Assert.assertEquals(0, wrapper.position());
-			Assert.assertEquals(randomInt.length(), wrapper.limit());
+        // clear data output, read buffer should still contain written data
+        serializer.clear();
 
-			// get updated read buffer, should be empty
-			wrapper = serializer.wrapAsByteBuffer();
+        assertThat(wrapper.position()).isZero();
+        assertThat(wrapper.limit()).isEqualTo(randomInt.length());
 
-			Assert.assertEquals(0, wrapper.position());
-			Assert.assertEquals(0, wrapper.limit());
+        // get updated read buffer, should be empty
+        wrapper = serializer.wrapAsByteBuffer();
 
-			// write to data output and read back to memory
-			randomInt.write(serializer);
-			wrapper = serializer.wrapAsByteBuffer();
+        assertThat(wrapper.position()).isZero();
+        assertThat(wrapper.limit()).isZero();
 
-			segment.put(0, wrapper, randomInt.length());
+        // write to data output and read back to memory
+        randomInt.write(serializer);
+        wrapper = serializer.wrapAsByteBuffer();
 
-			Assert.assertEquals(randomInt.length(), wrapper.position());
-			Assert.assertEquals(randomInt.length(), wrapper.limit());
-		} catch (IOException e) {
-			e.printStackTrace();
-			Assert.fail("Test encountered an unexpected exception.");
-		}
-	}
+        segment.put(0, wrapper, randomInt.length());
 
-	@Test
-	public void testRandomValuesWriteRead() {
-		final int numElements = 100000;
-		final ArrayDeque<SerializationTestType> reference = new ArrayDeque<>();
+        assertThat(wrapper.position()).isEqualTo(randomInt.length());
+        assertThat(wrapper.limit()).isEqualTo(randomInt.length());
+    }
 
-		DataOutputSerializer serializer = new DataOutputSerializer(1);
+    @Test
+    void testRandomValuesWriteRead()
+            throws IOException, InstantiationException, IllegalAccessException {
+        final int numElements = 100000;
+        final ArrayDeque<SerializationTestType> reference = new ArrayDeque<>();
 
-		for (SerializationTestType value : Util.randomRecords(numElements)) {
-			reference.add(value);
+        DataOutputSerializer serializer = new DataOutputSerializer(1);
 
-			try {
-				value.write(serializer);
-			} catch (IOException e) {
-				e.printStackTrace();
-				Assert.fail("Test encountered an unexpected exception.");
-			}
-		}
+        for (SerializationTestType value : Util.randomRecords(numElements)) {
+            reference.add(value);
 
-		DataInputDeserializer deserializer = new DataInputDeserializer(serializer.wrapAsByteBuffer());
+            value.write(serializer);
+        }
 
-		for (SerializationTestType expected : reference) {
-			try {
-				SerializationTestType actual = expected.getClass().newInstance();
-				actual.read(deserializer);
+        DataInputDeserializer deserializer =
+                new DataInputDeserializer(serializer.wrapAsByteBuffer());
 
-				Assert.assertEquals(expected, actual);
-			} catch (Exception e) {
-				e.printStackTrace();
-				Assert.fail("Test encountered an unexpected exception.");
-			}
-		}
+        for (SerializationTestType expected : reference) {
+            SerializationTestType actual = expected.getClass().newInstance();
+            actual.read(deserializer);
 
-		reference.clear();
-	}
+            assertThat(actual).isEqualTo(expected);
+        }
+
+        reference.clear();
+    }
+
+    @Test
+    void testLongUTFWriteRead() throws IOException {
+        byte[] array = new byte[1000];
+        new Random(1).nextBytes(array);
+        String expected = new String(array, Charset.forName("UTF-8"));
+
+        DataOutputSerializer serializer = new DataOutputSerializer(1);
+        serializer.writeLongUTF(expected);
+        DataInputDeserializer deserializer =
+                new DataInputDeserializer(serializer.getSharedBuffer());
+
+        String actual = deserializer.readLongUTF();
+        assertThat(actual).isEqualTo(expected);
+    }
+
+    @Test
+    void testUTFWriteRead() throws IOException {
+        byte[] array = new byte[1000];
+        new Random(1).nextBytes(array);
+        String expected = new String(array, StandardCharsets.UTF_8);
+
+        DataOutputSerializer serializer = new DataOutputSerializer(1);
+        serializer.writeUTF(expected);
+        DataInputDeserializer deserializer =
+                new DataInputDeserializer(serializer.getSharedBuffer());
+
+        String actual = deserializer.readUTF();
+        assertThat(actual).isEqualTo(expected);
+    }
 }

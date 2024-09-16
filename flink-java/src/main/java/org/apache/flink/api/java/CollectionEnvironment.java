@@ -24,23 +24,31 @@ import org.apache.flink.api.common.Plan;
 import org.apache.flink.api.common.operators.CollectionExecutor;
 
 /**
- * Version of {@link ExecutionEnvironment} that allows serial, local, collection-based executions of Flink programs.
+ * Version of {@link ExecutionEnvironment} that allows serial, local, collection-based executions of
+ * Flink programs.
+ *
+ * @deprecated All Flink DataSet APIs are deprecated since Flink 1.18 and will be removed in a
+ *     future Flink major version. You can still build your application in DataSet, but you should
+ *     move to either the DataStream and/or Table API.
+ * @see <a href="https://cwiki.apache.org/confluence/pages/viewpage.action?pageId=158866741">
+ *     FLIP-131: Consolidate the user-facing Dataflow SDKs/APIs (and deprecate the DataSet API</a>
  */
+@Deprecated
 @PublicEvolving
 public class CollectionEnvironment extends ExecutionEnvironment {
 
-	@Override
-	public JobExecutionResult execute(String jobName) throws Exception {
-		Plan p = createProgramPlan(jobName);
+    @Override
+    public JobExecutionResult execute(String jobName) throws Exception {
+        Plan p = createProgramPlan(jobName);
 
-		// We need to reverse here. Object-Reuse enabled, means safe mode is disabled.
-		CollectionExecutor exec = new CollectionExecutor(getConfig());
-		this.lastJobExecutionResult = exec.execute(p);
-		return this.lastJobExecutionResult;
-	}
+        // We need to reverse here. Object-Reuse enabled, means safe mode is disabled.
+        CollectionExecutor exec = new CollectionExecutor(getConfig());
+        this.lastJobExecutionResult = exec.execute(p);
+        return this.lastJobExecutionResult;
+    }
 
-	@Override
-	public int getParallelism() {
-		return 1; // always serial
-	}
+    @Override
+    public int getParallelism() {
+        return 1; // always serial
+    }
 }

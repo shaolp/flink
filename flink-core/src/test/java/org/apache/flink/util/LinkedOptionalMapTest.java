@@ -20,195 +20,195 @@ package org.apache.flink.util;
 
 import org.apache.flink.util.LinkedOptionalMap.MergeResult;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.util.LinkedHashMap;
 
-import static org.hamcrest.Matchers.contains;
-import static org.hamcrest.Matchers.empty;
-import static org.hamcrest.Matchers.hasItem;
-import static org.hamcrest.Matchers.hasItems;
-import static org.hamcrest.Matchers.is;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/**
- * Test {@link LinkedOptionalMap}.
- */
-public class LinkedOptionalMapTest {
+/** Test {@link LinkedOptionalMap}. */
+class LinkedOptionalMapTest {
 
-	@Test
-	public void usageExample() {
-		LinkedOptionalMap<Class<?>, String> map = new LinkedOptionalMap<>();
+    @Test
+    void usageExample() {
+        LinkedOptionalMap<Class<?>, String> map = new LinkedOptionalMap<>();
 
-		map.put("java.lang.String", String.class, "a string class");
-		map.put("scala.Option", null, "a scala Option");
-		map.put("java.lang.Boolean", Boolean.class, null);
+        map.put("java.lang.String", String.class, "a string class");
+        map.put("scala.Option", null, "a scala Option");
+        map.put("java.lang.Boolean", Boolean.class, null);
 
-		assertThat(map.keyNames(), hasItems("java.lang.String", "scala.Option"));
-		assertThat(map.absentKeysOrValues(), hasItems("scala.Option", "java.lang.Boolean"));
-	}
+        assertThat(map.keyNames()).contains("java.lang.String", "scala.Option");
+        assertThat(map.absentKeysOrValues()).contains("scala.Option", "java.lang.Boolean");
+    }
 
-	@Test
-	public void overridingKeyWithTheSameKeyName() {
-		LinkedOptionalMap<Class<?>, String> map = new LinkedOptionalMap<>();
+    @Test
+    void overridingKeyWithTheSameKeyName() {
+        LinkedOptionalMap<Class<?>, String> map = new LinkedOptionalMap<>();
 
-		map.put("java.lang.String", null, "a string class");
-		map.put("java.lang.String", String.class, "a string class");
+        map.put("java.lang.String", null, "a string class");
+        map.put("java.lang.String", String.class, "a string class");
 
-		assertThat(map.absentKeysOrValues(), is(empty()));
-	}
+        assertThat(map.absentKeysOrValues()).isEmpty();
+    }
 
-	@Test
-	public void overridingKeysAndValuesWithTheSameKeyName() {
-		LinkedOptionalMap<Class<?>, String> map = new LinkedOptionalMap<>();
+    @Test
+    void overridingKeysAndValuesWithTheSameKeyName() {
+        LinkedOptionalMap<Class<?>, String> map = new LinkedOptionalMap<>();
 
-		map.put("java.lang.String", null, null);
-		map.put("java.lang.String", String.class, "a string class");
+        map.put("java.lang.String", null, null);
+        map.put("java.lang.String", String.class, "a string class");
 
-		assertThat(map.absentKeysOrValues(), is(empty()));
-	}
+        assertThat(map.absentKeysOrValues()).isEmpty();
+    }
 
-	@Test
-	public void overridingAValueWithMissingKeyShouldBeConsideredAsAbsent() {
-		LinkedOptionalMap<Class<?>, String> map = new LinkedOptionalMap<>();
+    @Test
+    void overridingAValueWithMissingKeyShouldBeConsideredAsAbsent() {
+        LinkedOptionalMap<Class<?>, String> map = new LinkedOptionalMap<>();
 
-		map.put("java.lang.String", null, null);
-		map.put("java.lang.String", null, "a string class");
+        map.put("java.lang.String", null, null);
+        map.put("java.lang.String", null, "a string class");
 
-		assertThat(map.absentKeysOrValues(), hasItem("java.lang.String"));
-	}
+        assertThat(map.absentKeysOrValues()).contains("java.lang.String");
+    }
 
-	@Test
-	public void mergingMapsWithPresentEntriesLeavesNoAbsentKeyNames() {
-		LinkedOptionalMap<Class<?>, String> first = new LinkedOptionalMap<>();
-		first.put("b", null, null);
-		first.put("c", String.class, null);
+    @Test
+    void mergingMapsWithPresentEntriesLeavesNoAbsentKeyNames() {
+        LinkedOptionalMap<Class<?>, String> first = new LinkedOptionalMap<>();
+        first.put("b", null, null);
+        first.put("c", String.class, null);
 
-		LinkedOptionalMap<Class<?>, String> second = new LinkedOptionalMap<>();
-		second.put("a", String.class, "aaa");
-		second.put("b", String.class, "bbb");
-		second.put("c", Void.class, "ccc");
-		second.put("d", String.class, "ddd");
+        LinkedOptionalMap<Class<?>, String> second = new LinkedOptionalMap<>();
+        second.put("a", String.class, "aaa");
+        second.put("b", String.class, "bbb");
+        second.put("c", Void.class, "ccc");
+        second.put("d", String.class, "ddd");
 
-		first.putAll(second);
+        first.putAll(second);
 
-		assertThat(first.absentKeysOrValues(), is(empty()));
-	}
+        assertThat(first.absentKeysOrValues()).isEmpty();
+    }
 
-	@Test
-	public void mergingMapsPreserversTheOrderOfTheOriginalMap() {
-		LinkedOptionalMap<Class<?>, String> first = new LinkedOptionalMap<>();
-		first.put("b", null, null);
-		first.put("c", String.class, null);
+    @Test
+    void mergingMapsPreserversTheOrderOfTheOriginalMap() {
+        LinkedOptionalMap<Class<?>, String> first = new LinkedOptionalMap<>();
+        first.put("b", null, null);
+        first.put("c", String.class, null);
 
-		LinkedOptionalMap<Class<?>, String> second = new LinkedOptionalMap<>();
-		second.put("a", String.class, "aaa");
-		second.put("b", String.class, "bbb");
-		second.put("c", Void.class, "ccc");
-		second.put("d", String.class, "ddd");
+        LinkedOptionalMap<Class<?>, String> second = new LinkedOptionalMap<>();
+        second.put("a", String.class, "aaa");
+        second.put("b", String.class, "bbb");
+        second.put("c", Void.class, "ccc");
+        second.put("d", String.class, "ddd");
 
-		first.putAll(second);
+        first.putAll(second);
 
-		assertThat(first.keyNames(), contains("b", "c", "a", "d"));
-	}
+        assertThat(first.keyNames()).contains("b", "c", "a", "d");
+    }
 
-	@Test
-	public void mergingToEmpty() {
-		LinkedOptionalMap<Class<?>, String> first = new LinkedOptionalMap<>();
+    @Test
+    void mergingToEmpty() {
+        LinkedOptionalMap<Class<?>, String> first = new LinkedOptionalMap<>();
 
-		LinkedOptionalMap<Class<?>, String> second = new LinkedOptionalMap<>();
-		second.put("a", String.class, "aaa");
-		second.put("b", String.class, "bbb");
-		second.put("c", Void.class, "ccc");
-		second.put("d", String.class, "ddd");
+        LinkedOptionalMap<Class<?>, String> second = new LinkedOptionalMap<>();
+        second.put("a", String.class, "aaa");
+        second.put("b", String.class, "bbb");
+        second.put("c", Void.class, "ccc");
+        second.put("d", String.class, "ddd");
 
-		first.putAll(second);
+        first.putAll(second);
 
-		assertThat(first.keyNames(), contains("a", "b", "c", "d"));
-	}
+        assertThat(first.keyNames()).contains("a", "b", "c", "d");
+    }
 
-	@Test(expected = IllegalStateException.class)
-	public void unwrapOptionalsWithMissingValueThrows() {
-		LinkedOptionalMap<Class<?>, String> map = new LinkedOptionalMap<>();
+    @Test
+    void unwrapOptionalsWithMissingValueThrows() {
+        assertThatThrownBy(
+                        () -> {
+                            LinkedOptionalMap<Class<?>, String> map = new LinkedOptionalMap<>();
 
-		map.put("a", String.class, null);
+                            map.put("a", String.class, null);
 
-		map.unwrapOptionals();
-	}
+                            map.unwrapOptionals();
+                        })
+                .isInstanceOf(IllegalStateException.class);
+    }
 
-	@Test(expected = IllegalStateException.class)
-	public void unwrapOptionalsWithMissingKeyThrows() {
-		LinkedOptionalMap<Class<?>, String> map = new LinkedOptionalMap<>();
+    @Test
+    void unwrapOptionalsWithMissingKeyThrows() {
+        assertThatThrownBy(
+                        () -> {
+                            LinkedOptionalMap<Class<?>, String> map = new LinkedOptionalMap<>();
 
-		map.put("a", null, "blabla");
+                            map.put("a", null, "blabla");
 
-		map.unwrapOptionals();
-	}
+                            map.unwrapOptionals();
+                        })
+                .isInstanceOf(IllegalStateException.class);
+    }
 
-	@Test
-	public void unwrapOptionalsPreservesOrder() {
-		LinkedOptionalMap<Class<?>, String> map = new LinkedOptionalMap<>();
+    @Test
+    void unwrapOptionalsPreservesOrder() {
+        LinkedOptionalMap<Class<?>, String> map = new LinkedOptionalMap<>();
 
-		map.put("a", String.class, "aaa");
-		map.put("b", Boolean.class, "bbb");
+        map.put("a", String.class, "aaa");
+        map.put("b", Boolean.class, "bbb");
 
-		LinkedHashMap<Class<?>, String> m = map.unwrapOptionals();
+        LinkedHashMap<Class<?>, String> m = map.unwrapOptionals();
 
-		assertThat(m.keySet(), contains(String.class, Boolean.class));
-		assertThat(m.values(), contains("aaa", "bbb"));
-	}
+        assertThat(m).containsKeys(String.class, Boolean.class);
+        assertThat(m).containsValues("aaa", "bbb");
+    }
 
-	@Test
-	public void testPrefix() {
-		LinkedOptionalMap<Class<?>, String> left = new LinkedOptionalMap<>();
+    @Test
+    void testPrefix() {
+        LinkedOptionalMap<Class<?>, String> left = new LinkedOptionalMap<>();
 
-		left.put("a", String.class, "aaa");
-		left.put("b", String.class, "aaa");
+        left.put("a", String.class, "aaa");
+        left.put("b", String.class, "aaa");
 
-		LinkedOptionalMap<Class<?>, String> right = new LinkedOptionalMap<>(left);
+        LinkedOptionalMap<Class<?>, String> right = new LinkedOptionalMap<>(left);
 
-		right.put("c", Boolean.class, "bbb");
+        right.put("c", Boolean.class, "bbb");
 
-		assertTrue(LinkedOptionalMap.isLeftPrefixOfRight(left, right));
-	}
+        assertThat(LinkedOptionalMap.isLeftPrefixOfRight(left, right)).isTrue();
+    }
 
-	@Test
-	public void testNonPrefix() {
-		LinkedOptionalMap<Class<?>, String> left = new LinkedOptionalMap<>();
+    @Test
+    void testNonPrefix() {
+        LinkedOptionalMap<Class<?>, String> left = new LinkedOptionalMap<>();
 
-		left.put("a", String.class, "aaa");
-		left.put("c", String.class, "aaa");
+        left.put("a", String.class, "aaa");
+        left.put("c", String.class, "aaa");
 
-		LinkedOptionalMap<Class<?>, String> right = new LinkedOptionalMap<>();
+        LinkedOptionalMap<Class<?>, String> right = new LinkedOptionalMap<>();
 
-		right.put("b", Boolean.class, "bbb");
-		right.put("c", Boolean.class, "bbb");
+        right.put("b", Boolean.class, "bbb");
+        right.put("c", Boolean.class, "bbb");
 
-		assertFalse(LinkedOptionalMap.isLeftPrefixOfRight(left, right));
-	}
+        assertThat(LinkedOptionalMap.isLeftPrefixOfRight(left, right)).isFalse();
+    }
 
-	@Test
-	@SuppressWarnings("unchecked")
-	public void demoMergeResult() {
-		LinkedOptionalMap<Class<?>, String> left = new LinkedOptionalMap<>();
-		left.put("b", null, null);
-		left.put("c", String.class, null);
+    @Test
+    void demoMergeResult() {
+        LinkedOptionalMap<Class<?>, String> left = new LinkedOptionalMap<>();
+        left.put("b", null, null);
+        left.put("c", String.class, null);
 
-		LinkedOptionalMap<Class<?>, String> right = new LinkedOptionalMap<>();
-		right.put("b", String.class, "bbb");
-		right.put("c", Void.class, "ccc");
-		right.put("a", Boolean.class, "aaa");
-		right.put("d", Long.class, "ddd");
+        LinkedOptionalMap<Class<?>, String> right = new LinkedOptionalMap<>();
+        right.put("b", String.class, "bbb");
+        right.put("c", Void.class, "ccc");
+        right.put("a", Boolean.class, "aaa");
+        right.put("d", Long.class, "ddd");
 
-		MergeResult<Class<?>, String> result = LinkedOptionalMap.mergeRightIntoLeft(left, right);
+        MergeResult<Class<?>, String> result = LinkedOptionalMap.mergeRightIntoLeft(left, right);
 
-		assertThat(result.hasMissingKeys(), is(false));
-		assertThat(result.isOrderedSubset(), is(true));
-		assertThat(result.missingKeys(), is(empty()));
+        assertThat(result.hasMissingKeys()).isFalse();
+        assertThat(result.isOrderedSubset()).isTrue();
+        assertThat(result.missingKeys()).isEmpty();
 
-		LinkedHashMap<Class<?>, String> merged = result.getMerged();
-		assertThat(merged.keySet(), contains(String.class, Void.class, Boolean.class, Long.class));
-	}
+        LinkedHashMap<Class<?>, String> merged = result.getMerged();
+        assertThat(merged.keySet())
+                .containsExactly(String.class, Void.class, Boolean.class, Long.class);
+    }
 }

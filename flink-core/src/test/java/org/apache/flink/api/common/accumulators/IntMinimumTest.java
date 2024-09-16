@@ -18,65 +18,65 @@
 
 package org.apache.flink.api.common.accumulators;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import static org.junit.Assert.assertEquals;
+import static org.assertj.core.api.Assertions.assertThat;
 
-public class IntMinimumTest {
+class IntMinimumTest {
 
-	@Test
-	public void testGet() {
-		IntMinimum min = new IntMinimum();
-		assertEquals(Integer.MAX_VALUE, min.getLocalValue().intValue());
-	}
+    @Test
+    void testGet() {
+        IntMinimum min = new IntMinimum();
+        assertThat(min.getLocalValue().intValue()).isEqualTo(Integer.MAX_VALUE);
+    }
 
-	@Test
-	public void testResetLocal() {
-		IntMinimum min = new IntMinimum();
-		int value = 13;
+    @Test
+    void testResetLocal() {
+        IntMinimum min = new IntMinimum();
+        int value = 13;
 
-		min.add(value);
-		assertEquals(value, min.getLocalValue().intValue());
+        min.add(value);
+        assertThat(min.getLocalValue().intValue()).isEqualTo(value);
 
-		min.resetLocal();
-		assertEquals(Integer.MAX_VALUE, min.getLocalValue().intValue());
-	}
+        min.resetLocal();
+        assertThat(min.getLocalValue().intValue()).isEqualTo(Integer.MAX_VALUE);
+    }
 
-	@Test
-	public void testAdd() {
-		IntMinimum min = new IntMinimum();
+    @Test
+    void testAdd() {
+        IntMinimum min = new IntMinimum();
 
-		min.add(1234);
-		min.add(9876);
-		min.add(-987);
-		min.add(-123);
+        min.add(1234);
+        min.add(9876);
+        min.add(-987);
+        min.add(-123);
 
-		assertEquals(-987, min.getLocalValue().intValue());
-	}
+        assertThat(min.getLocalValue().intValue()).isEqualTo(-987);
+    }
 
-	@Test
-	public void testMerge() {
-		IntMinimum min1 = new IntMinimum();
-		min1.add(1234);
+    @Test
+    void testMerge() {
+        IntMinimum min1 = new IntMinimum();
+        min1.add(1234);
 
-		IntMinimum min2 = new IntMinimum();
-		min2.add(5678);
+        IntMinimum min2 = new IntMinimum();
+        min2.add(5678);
 
-		min2.merge(min1);
-		assertEquals(1234, min2.getLocalValue().intValue());
+        min2.merge(min1);
+        assertThat(min2.getLocalValue().intValue()).isEqualTo(1234);
 
-		min1.merge(min2);
-		assertEquals(1234, min1.getLocalValue().intValue());
-	}
+        min1.merge(min2);
+        assertThat(min1.getLocalValue().intValue()).isEqualTo(1234);
+    }
 
-	@Test
-	public void testClone() {
-		IntMinimum min = new IntMinimum();
-		int value = 42;
+    @Test
+    void testClone() {
+        IntMinimum min = new IntMinimum();
+        int value = 42;
 
-		min.add(value);
+        min.add(value);
 
-		IntMinimum clone = min.clone();
-		assertEquals(value, clone.getLocalValue().intValue());
-	}
+        IntMinimum clone = min.clone();
+        assertThat(clone.getLocalValue().intValue()).isEqualTo(value);
+    }
 }

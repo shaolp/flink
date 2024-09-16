@@ -27,6 +27,7 @@ import org.apache.flink.streaming.api.windowing.triggers.ProcessingTimeTrigger;
 import org.apache.flink.streaming.api.windowing.triggers.Trigger;
 import org.apache.flink.streaming.api.windowing.windows.TimeWindow;
 
+import java.time.Duration;
 import java.util.Collection;
 import java.util.Collections;
 
@@ -35,81 +36,104 @@ import java.util.Collections;
  * time. Windows cannot overlap.
  *
  * <p>For example, in order to window into windows of 1 minute, every 10 seconds:
- * <pre> {@code
+ *
+ * <pre>{@code
  * DataStream<Tuple2<String, Integer>> in = ...;
  * KeyedStream<String, Tuple2<String, Integer>> keyed = in.keyBy(...);
  * WindowedStream<Tuple2<String, Integer>, String, TimeWindows> windowed =
- *   keyed.window(ProcessingTimeSessionWindows.withGap(Time.minutes(1)));
- * } </pre>
+ *   keyed.window(ProcessingTimeSessionWindows.withGap(Duration.ofMinutes(1)));
+ * }</pre>
  */
+@PublicEvolving
 public class ProcessingTimeSessionWindows extends MergingWindowAssigner<Object, TimeWindow> {
-	private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = 1L;
 
-	protected long sessionTimeout;
+    protected long sessionTimeout;
 
-	protected ProcessingTimeSessionWindows(long sessionTimeout) {
-		if (sessionTimeout <= 0) {
-			throw new IllegalArgumentException("ProcessingTimeSessionWindows parameters must satisfy 0 < size");
-		}
+    protected ProcessingTimeSessionWindows(long sessionTimeout) {
+        if (sessionTimeout <= 0) {
+            throw new IllegalArgumentException(
+                    "ProcessingTimeSessionWindows parameters must satisfy 0 < size");
+        }
 
-		this.sessionTimeout = sessionTimeout;
-	}
+        this.sessionTimeout = sessionTimeout;
+    }
 
-	@Override
-	public Collection<TimeWindow> assignWindows(Object element, long timestamp, WindowAssignerContext context) {
-		long currentProcessingTime = context.getCurrentProcessingTime();
-		return Collections.singletonList(new TimeWindow(currentProcessingTime, currentProcessingTime + sessionTimeout));
-	}
+    @Override
+    public Collection<TimeWindow> assignWindows(
+            Object element, long timestamp, WindowAssignerContext context) {
+        long currentProcessingTime = context.getCurrentProcessingTime();
+        return Collections.singletonList(
+                new TimeWindow(currentProcessingTime, currentProcessingTime + sessionTimeout));
+    }
 
-	@Override
-	public Trigger<Object, TimeWindow> getDefaultTrigger(StreamExecutionEnvironment env) {
-		return ProcessingTimeTrigger.create();
-	}
+    @Override
+    public Trigger<Object, TimeWindow> getDefaultTrigger(StreamExecutionEnvironment env) {
+        throw new UnsupportedOperationException(
+                "This method is deprecated and shouldn't be invoked. Please use getDefaultTrigger() instead.");
+    }
 
-	@Override
-	public String toString() {
-		return "ProcessingTimeSessionWindows(" + sessionTimeout + ")";
-	}
+    @Override
+    public Trigger<Object, TimeWindow> getDefaultTrigger() {
+        return ProcessingTimeTrigger.create();
+    }
 
-	/**
-	 * Creates a new {@code SessionWindows} {@link WindowAssigner} that assigns
-	 * elements to sessions based on the element timestamp.
-	 *
-	 * @param size The session timeout, i.e. the time gap between sessions
-	 * @return The policy.
-	 */
-	public static ProcessingTimeSessionWindows withGap(Time size) {
-		return new ProcessingTimeSessionWindows(size.toMilliseconds());
-	}
+    @Override
+    public String toString() {
+        return "ProcessingTimeSessionWindows(" + sessionTimeout + ")";
+    }
 
-	/**
-	 * Creates a new {@code SessionWindows} {@link WindowAssigner} that assigns
-	 * elements to sessions based on the element timestamp.
-	 *
-	 * @param sessionWindowTimeGapExtractor The extractor to use to extract the time gap from the input elements
-	 * @return The policy.
-	 */
-	@PublicEvolving
-	public static <T> DynamicProcessingTimeSessionWindows<T> withDynamicGap(SessionWindowTimeGapExtractor<T> sessionWindowTimeGapExtractor) {
-		return new DynamicProcessingTimeSessionWindows<>(sessionWindowTimeGapExtractor);
-	}
+    /**
+     * Creates a new {@code SessionWindows} {@link WindowAssigner} that assigns elements to sessions
+     * based on the element timestamp.
+     *
+     * @param size The session timeout, i.e. the time gap between sessions
+     * @return The policy.
+     * @deprecated Use {@link #withGap(Duration)}
+     */
+    @Deprecated
+    public static ProcessingTimeSessionWindows withGap(Time size) {
+        return withGap(size.toDuration());
+    }
 
-	@Override
-	public TypeSerializer<TimeWindow> getWindowSerializer(ExecutionConfig executionConfig) {
-		return new TimeWindow.Serializer();
-	}
+    /**
+     * Creates a new {@code SessionWindows} {@link WindowAssigner} that assigns elements to sessions
+     * based on the element timestamp.
+     *
+     * @param size The session timeout, i.e. the time gap between sessions
+     * @return The policy.
+     */
+    public static ProcessingTimeSessionWindows withGap(Duration size) {
+        return new ProcessingTimeSessionWindows(size.toMillis());
+    }
 
-	@Override
-	public boolean isEventTime() {
-		return false;
-	}
+    /**
+     * Creates a new {@code SessionWindows} {@link WindowAssigner} that assigns elements to sessions
+     * based on the element timestamp.
+     *
+     * @param sessionWindowTimeGapExtractor The extractor to use to extract the time gap from the
+     *     input elements
+     * @return The policy.
+     */
+    @PublicEvolving
+    public static <T> DynamicProcessingTimeSessionWindows<T> withDynamicGap(
+            SessionWindowTimeGapExtractor<T> sessionWindowTimeGapExtractor) {
+        return new DynamicProcessingTimeSessionWindows<>(sessionWindowTimeGapExtractor);
+    }
 
-	/**
-	 * Merge overlapping {@link TimeWindow}s.
-	 */
-	@Override
-	public void mergeWindows(Collection<TimeWindow> windows, MergeCallback<TimeWindow> c) {
-		TimeWindow.mergeWindows(windows, c);
-	}
+    @Override
+    public TypeSerializer<TimeWindow> getWindowSerializer(ExecutionConfig executionConfig) {
+        return new TimeWindow.Serializer();
+    }
 
+    @Override
+    public boolean isEventTime() {
+        return false;
+    }
+
+    /** Merge overlapping {@link TimeWindow}s. */
+    @Override
+    public void mergeWindows(Collection<TimeWindow> windows, MergeCallback<TimeWindow> c) {
+        TimeWindow.mergeWindows(windows, c);
+    }
 }

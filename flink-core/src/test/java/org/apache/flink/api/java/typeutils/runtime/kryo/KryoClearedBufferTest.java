@@ -18,17 +18,17 @@
 
 package org.apache.flink.api.java.typeutils.runtime.kryo;
 
-import com.esotericsoftware.kryo.Kryo;
-import com.esotericsoftware.kryo.Serializer;
-import com.esotericsoftware.kryo.io.Input;
-import com.esotericsoftware.kryo.io.Output;
-import org.apache.flink.api.common.ExecutionConfig;
+import org.apache.flink.api.common.serialization.SerializerConfigImpl;
 import org.apache.flink.configuration.ConfigConstants;
 import org.apache.flink.core.memory.DataInputView;
 import org.apache.flink.core.memory.DataInputViewStreamWrapper;
 import org.apache.flink.core.memory.DataOutputView;
-import org.junit.Assert;
-import org.junit.Test;
+
+import com.esotericsoftware.kryo.Kryo;
+import com.esotericsoftware.kryo.Serializer;
+import com.esotericsoftware.kryo.io.Input;
+import com.esotericsoftware.kryo.io.Output;
+import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
 import java.io.EOFException;
@@ -36,251 +36,253 @@ import java.io.IOException;
 import java.io.Serializable;
 import java.util.Arrays;
 
-public class KryoClearedBufferTest {
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-	/**
-	 * Tests that the kryo output buffer is cleared in case of an exception. Flink uses the
-	 * EOFException to signal that a buffer is full. In such a case, the record which was tried
-	 * to be written will be rewritten. Therefore, eventually buffered data of this record has
-	 * to be cleared.
-	 */
-	@Test
-	public void testOutputBufferedBeingClearedInCaseOfException() throws Exception {
-		ExecutionConfig executionConfig = new ExecutionConfig();
-		executionConfig.registerTypeWithKryoSerializer(TestRecord.class, new TestRecordSerializer());
-		executionConfig.registerKryoType(TestRecord.class);
+class KryoClearedBufferTest {
 
-		KryoSerializer<TestRecord> kryoSerializer = new KryoSerializer<TestRecord>(
-			TestRecord.class,
-			executionConfig);
+    /**
+     * Tests that the kryo output buffer is cleared in case of an exception. Flink uses the
+     * EOFException to signal that a buffer is full. In such a case, the record which was tried to
+     * be written will be rewritten. Therefore, eventually buffered data of this record has to be
+     * cleared.
+     */
+    @Test
+    void testOutputBufferedBeingClearedInCaseOfException() throws Exception {
+        SerializerConfigImpl serializerConfigImpl = new SerializerConfigImpl();
+        serializerConfigImpl.registerTypeWithKryoSerializer(
+                TestRecord.class, new TestRecordSerializer());
+        serializerConfigImpl.registerKryoType(TestRecord.class);
 
-		int size = 94;
-		int bufferSize = 150;
+        KryoSerializer<TestRecord> kryoSerializer =
+                new KryoSerializer<TestRecord>(TestRecord.class, serializerConfigImpl);
 
-		TestRecord testRecord = new TestRecord(size);
+        int size = 94;
+        int bufferSize = 150;
 
-		TestDataOutputView target = new TestDataOutputView(bufferSize);
+        TestRecord testRecord = new TestRecord(size);
 
-		kryoSerializer.serialize(testRecord, target);
+        TestDataOutputView target = new TestDataOutputView(bufferSize);
 
-		try {
-			kryoSerializer.serialize(testRecord, target);
-			Assert.fail("Expected an EOFException.");
-		} catch(EOFException eofException) {
-			// expected exception
-			// now the Kryo Output should have been cleared
-		}
+        kryoSerializer.serialize(testRecord, target);
 
-		TestRecord actualRecord = kryoSerializer.deserialize(
-				new DataInputViewStreamWrapper(new ByteArrayInputStream(target.getBuffer())));
+        assertThatThrownBy(() -> kryoSerializer.serialize(testRecord, target))
+                .isInstanceOf(EOFException.class);
 
-		Assert.assertEquals(testRecord, actualRecord);
+        TestRecord actualRecord =
+                kryoSerializer.deserialize(
+                        new DataInputViewStreamWrapper(
+                                new ByteArrayInputStream(target.getBuffer())));
 
-		target.clear();
+        assertThat(actualRecord).isEqualTo(testRecord);
 
-		// if the kryo output has been cleared then we can serialize our test record into the target
-		// because the target buffer 150 bytes can host one TestRecord (total serialization size 100)
-		kryoSerializer.serialize(testRecord, target);
+        target.clear();
 
-		byte[] buffer = target.getBuffer();
-		int counter = 0;
+        // if the kryo output has been cleared then we can serialize our test record into the target
+        // because the target buffer 150 bytes can host one TestRecord (total serialization size
+        // 100)
+        kryoSerializer.serialize(testRecord, target);
 
-		for (int i = 0; i < buffer.length; i++) {
-			if(buffer[i] == 42) {
-				counter++;
-			}
-		}
+        byte[] buffer = target.getBuffer();
+        int counter = 0;
 
-		Assert.assertEquals(size, counter);
-	}
+        for (int i = 0; i < buffer.length; i++) {
+            if (buffer[i] == 42) {
+                counter++;
+            }
+        }
 
-	public static class TestRecord {
-		private byte[] buffer;
+        assertThat(counter).isEqualTo(size);
+    }
 
-		public TestRecord(int size) {
-			buffer = new byte[size];
+    public static class TestRecord {
+        private final byte[] buffer;
 
-			Arrays.fill(buffer, (byte)42);
-		}
+        public TestRecord(int size) {
+            buffer = new byte[size];
 
-		public TestRecord(byte[] buffer){
-			this.buffer = buffer;
-		}
+            Arrays.fill(buffer, (byte) 42);
+        }
 
-		@Override
-		public boolean equals(Object obj) {
-			if (obj instanceof TestRecord) {
-				TestRecord record = (TestRecord) obj;
+        public TestRecord(byte[] buffer) {
+            this.buffer = buffer;
+        }
 
-				return Arrays.equals(buffer, record.buffer);
-			} else {
-				return false;
-			}
-		}
-	}
+        @Override
+        public boolean equals(Object obj) {
+            if (obj instanceof TestRecord) {
+                TestRecord record = (TestRecord) obj;
 
-	public static class TestRecordSerializer extends Serializer<TestRecord> implements Serializable {
+                return Arrays.equals(buffer, record.buffer);
+            } else {
+                return false;
+            }
+        }
+    }
 
-		private static final long serialVersionUID = 6971996565421454985L;
+    public static class TestRecordSerializer extends Serializer<TestRecord>
+            implements Serializable {
 
-		@Override
-		public void write(Kryo kryo, Output output, TestRecord object) {
-			output.writeInt(object.buffer.length);
-			output.write(object.buffer);
-		}
+        private static final long serialVersionUID = 6971996565421454985L;
 
-		@Override
-		public TestRecord read(Kryo kryo, Input input, Class<TestRecord> type) {
-			int length = input.readInt();
-			byte[] buffer = input.readBytes(length);
+        @Override
+        public void write(Kryo kryo, Output output, TestRecord object) {
+            output.writeInt(object.buffer.length);
+            output.write(object.buffer);
+        }
 
-			return new TestRecord(buffer);
-		}
-	}
+        @Override
+        public TestRecord read(Kryo kryo, Input input, Class<TestRecord> type) {
+            int length = input.readInt();
+            byte[] buffer = input.readBytes(length);
 
-	public static class TestDataOutputView implements DataOutputView {
+            return new TestRecord(buffer);
+        }
+    }
 
-		private byte[] buffer;
-		private int position;
+    public static class TestDataOutputView implements DataOutputView {
 
-		public TestDataOutputView(int size) {
-			buffer = new byte[size];
-			position = 0;
-		}
+        private final byte[] buffer;
+        private int position;
 
-		public void clear() {
-			position = 0;
-		}
+        public TestDataOutputView(int size) {
+            buffer = new byte[size];
+            position = 0;
+        }
 
-		public byte[] getBuffer() {
-			return buffer;
-		}
+        public void clear() {
+            position = 0;
+        }
 
-		public void checkSize(int numBytes) throws EOFException {
-			if (position + numBytes > buffer.length) {
-				throw new EOFException();
-			}
-		}
+        public byte[] getBuffer() {
+            return buffer;
+        }
 
-		@Override
-		public void skipBytesToWrite(int numBytes) throws IOException {
-			checkSize(numBytes);
+        public void checkSize(int numBytes) throws EOFException {
+            if (position + numBytes > buffer.length) {
+                throw new EOFException();
+            }
+        }
 
-			position += numBytes;
-		}
+        @Override
+        public void skipBytesToWrite(int numBytes) throws IOException {
+            checkSize(numBytes);
 
-		@Override
-		public void write(DataInputView source, int numBytes) throws IOException {
-			checkSize(numBytes);
+            position += numBytes;
+        }
 
-			byte[] tempBuffer = new byte[numBytes];
+        @Override
+        public void write(DataInputView source, int numBytes) throws IOException {
+            checkSize(numBytes);
 
-			source.readFully(tempBuffer);
+            byte[] tempBuffer = new byte[numBytes];
 
-			System.arraycopy(tempBuffer, 0, buffer, position, numBytes);
+            source.readFully(tempBuffer);
 
-			position += numBytes;
-		}
+            System.arraycopy(tempBuffer, 0, buffer, position, numBytes);
 
-		@Override
-		public void write(int b) throws IOException {
-			checkSize(4);
+            position += numBytes;
+        }
 
-			position += 4;
-		}
+        @Override
+        public void write(int b) throws IOException {
+            checkSize(4);
 
-		@Override
-		public void write(byte[] b) throws IOException {
-			checkSize(b.length);
+            position += 4;
+        }
 
-			System.arraycopy(b, 0, buffer, position, b.length);
-			position += b.length;
-		}
+        @Override
+        public void write(byte[] b) throws IOException {
+            checkSize(b.length);
 
-		@Override
-		public void write(byte[] b, int off, int len) throws IOException {
-			checkSize(len);
+            System.arraycopy(b, 0, buffer, position, b.length);
+            position += b.length;
+        }
 
-			System.arraycopy(b, off, buffer, position, len);
+        @Override
+        public void write(byte[] b, int off, int len) throws IOException {
+            checkSize(len);
 
-			position += len;
-		}
+            System.arraycopy(b, off, buffer, position, len);
 
-		@Override
-		public void writeBoolean(boolean v) throws IOException {
-			checkSize(1);
-			position += 1;
-		}
+            position += len;
+        }
 
-		@Override
-		public void writeByte(int v) throws IOException {
-			checkSize(1);
+        @Override
+        public void writeBoolean(boolean v) throws IOException {
+            checkSize(1);
+            position += 1;
+        }
 
-			buffer[position] = (byte)v;
+        @Override
+        public void writeByte(int v) throws IOException {
+            checkSize(1);
 
-			position++;
-		}
+            buffer[position] = (byte) v;
 
-		@Override
-		public void writeShort(int v) throws IOException {
-			checkSize(2);
+            position++;
+        }
 
-			position += 2;
-		}
+        @Override
+        public void writeShort(int v) throws IOException {
+            checkSize(2);
 
-		@Override
-		public void writeChar(int v) throws IOException {
-			checkSize(1);
-			position++;
-		}
+            position += 2;
+        }
 
-		@Override
-		public void writeInt(int v) throws IOException {
-			checkSize(4);
+        @Override
+        public void writeChar(int v) throws IOException {
+            checkSize(1);
+            position++;
+        }
 
-			position += 4;
-		}
+        @Override
+        public void writeInt(int v) throws IOException {
+            checkSize(4);
 
-		@Override
-		public void writeLong(long v) throws IOException {
-			checkSize(8);
-			position += 8;
-		}
+            position += 4;
+        }
 
-		@Override
-		public void writeFloat(float v) throws IOException {
-			checkSize(4);
-			position += 4;
-		}
+        @Override
+        public void writeLong(long v) throws IOException {
+            checkSize(8);
+            position += 8;
+        }
 
-		@Override
-		public void writeDouble(double v) throws IOException {
-			checkSize(8);
-			position += 8;
-		}
+        @Override
+        public void writeFloat(float v) throws IOException {
+            checkSize(4);
+            position += 4;
+        }
 
-		@Override
-		public void writeBytes(String s) throws IOException {
-			byte[] sBuffer = s.getBytes(ConfigConstants.DEFAULT_CHARSET);
-			checkSize(sBuffer.length);
-			System.arraycopy(sBuffer, 0, buffer, position, sBuffer.length);
-			position += sBuffer.length;
-		}
+        @Override
+        public void writeDouble(double v) throws IOException {
+            checkSize(8);
+            position += 8;
+        }
 
-		@Override
-		public void writeChars(String s) throws IOException {
-			byte[] sBuffer = s.getBytes(ConfigConstants.DEFAULT_CHARSET);
-			checkSize(sBuffer.length);
-			System.arraycopy(sBuffer, 0, buffer, position, sBuffer.length);
-			position += sBuffer.length;
-		}
+        @Override
+        public void writeBytes(String s) throws IOException {
+            byte[] sBuffer = s.getBytes(ConfigConstants.DEFAULT_CHARSET);
+            checkSize(sBuffer.length);
+            System.arraycopy(sBuffer, 0, buffer, position, sBuffer.length);
+            position += sBuffer.length;
+        }
 
-		@Override
-		public void writeUTF(String s) throws IOException {
-			byte[] sBuffer = s.getBytes(ConfigConstants.DEFAULT_CHARSET);
-			checkSize(sBuffer.length);
-			System.arraycopy(sBuffer, 0, buffer, position, sBuffer.length);
-			position += sBuffer.length;
-		}
-	}
+        @Override
+        public void writeChars(String s) throws IOException {
+            byte[] sBuffer = s.getBytes(ConfigConstants.DEFAULT_CHARSET);
+            checkSize(sBuffer.length);
+            System.arraycopy(sBuffer, 0, buffer, position, sBuffer.length);
+            position += sBuffer.length;
+        }
+
+        @Override
+        public void writeUTF(String s) throws IOException {
+            byte[] sBuffer = s.getBytes(ConfigConstants.DEFAULT_CHARSET);
+            checkSize(sBuffer.length);
+            System.arraycopy(sBuffer, 0, buffer, position, sBuffer.length);
+            position += sBuffer.length;
+        }
+    }
 }

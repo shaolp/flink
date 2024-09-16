@@ -19,23 +19,33 @@
 package org.apache.flink.runtime.checkpoint;
 
 import org.apache.flink.api.common.JobID;
+import org.apache.flink.core.execution.RecoveryClaimMode;
 import org.apache.flink.runtime.jobmanager.HighAvailabilityMode;
+import org.apache.flink.runtime.state.SharedStateRegistryFactory;
 
-/**
- * {@link CheckpointCoordinator} components in {@link HighAvailabilityMode#NONE}.
- */
+import java.util.concurrent.Executor;
+
+/** {@link CheckpointCoordinator} components in {@link HighAvailabilityMode#NONE}. */
 public class StandaloneCheckpointRecoveryFactory implements CheckpointRecoveryFactory {
 
-	@Override
-	public CompletedCheckpointStore createCheckpointStore(JobID jobId, int maxNumberOfCheckpointsToRetain, ClassLoader userClassLoader)
-			throws Exception {
+    @Override
+    public CompletedCheckpointStore createRecoveredCompletedCheckpointStore(
+            JobID jobId,
+            int maxNumberOfCheckpointsToRetain,
+            SharedStateRegistryFactory sharedStateRegistryFactory,
+            Executor ioExecutor,
+            RecoveryClaimMode recoveryClaimMode)
+            throws Exception {
 
-		return new StandaloneCompletedCheckpointStore(maxNumberOfCheckpointsToRetain);
-	}
+        return new StandaloneCompletedCheckpointStore(
+                maxNumberOfCheckpointsToRetain,
+                sharedStateRegistryFactory,
+                ioExecutor,
+                recoveryClaimMode);
+    }
 
-	@Override
-	public CheckpointIDCounter createCheckpointIDCounter(JobID ignored) {
-		return new StandaloneCheckpointIDCounter();
-	}
-
+    @Override
+    public CheckpointIDCounter createCheckpointIDCounter(JobID ignored) {
+        return new StandaloneCheckpointIDCounter();
+    }
 }

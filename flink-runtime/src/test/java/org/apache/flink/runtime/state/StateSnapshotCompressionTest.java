@@ -30,153 +30,166 @@ import org.apache.flink.runtime.state.heap.HeapKeyedStateBackendBuilder;
 import org.apache.flink.runtime.state.heap.HeapPriorityQueueSetFactory;
 import org.apache.flink.runtime.state.internal.InternalValueState;
 import org.apache.flink.runtime.state.memory.MemCheckpointStreamFactory;
+import org.apache.flink.runtime.state.metrics.LatencyTrackingStateConfig;
 import org.apache.flink.runtime.state.ttl.TtlTimeProvider;
-import org.apache.flink.util.TestLogger;
 
 import org.apache.commons.io.IOUtils;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.util.Collection;
 import java.util.Collections;
 import java.util.concurrent.RunnableFuture;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
-public class StateSnapshotCompressionTest extends TestLogger {
+class StateSnapshotCompressionTest {
 
-	@Test
-	public void testCompressionConfiguration() throws BackendBuildingException {
+    @Test
+    void testCompressionConfiguration() throws BackendBuildingException {
 
-		ExecutionConfig executionConfig = new ExecutionConfig();
-		executionConfig.setUseSnapshotCompression(true);
+        ExecutionConfig executionConfig = new ExecutionConfig();
+        executionConfig.setUseSnapshotCompression(true);
 
-		AbstractKeyedStateBackend<String> stateBackend = getStringHeapKeyedStateBackend(executionConfig);
+        AbstractKeyedStateBackend<String> stateBackend =
+                getStringHeapKeyedStateBackend(executionConfig);
 
-		try {
-			Assert.assertTrue(
-				SnappyStreamCompressionDecorator.INSTANCE.equals(stateBackend.getKeyGroupCompressionDecorator()));
+        try {
+            assertThat(
+                            SnappyStreamCompressionDecorator.INSTANCE.equals(
+                                    stateBackend.getKeyGroupCompressionDecorator()))
+                    .isTrue();
+        } finally {
+            IOUtils.closeQuietly(stateBackend);
+            stateBackend.dispose();
+        }
 
-		} finally {
-			IOUtils.closeQuietly(stateBackend);
-			stateBackend.dispose();
-		}
+        executionConfig = new ExecutionConfig();
+        executionConfig.setUseSnapshotCompression(false);
 
-		executionConfig = new ExecutionConfig();
-		executionConfig.setUseSnapshotCompression(false);
+        stateBackend = getStringHeapKeyedStateBackend(executionConfig);
 
-		stateBackend = getStringHeapKeyedStateBackend(executionConfig);
+        try {
+            assertThat(
+                            UncompressedStreamCompressionDecorator.INSTANCE.equals(
+                                    stateBackend.getKeyGroupCompressionDecorator()))
+                    .isTrue();
+        } finally {
+            IOUtils.closeQuietly(stateBackend);
+            stateBackend.dispose();
+        }
+    }
 
-		try {
-			Assert.assertTrue(
-				UncompressedStreamCompressionDecorator.INSTANCE.equals(stateBackend.getKeyGroupCompressionDecorator()));
+    @Test
+    void snapshotRestoreRoundtripWithCompression() throws Exception {
+        snapshotRestoreRoundtrip(true);
+    }
 
-		} finally {
-			IOUtils.closeQuietly(stateBackend);
-			stateBackend.dispose();
-		}
-	}
+    @Test
+    void snapshotRestoreRoundtripUncompressed() throws Exception {
+        snapshotRestoreRoundtrip(false);
+    }
 
-	@Test
-	public void snapshotRestoreRoundtripWithCompression() throws Exception {
-		snapshotRestoreRoundtrip(true);
-	}
+    private HeapKeyedStateBackend<String> getStringHeapKeyedStateBackend(
+            ExecutionConfig executionConfig) throws BackendBuildingException {
+        return getStringHeapKeyedStateBackend(executionConfig, Collections.emptyList());
+    }
 
-	@Test
-	public void snapshotRestoreRoundtripUncompressed() throws Exception {
-		snapshotRestoreRoundtrip(false);
-	}
+    private HeapKeyedStateBackend<String> getStringHeapKeyedStateBackend(
+            ExecutionConfig executionConfig, Collection<KeyedStateHandle> stateHandles)
+            throws BackendBuildingException {
+        return new HeapKeyedStateBackendBuilder<>(
+                        mock(TaskKvStateRegistry.class),
+                        StringSerializer.INSTANCE,
+                        StateSnapshotCompressionTest.class.getClassLoader(),
+                        16,
+                        new KeyGroupRange(0, 15),
+                        executionConfig,
+                        TtlTimeProvider.DEFAULT,
+                        LatencyTrackingStateConfig.disabled(),
+                        stateHandles,
+                        AbstractStateBackend.getCompressionDecorator(executionConfig),
+                        TestLocalRecoveryConfig.disabled(),
+                        mock(HeapPriorityQueueSetFactory.class),
+                        true,
+                        new CloseableRegistry())
+                .build();
+    }
 
-	private HeapKeyedStateBackend<String> getStringHeapKeyedStateBackend(ExecutionConfig executionConfig)
-		throws BackendBuildingException {
-		return getStringHeapKeyedStateBackend(executionConfig, Collections.emptyList());
-	}
+    private void snapshotRestoreRoundtrip(boolean useCompression) throws Exception {
 
-	private HeapKeyedStateBackend<String> getStringHeapKeyedStateBackend(
-		ExecutionConfig executionConfig,
-		Collection<KeyedStateHandle> stateHandles)
-		throws BackendBuildingException {
-		return new HeapKeyedStateBackendBuilder<>(
-			mock(TaskKvStateRegistry.class),
-			StringSerializer.INSTANCE,
-			StateSnapshotCompressionTest.class.getClassLoader(),
-			16,
-			new KeyGroupRange(0, 15),
-			executionConfig,
-			TtlTimeProvider.DEFAULT,
-			stateHandles,
-			AbstractStateBackend.getCompressionDecorator(executionConfig),
-			TestLocalRecoveryConfig.disabled(),
-			mock(HeapPriorityQueueSetFactory.class),
-			true,
-			new CloseableRegistry()).build();
-	}
+        ExecutionConfig executionConfig = new ExecutionConfig();
+        executionConfig.setUseSnapshotCompression(useCompression);
 
-	private void snapshotRestoreRoundtrip(boolean useCompression) throws Exception {
+        KeyedStateHandle stateHandle;
 
-		ExecutionConfig executionConfig = new ExecutionConfig();
-		executionConfig.setUseSnapshotCompression(useCompression);
+        ValueStateDescriptor<String> stateDescriptor =
+                new ValueStateDescriptor<>("test", String.class);
+        stateDescriptor.initializeSerializerUnlessSet(executionConfig);
 
-		KeyedStateHandle stateHandle;
+        AbstractKeyedStateBackend<String> stateBackend =
+                getStringHeapKeyedStateBackend(executionConfig);
 
-		ValueStateDescriptor<String> stateDescriptor = new ValueStateDescriptor<>("test", String.class);
-		stateDescriptor.initializeSerializerUnlessSet(executionConfig);
+        try {
 
-		AbstractKeyedStateBackend<String> stateBackend = getStringHeapKeyedStateBackend(executionConfig);
+            InternalValueState<String, VoidNamespace, String> state =
+                    stateBackend.createOrUpdateInternalState(
+                            new VoidNamespaceSerializer(), stateDescriptor);
 
-		try {
+            stateBackend.setCurrentKey("A");
+            state.setCurrentNamespace(VoidNamespace.INSTANCE);
+            state.update("42");
+            stateBackend.setCurrentKey("B");
+            state.setCurrentNamespace(VoidNamespace.INSTANCE);
+            state.update("43");
+            stateBackend.setCurrentKey("C");
+            state.setCurrentNamespace(VoidNamespace.INSTANCE);
+            state.update("44");
+            stateBackend.setCurrentKey("D");
+            state.setCurrentNamespace(VoidNamespace.INSTANCE);
+            state.update("45");
+            CheckpointStreamFactory streamFactory = new MemCheckpointStreamFactory(4 * 1024 * 1024);
+            RunnableFuture<SnapshotResult<KeyedStateHandle>> snapshot =
+                    stateBackend.snapshot(
+                            0L,
+                            0L,
+                            streamFactory,
+                            CheckpointOptions.forCheckpointWithDefaultLocation());
+            snapshot.run();
+            SnapshotResult<KeyedStateHandle> snapshotResult = snapshot.get();
+            stateHandle = snapshotResult.getJobManagerOwnedSnapshot();
 
-			InternalValueState<String, VoidNamespace, String> state =
-				stateBackend.createInternalState(new VoidNamespaceSerializer(), stateDescriptor);
+        } finally {
+            IOUtils.closeQuietly(stateBackend);
+            stateBackend.dispose();
+        }
 
-			stateBackend.setCurrentKey("A");
-			state.setCurrentNamespace(VoidNamespace.INSTANCE);
-			state.update("42");
-			stateBackend.setCurrentKey("B");
-			state.setCurrentNamespace(VoidNamespace.INSTANCE);
-			state.update("43");
-			stateBackend.setCurrentKey("C");
-			state.setCurrentNamespace(VoidNamespace.INSTANCE);
-			state.update("44");
-			stateBackend.setCurrentKey("D");
-			state.setCurrentNamespace(VoidNamespace.INSTANCE);
-			state.update("45");
-			CheckpointStreamFactory streamFactory = new MemCheckpointStreamFactory(4 * 1024 * 1024);
-			RunnableFuture<SnapshotResult<KeyedStateHandle>> snapshot =
-				stateBackend.snapshot(0L, 0L, streamFactory, CheckpointOptions.forCheckpointWithDefaultLocation());
-			snapshot.run();
-			SnapshotResult<KeyedStateHandle> snapshotResult = snapshot.get();
-			stateHandle = snapshotResult.getJobManagerOwnedSnapshot();
+        executionConfig = new ExecutionConfig();
 
-		} finally {
-			IOUtils.closeQuietly(stateBackend);
-			stateBackend.dispose();
-		}
+        stateBackend =
+                getStringHeapKeyedStateBackend(
+                        executionConfig, StateObjectCollection.singleton(stateHandle));
+        try {
+            InternalValueState<String, VoidNamespace, String> state =
+                    stateBackend.createOrUpdateInternalState(
+                            new VoidNamespaceSerializer(), stateDescriptor);
 
-		executionConfig = new ExecutionConfig();
+            stateBackend.setCurrentKey("A");
+            state.setCurrentNamespace(VoidNamespace.INSTANCE);
+            assertThat(state.value()).isEqualTo("42");
+            stateBackend.setCurrentKey("B");
+            state.setCurrentNamespace(VoidNamespace.INSTANCE);
+            assertThat(state.value()).isEqualTo("43");
+            stateBackend.setCurrentKey("C");
+            state.setCurrentNamespace(VoidNamespace.INSTANCE);
+            assertThat(state.value()).isEqualTo("44");
+            stateBackend.setCurrentKey("D");
+            state.setCurrentNamespace(VoidNamespace.INSTANCE);
+            assertThat(state.value()).isEqualTo("45");
 
-		stateBackend = getStringHeapKeyedStateBackend(executionConfig, StateObjectCollection.singleton(stateHandle));
-		try {
-			InternalValueState<String, VoidNamespace, String> state = stateBackend.createInternalState(
-				new VoidNamespaceSerializer(),
-				stateDescriptor);
-
-			stateBackend.setCurrentKey("A");
-			state.setCurrentNamespace(VoidNamespace.INSTANCE);
-			Assert.assertEquals("42", state.value());
-			stateBackend.setCurrentKey("B");
-			state.setCurrentNamespace(VoidNamespace.INSTANCE);
-			Assert.assertEquals("43", state.value());
-			stateBackend.setCurrentKey("C");
-			state.setCurrentNamespace(VoidNamespace.INSTANCE);
-			Assert.assertEquals("44", state.value());
-			stateBackend.setCurrentKey("D");
-			state.setCurrentNamespace(VoidNamespace.INSTANCE);
-			Assert.assertEquals("45", state.value());
-
-		} finally {
-			IOUtils.closeQuietly(stateBackend);
-			stateBackend.dispose();
-		}
-	}
+        } finally {
+            IOUtils.closeQuietly(stateBackend);
+            stateBackend.dispose();
+        }
+    }
 }

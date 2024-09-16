@@ -18,7 +18,6 @@
 
 package org.apache.flink.runtime.rest.handler;
 
-import org.apache.flink.api.common.time.Time;
 import org.apache.flink.runtime.rest.handler.router.RoutedRequest;
 import org.apache.flink.runtime.rest.handler.util.HandlerUtils;
 import org.apache.flink.runtime.rest.messages.ErrorResponseBody;
@@ -38,66 +37,77 @@ import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nonnull;
 
+import java.time.Duration;
 import java.util.Map;
 
 /**
- * {@link SimpleChannelInboundHandler} which encapsulates the leader retrieval logic for the
- * REST endpoints.
+ * {@link SimpleChannelInboundHandler} which encapsulates the leader retrieval logic for the REST
+ * endpoints.
  *
  * @param <T> type of the leader to retrieve
  */
 @ChannelHandler.Sharable
-public abstract class LeaderRetrievalHandler<T extends RestfulGateway> extends SimpleChannelInboundHandler<RoutedRequest> {
+public abstract class LeaderRetrievalHandler<T extends RestfulGateway>
+        extends SimpleChannelInboundHandler<RoutedRequest> {
 
-	protected final Logger logger = LoggerFactory.getLogger(getClass());
+    protected final Logger logger = LoggerFactory.getLogger(getClass());
 
-	protected final GatewayRetriever<? extends T> leaderRetriever;
+    protected final GatewayRetriever<? extends T> leaderRetriever;
 
-	protected final Time timeout;
+    protected final Duration timeout;
 
-	protected final Map<String, String> responseHeaders;
+    protected final Map<String, String> responseHeaders;
 
-	protected LeaderRetrievalHandler(
-			@Nonnull GatewayRetriever<? extends T> leaderRetriever,
-			@Nonnull Time timeout,
-			@Nonnull Map<String, String> responseHeaders) {
-		this.leaderRetriever = Preconditions.checkNotNull(leaderRetriever);
-		this.timeout = Preconditions.checkNotNull(timeout);
-		this.responseHeaders = Preconditions.checkNotNull(responseHeaders);
-	}
+    protected LeaderRetrievalHandler(
+            @Nonnull GatewayRetriever<? extends T> leaderRetriever,
+            @Nonnull Duration timeout,
+            @Nonnull Map<String, String> responseHeaders) {
+        this.leaderRetriever = Preconditions.checkNotNull(leaderRetriever);
+        this.timeout = Preconditions.checkNotNull(timeout);
+        this.responseHeaders = Preconditions.checkNotNull(responseHeaders);
+    }
 
-	@Override
-	protected void channelRead0(
-		ChannelHandlerContext channelHandlerContext,
-		RoutedRequest routedRequest) {
+    protected Duration getTimeout() {
+        return timeout;
+    }
 
-		HttpRequest request = routedRequest.getRequest();
+    @Override
+    protected void channelRead0(
+            ChannelHandlerContext channelHandlerContext, RoutedRequest routedRequest) {
 
-		OptionalConsumer<? extends T> optLeaderConsumer = OptionalConsumer.of(leaderRetriever.getNow());
+        HttpRequest request = routedRequest.getRequest();
 
-		optLeaderConsumer.ifPresent(
-			gateway -> {
-				try {
-					respondAsLeader(channelHandlerContext, routedRequest, gateway);
-				} catch (Exception e) {
-					logger.error("Error while responding to the http request.", e);
-					HandlerUtils.sendErrorResponse(
-						channelHandlerContext,
-						request,
-						new ErrorResponseBody("Error while responding to the http request."),
-						HttpResponseStatus.INTERNAL_SERVER_ERROR,
-						responseHeaders);
-				}
-			}
-		).ifNotPresent(
-			() ->
-				HandlerUtils.sendErrorResponse(
-					channelHandlerContext,
-					request,
-					new ErrorResponseBody("Service temporarily unavailable due to an ongoing leader election. Please refresh."),
-					HttpResponseStatus.SERVICE_UNAVAILABLE,
-					responseHeaders));
-	}
+        OptionalConsumer<? extends T> optLeaderConsumer =
+                OptionalConsumer.of(leaderRetriever.getNow());
 
-	protected abstract void respondAsLeader(ChannelHandlerContext channelHandlerContext, RoutedRequest request, T gateway) throws Exception;
+        optLeaderConsumer
+                .ifPresent(
+                        gateway -> {
+                            try {
+                                respondAsLeader(channelHandlerContext, routedRequest, gateway);
+                            } catch (Exception e) {
+                                logger.error("Error while responding to the http request.", e);
+                                HandlerUtils.sendErrorResponse(
+                                        channelHandlerContext,
+                                        request,
+                                        new ErrorResponseBody(
+                                                "Error while responding to the http request."),
+                                        HttpResponseStatus.INTERNAL_SERVER_ERROR,
+                                        responseHeaders);
+                            }
+                        })
+                .ifNotPresent(
+                        () ->
+                                HandlerUtils.sendErrorResponse(
+                                        channelHandlerContext,
+                                        request,
+                                        new ErrorResponseBody(
+                                                "Service temporarily unavailable due to an ongoing leader election. Please refresh."),
+                                        HttpResponseStatus.SERVICE_UNAVAILABLE,
+                                        responseHeaders));
+    }
+
+    protected abstract void respondAsLeader(
+            ChannelHandlerContext channelHandlerContext, RoutedRequest request, T gateway)
+            throws Exception;
 }

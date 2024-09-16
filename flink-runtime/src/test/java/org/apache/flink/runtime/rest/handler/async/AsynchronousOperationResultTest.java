@@ -20,55 +20,59 @@ package org.apache.flink.runtime.rest.handler.async;
 
 import org.apache.flink.runtime.rest.messages.RestResponseMarshallingTestBase;
 import org.apache.flink.runtime.rest.messages.TriggerId;
+import org.apache.flink.testutils.junit.extensions.parameterized.ParameterizedTestExtension;
+import org.apache.flink.testutils.junit.extensions.parameterized.Parameters;
 
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 
-import static org.hamcrest.CoreMatchers.is;
-import static org.junit.Assert.assertThat;
+import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * Tests for the marshalling of {@link AsynchronousOperationResult}.
- */
-@RunWith(Parameterized.class)
-public class AsynchronousOperationResultTest extends RestResponseMarshallingTestBase<AsynchronousOperationResult<TriggerId>> {
+/** Tests for the marshalling of {@link AsynchronousOperationResult}. */
+@ExtendWith(ParameterizedTestExtension.class)
+public class AsynchronousOperationResultTest
+        extends RestResponseMarshallingTestBase<AsynchronousOperationResult<TriggerId>> {
 
-	@Parameterized.Parameters
-	public static Collection<Object[]> data() {
-		return Arrays.asList(new Object[][]{
-			{AsynchronousOperationResult.inProgress()},
-			{AsynchronousOperationResult.completed(new TriggerId())}
-		});
-	}
+    @Parameters
+    public static Collection<Object[]> data() {
+        return Arrays.asList(
+                new Object[][] {
+                    {AsynchronousOperationResult.inProgress()},
+                    {AsynchronousOperationResult.completed(new TriggerId())}
+                });
+    }
 
-	private final AsynchronousOperationResult<TriggerId> asynchronousOperationResult;
+    private final AsynchronousOperationResult<TriggerId> asynchronousOperationResult;
 
-	public AsynchronousOperationResultTest(AsynchronousOperationResult<TriggerId> asynchronousOperationResult) {
-		this.asynchronousOperationResult = asynchronousOperationResult;
-	}
+    public AsynchronousOperationResultTest(
+            AsynchronousOperationResult<TriggerId> asynchronousOperationResult) {
+        this.asynchronousOperationResult = asynchronousOperationResult;
+    }
 
-	@Override
-	protected Class<AsynchronousOperationResult<TriggerId>> getTestResponseClass() {
-		return (Class<AsynchronousOperationResult<TriggerId>>) (Class<?>) AsynchronousOperationResult.class;
-	}
+    @Override
+    protected Class<AsynchronousOperationResult<TriggerId>> getTestResponseClass() {
+        return (Class<AsynchronousOperationResult<TriggerId>>)
+                (Class<?>) AsynchronousOperationResult.class;
+    }
 
-	@Override
-	protected Collection<Class<?>> getTypeParameters() {
-		return Collections.singleton(TriggerId.class);
-	}
+    @Override
+    protected Collection<Class<?>> getTypeParameters() {
+        return Collections.singleton(TriggerId.class);
+    }
 
-	@Override
-	protected AsynchronousOperationResult<TriggerId> getTestResponseInstance() throws Exception {
-		return asynchronousOperationResult;
-	}
+    @Override
+    protected AsynchronousOperationResult<TriggerId> getTestResponseInstance() throws Exception {
+        return asynchronousOperationResult;
+    }
 
-	@Override
-	protected void assertOriginalEqualsToUnmarshalled(AsynchronousOperationResult<TriggerId> expected, AsynchronousOperationResult<TriggerId> actual) {
-		assertThat(actual.queueStatus().getId(), is(expected.queueStatus().getId()));
-		assertThat(actual.resource(), is(expected.resource()));
-	}
+    @Override
+    protected void assertOriginalEqualsToUnmarshalled(
+            AsynchronousOperationResult<TriggerId> expected,
+            AsynchronousOperationResult<TriggerId> actual) {
+        assertThat(actual.queueStatus().getId()).isEqualTo(expected.queueStatus().getId());
+        assertThat(actual.resource()).isEqualTo(expected.resource());
+    }
 }

@@ -18,64 +18,66 @@
 
 package org.apache.flink.runtime.rest.handler;
 
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.CompletableFuture;
 
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertSame;
-import static org.junit.Assert.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * Tests for {@link InFlightRequestTracker}.
- */
-public class InFlightRequestTrackerTest {
+/** Tests for {@link InFlightRequestTracker}. */
+class InFlightRequestTrackerTest {
 
-	private InFlightRequestTracker inFlightRequestTracker;
+    private InFlightRequestTracker inFlightRequestTracker;
 
-	@Before
-	public void setUp() {
-		inFlightRequestTracker = new InFlightRequestTracker();
-	}
+    @BeforeEach
+    void setUp() {
+        inFlightRequestTracker = new InFlightRequestTracker();
+    }
 
-	@Test
-	public void testShouldFinishAwaitAsyncImmediatelyIfNoRequests() {
-		assertTrue(inFlightRequestTracker.awaitAsync().isDone());
-	}
+    @Test
+    void testShouldFinishAwaitAsyncImmediatelyIfNoRequests() {
+        assertThat(inFlightRequestTracker.awaitAsync()).isDone();
+    }
 
-	@Test
-	public void testShouldFinishAwaitAsyncIffAllRequestsDeregistered() {
-		inFlightRequestTracker.registerRequest();
+    @Test
+    void testShouldFinishAwaitAsyncIffAllRequestsDeregistered() {
+        inFlightRequestTracker.registerRequest();
 
-		final CompletableFuture<Void> awaitFuture = inFlightRequestTracker.awaitAsync();
-		assertFalse(awaitFuture.isDone());
+        final CompletableFuture<Void> awaitFuture = inFlightRequestTracker.awaitAsync();
+        assertThat(awaitFuture).isNotDone();
 
-		inFlightRequestTracker.deregisterRequest();
-		assertTrue(awaitFuture.isDone());
-	}
+        inFlightRequestTracker.deregisterRequest();
+        assertThat(awaitFuture).isDone();
+    }
 
-	@Test
-	public void testAwaitAsyncIsIdempotent() {
-		final CompletableFuture<Void> awaitFuture = inFlightRequestTracker.awaitAsync();
-		assertTrue(awaitFuture.isDone());
+    @Test
+    void testAwaitAsyncIsIdempotent() {
+        final CompletableFuture<Void> awaitFuture = inFlightRequestTracker.awaitAsync();
 
-		assertSame(
-			"The reference to the future must not change",
-			awaitFuture,
-			inFlightRequestTracker.awaitAsync());
-	}
+        assertThat(awaitFuture).isDone();
+        assertThat(awaitFuture)
+                .as("The reference to the future must not change")
+                .isSameAs(inFlightRequestTracker.awaitAsync());
+    }
 
-	@Test
-	public void testShouldTolerateRegisterAfterAwaitAsync() {
-		final CompletableFuture<Void> awaitFuture = inFlightRequestTracker.awaitAsync();
-		assertTrue(awaitFuture.isDone());
+    @Test
+    void testShouldTolerateRegisterAfterAwaitAsync() {
+        final CompletableFuture<Void> awaitFuture = inFlightRequestTracker.awaitAsync();
+        assertThat(awaitFuture).isDone();
 
-		inFlightRequestTracker.registerRequest();
+        inFlightRequestTracker.registerRequest();
 
-		assertSame(
-			"The reference to the future must not change",
-			awaitFuture,
-			inFlightRequestTracker.awaitAsync());
-	}
+        assertThat(awaitFuture)
+                .as("The reference to the future must not change")
+                .isSameAs(inFlightRequestTracker.awaitAsync());
+    }
+
+    @Test
+    void testShouldNotRegisterNewRequestsAfterTermination() {
+        final CompletableFuture<Void> terminationFuture = inFlightRequestTracker.awaitAsync();
+
+        assertThat(terminationFuture).isDone();
+        assertThat(inFlightRequestTracker.registerRequest()).isFalse();
+    }
 }

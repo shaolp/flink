@@ -21,61 +21,58 @@ package org.apache.flink.runtime.rest.messages.job.metrics;
 import org.apache.flink.runtime.rest.HttpMethodWrapper;
 import org.apache.flink.runtime.rest.messages.EmptyMessageParameters;
 import org.apache.flink.runtime.rest.messages.EmptyRequestBody;
-import org.apache.flink.util.TestLogger;
 
 import org.apache.flink.shaded.netty4.io.netty.handler.codec.http.HttpResponseStatus;
 
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
-import static org.hamcrest.Matchers.equalTo;
-import static org.junit.Assert.assertThat;
+import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * Tests for {@link AbstractMetricsHeaders}.
- */
-public class AbstractMetricsHeadersTest extends TestLogger {
+/** Tests for {@link AbstractMetricsHeaders}. */
+class AbstractMetricsHeadersTest {
 
-	private AbstractMetricsHeaders<EmptyMessageParameters> metricsHandlerHeaders;
+    private AbstractMetricsHeaders<EmptyMessageParameters> metricsHandlerHeaders;
 
-	@Before
-	public void setUp() throws Exception {
-		metricsHandlerHeaders = new AbstractMetricsHeaders<EmptyMessageParameters>() {
-			@Override
-			public EmptyMessageParameters getUnresolvedMessageParameters() {
-				return EmptyMessageParameters.getInstance();
-			}
+    @BeforeEach
+    void setUp() throws Exception {
+        metricsHandlerHeaders =
+                new AbstractMetricsHeaders<EmptyMessageParameters>() {
+                    @Override
+                    public EmptyMessageParameters getUnresolvedMessageParameters() {
+                        return EmptyMessageParameters.getInstance();
+                    }
 
-			@Override
-			public String getTargetRestEndpointURL() {
-				return "/";
-			}
+                    @Override
+                    public String getTargetRestEndpointURL() {
+                        return "/";
+                    }
 
-			@Override
-			public String getDescription() {
-				return "";
-			}
-		};
-	}
+                    @Override
+                    public String getDescription() {
+                        return "";
+                    }
+                };
+    }
 
-	@Test
-	public void testHttpMethod() {
-		assertThat(metricsHandlerHeaders.getHttpMethod(), equalTo(HttpMethodWrapper.GET));
-	}
+    @Test
+    void testHttpMethod() {
+        assertThat(metricsHandlerHeaders.getHttpMethod()).isEqualTo(HttpMethodWrapper.GET);
+    }
 
-	@Test
-	public void testResponseStatus() {
-		assertThat(metricsHandlerHeaders.getResponseStatusCode(), equalTo(HttpResponseStatus.OK));
-	}
+    @Test
+    void testResponseStatus() {
+        assertThat(metricsHandlerHeaders.getResponseStatusCode()).isEqualTo(HttpResponseStatus.OK);
+    }
 
-	@Test
-	public void testRequestClass() {
-		assertThat(metricsHandlerHeaders.getRequestClass(), equalTo(EmptyRequestBody.class));
-	}
+    @Test
+    void testRequestClass() {
+        assertThat(metricsHandlerHeaders.getRequestClass()).isEqualTo(EmptyRequestBody.class);
+    }
 
-	@Test
-	public void testResponseClass() {
-		assertThat(metricsHandlerHeaders.getResponseClass(), equalTo(MetricCollectionResponseBody.class));
-	}
-
+    @Test
+    void testResponseClass() {
+        assertThat(metricsHandlerHeaders.getResponseClass())
+                .isEqualTo(MetricCollectionResponseBody.class);
+    }
 }

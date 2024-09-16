@@ -22,37 +22,45 @@ import org.apache.flink.annotation.PublicEvolving;
 
 /**
  * Summary for a column of generic Objects (this is a fallback for unsupported types).
+ *
+ * @deprecated All Flink DataSet APIs are deprecated since Flink 1.18 and will be removed in a
+ *     future Flink major version. You can still build your application in DataSet, but you should
+ *     move to either the DataStream and/or Table API.
+ * @see <a href="https://cwiki.apache.org/confluence/pages/viewpage.action?pageId=158866741">
+ *     FLIP-131: Consolidate the user-facing Dataflow SDKs/APIs (and deprecate the DataSet API</a>
  */
+@Deprecated
 @PublicEvolving
 public class ObjectColumnSummary extends ColumnSummary {
 
-	private long notNullCount;
-	private long nullCount;
+    private long notNullCount;
+    private long nullCount;
 
-	public ObjectColumnSummary(long notNullCount, long nullCount) {
-		this.notNullCount = notNullCount;
-		this.nullCount = nullCount;
-	}
+    public ObjectColumnSummary(long notNullCount, long nullCount) {
+        this.notNullCount = notNullCount;
+        this.nullCount = nullCount;
+    }
 
-	/**
-	 * The number of non-null values in this column.
-	 */
-	@Override
-	public long getNonNullCount() {
-		return 0;
-	}
+    /** The number of non-null values in this column. */
+    @Override
+    public long getNonNullCount() {
+        return 0;
+    }
 
-	@Override
-	public long getNullCount() {
-		return nullCount;
-	}
+    @Override
+    public long getNullCount() {
+        return nullCount;
+    }
 
-	@Override
-	public String toString() {
-		return "ObjectColumnSummary{" +
-			"totalCount=" + getTotalCount() +
-			", notNullCount=" + notNullCount +
-			", nullCount=" + nullCount +
-			'}';
-	}
+    @Override
+    public String toString() {
+        return "ObjectColumnSummary{"
+                + "totalCount="
+                + getTotalCount()
+                + ", notNullCount="
+                + notNullCount
+                + ", nullCount="
+                + nullCount
+                + '}';
+    }
 }

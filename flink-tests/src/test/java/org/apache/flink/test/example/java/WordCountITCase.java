@@ -21,31 +21,33 @@ package org.apache.flink.test.example.java;
 
 import org.apache.flink.examples.java.wordcount.WordCount;
 import org.apache.flink.test.testdata.WordCountData;
-import org.apache.flink.test.util.JavaProgramTestBase;
+import org.apache.flink.test.util.JavaProgramTestBaseJUnit4;
 
-/**
- * Test {@link WordCount}.
- */
-public class WordCountITCase extends JavaProgramTestBase {
+import static org.apache.flink.test.util.TestBaseUtils.compareResultsByLinesInMemory;
 
-	protected String textPath;
-	protected String resultPath;
+/** Test {@link WordCount}. */
+public class WordCountITCase extends JavaProgramTestBaseJUnit4 {
 
-	@Override
-	protected void preSubmit() throws Exception {
-		textPath = createTempFile("text.txt", WordCountData.TEXT);
-		resultPath = getTempDirPath("result");
-	}
+    protected String textPath;
+    protected String resultPath;
 
-	@Override
-	protected void postSubmit() throws Exception {
-		compareResultsByLinesInMemory(WordCountData.COUNTS, resultPath);
-	}
+    @Override
+    protected void preSubmit() throws Exception {
+        textPath = createTempFile("text.txt", WordCountData.TEXT);
+        resultPath = getTempDirPath("result");
+    }
 
-	@Override
-	protected void testProgram() throws Exception {
-		WordCount.main(new String[] {
-				"--input", textPath,
-				"--output", resultPath });
-	}
+    @Override
+    protected void postSubmit() throws Exception {
+        compareResultsByLinesInMemory(WordCountData.COUNTS, resultPath);
+    }
+
+    @Override
+    protected void testProgram() throws Exception {
+        WordCount.main(
+                new String[] {
+                    "--input", textPath,
+                    "--output", resultPath
+                });
+    }
 }

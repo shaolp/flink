@@ -18,7 +18,6 @@
 
 package org.apache.flink.runtime.rest.handler.job.metrics;
 
-import org.apache.flink.api.common.time.Time;
 import org.apache.flink.runtime.rest.handler.HandlerRequest;
 import org.apache.flink.runtime.rest.handler.legacy.metrics.MetricFetcher;
 import org.apache.flink.runtime.rest.handler.legacy.metrics.MetricStore;
@@ -30,27 +29,30 @@ import org.apache.flink.runtime.webmonitor.retriever.GatewayRetriever;
 
 import javax.annotation.Nullable;
 
+import java.time.Duration;
 import java.util.Map;
 
-/**
- * Handler that returns JobManager metrics.
- */
-public class JobManagerMetricsHandler extends AbstractMetricsHandler<JobManagerMetricsMessageParameters> {
+/** Handler that returns JobManager metrics. */
+public class JobManagerMetricsHandler
+        extends AbstractMetricsHandler<JobManagerMetricsMessageParameters> {
 
-	public JobManagerMetricsHandler(
-			final GatewayRetriever<? extends RestfulGateway> leaderRetriever,
-			final Time timeout,
-			final Map<String, String> headers,
-			final MetricFetcher metricFetcher) {
-		super(leaderRetriever, timeout, headers, JobManagerMetricsHeaders.getInstance(), metricFetcher);
-	}
+    public JobManagerMetricsHandler(
+            final GatewayRetriever<? extends RestfulGateway> leaderRetriever,
+            final Duration timeout,
+            final Map<String, String> headers,
+            final MetricFetcher metricFetcher) {
+        super(
+                leaderRetriever,
+                timeout,
+                headers,
+                JobManagerMetricsHeaders.getInstance(),
+                metricFetcher);
+    }
 
-	@Nullable
-	@Override
-	protected MetricStore.ComponentMetricStore getComponentMetricStore(
-			final HandlerRequest<EmptyRequestBody, JobManagerMetricsMessageParameters> request,
-			final MetricStore metricStore) {
-		return metricStore.getJobManagerMetricStore();
-	}
-
+    @Nullable
+    @Override
+    protected MetricStore.ComponentMetricStore getComponentMetricStore(
+            final HandlerRequest<EmptyRequestBody> request, final MetricStore metricStore) {
+        return metricStore.getJobManagerMetricStore();
+    }
 }

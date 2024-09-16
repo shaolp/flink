@@ -25,43 +25,42 @@ import org.apache.flink.runtime.iterative.task.IterationIntermediateTask;
 import org.apache.flink.runtime.iterative.task.IterationSynchronizationSinkTask;
 import org.apache.flink.runtime.iterative.task.IterationTailTask;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import static org.junit.Assert.fail;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Tests that validate that stateless/stateful task implementations have the corresponding constructors.
+ * Tests that validate that stateless/stateful task implementations have the corresponding
+ * constructors.
  */
-public class InvokableClassConstructorTest {
+class InvokableClassConstructorTest {
 
-	private static final Class<?>[] STATELESS_TASKS = {
-		IterationHeadTask.class,
-		IterationIntermediateTask.class,
-		IterationTailTask.class,
-		IterationSynchronizationSinkTask.class,
-		DataSourceTask.class,
-		DataSinkTask.class
-	};
+    private static final Class<?>[] STATELESS_TASKS = {
+        IterationHeadTask.class,
+        IterationIntermediateTask.class,
+        IterationTailTask.class,
+        IterationSynchronizationSinkTask.class,
+        DataSourceTask.class,
+        DataSinkTask.class
+    };
 
-	// ------------------------------------------------------------------------
-	//  Tests
-	// ------------------------------------------------------------------------
+    // ------------------------------------------------------------------------
+    //  Tests
+    // ------------------------------------------------------------------------
 
-	@Test
-	public void testNoStatefulConstructor() throws Exception {
-		for (Class<?> clazz: STATELESS_TASKS) {
+    @Test
+    void testNoStatefulConstructor() throws Exception {
+        for (Class<?> clazz : STATELESS_TASKS) {
 
-			// check that there is a constructor for Environment only
-			clazz.getConstructor(Environment.class);
+            // check that there is a constructor for Environment only
+            clazz.getConstructor(Environment.class);
 
-			try {
-				// check that there is NO constructor for Environment and Task State
-				clazz.getDeclaredConstructor(Environment.class, TaskStateSnapshot.class);
-				fail("Should fail with an exception");
-			}
-			catch (NoSuchMethodException e) {
-				// expected
-			}
-		}
-	}
+            // check that there is NO constructor for Environment and Task State
+            assertThatThrownBy(
+                            () ->
+                                    clazz.getDeclaredConstructor(
+                                            Environment.class, TaskStateSnapshot.class))
+                    .isInstanceOf(NoSuchMethodException.class);
+        }
+    }
 }

@@ -28,91 +28,118 @@ import javax.annotation.Nullable;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Response type for aggregated metrics. Contains the metric name and optionally the sum, average, minimum and maximum.
+ * Response type for aggregated metrics. Contains the metric name and optionally the sum, average,
+ * minimum and maximum.
  */
 public class AggregatedMetric {
 
-	private static final String FIELD_NAME_ID = "id";
+    private static final String FIELD_NAME_ID = "id";
 
-	private static final String FIELD_NAME_MIN = "min";
+    private static final String FIELD_NAME_MIN = "min";
 
-	private static final String FIELD_NAME_MAX = "max";
+    private static final String FIELD_NAME_MAX = "max";
 
-	private static final String FIELD_NAME_AVG = "avg";
+    private static final String FIELD_NAME_AVG = "avg";
 
-	private static final String FIELD_NAME_SUM = "sum";
+    private static final String FIELD_NAME_SUM = "sum";
 
-	@JsonProperty(value = FIELD_NAME_ID, required = true)
-	private final String id;
+    private static final String FIELD_NAME_SKEW = "skew";
 
-	@JsonInclude(JsonInclude.Include.NON_NULL)
-	@JsonProperty(FIELD_NAME_MIN)
-	private final Double min;
+    @JsonProperty(value = FIELD_NAME_ID, required = true)
+    private final String id;
 
-	@JsonInclude(JsonInclude.Include.NON_NULL)
-	@JsonProperty(FIELD_NAME_MAX)
-	private final Double max;
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    @JsonProperty(FIELD_NAME_MIN)
+    private final Double min;
 
-	@JsonInclude(JsonInclude.Include.NON_NULL)
-	@JsonProperty(FIELD_NAME_AVG)
-	private final Double avg;
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    @JsonProperty(FIELD_NAME_MAX)
+    private final Double max;
 
-	@JsonInclude(JsonInclude.Include.NON_NULL)
-	@JsonProperty(FIELD_NAME_SUM)
-	private final Double sum;
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    @JsonProperty(FIELD_NAME_AVG)
+    private final Double avg;
 
-	@JsonCreator
-	public AggregatedMetric(
-		final @JsonProperty(value = FIELD_NAME_ID, required = true) String id,
-		final @Nullable @JsonProperty(FIELD_NAME_MIN) Double min,
-		final @Nullable @JsonProperty(FIELD_NAME_MAX) Double max,
-		final @Nullable @JsonProperty(FIELD_NAME_AVG) Double avg,
-		final @Nullable @JsonProperty(FIELD_NAME_SUM) Double sum) {
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    @JsonProperty(FIELD_NAME_SUM)
+    private final Double sum;
 
-		this.id = requireNonNull(id, "id must not be null");
-		this.min = min;
-		this.max = max;
-		this.avg = avg;
-		this.sum = sum;
-	}
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    @JsonProperty(FIELD_NAME_SKEW)
+    private final Double skew;
 
-	public AggregatedMetric(final @JsonProperty(value = FIELD_NAME_ID, required = true) String id) {
-		this(id, null, null, null, null);
-	}
+    @JsonCreator
+    public AggregatedMetric(
+            final @JsonProperty(value = FIELD_NAME_ID, required = true) String id,
+            final @Nullable @JsonProperty(FIELD_NAME_MIN) Double min,
+            final @Nullable @JsonProperty(FIELD_NAME_MAX) Double max,
+            final @Nullable @JsonProperty(FIELD_NAME_AVG) Double avg,
+            final @Nullable @JsonProperty(FIELD_NAME_SUM) Double sum,
+            final @Nullable @JsonProperty(FIELD_NAME_SKEW) Double skew) {
 
-	@JsonIgnore
-	public String getId() {
-		return id;
-	}
+        this.id = requireNonNull(id, "id must not be null");
+        this.min = min;
+        this.max = max;
+        this.avg = avg;
+        this.sum = sum;
+        this.skew = skew;
+    }
 
-	@JsonIgnore
-	public Double getMin() {
-		return min;
-	}
+    public AggregatedMetric(final @JsonProperty(value = FIELD_NAME_ID, required = true) String id) {
+        this(id, null, null, null, null, null);
+    }
 
-	@JsonIgnore
-	public Double getMax() {
-		return max;
-	}
+    @JsonIgnore
+    public String getId() {
+        return id;
+    }
 
-	@JsonIgnore
-	public Double getSum() {
-		return sum;
-	}
+    @JsonIgnore
+    public Double getMin() {
+        return min;
+    }
 
-	@JsonIgnore
-	public Double getAvg() {
-		return avg;
-	}
+    @JsonIgnore
+    public Double getMax() {
+        return max;
+    }
 
-	@Override
-	public String toString() {
-		return "AggregatedMetric{" +
-			"id='" + id + '\'' +
-			", mim='" + min + '\'' +
-			", max='" + max + '\'' +
-			", avg='" + avg + '\'' +
-			", sum='" + sum + '\'' +
-			'}';
-	}
+    @JsonIgnore
+    public Double getSum() {
+        return sum;
+    }
+
+    @JsonIgnore
+    public Double getAvg() {
+        return avg;
+    }
+
+    @JsonIgnore
+    public Double getSkew() {
+        return skew;
+    }
+
+    @Override
+    public String toString() {
+        return "AggregatedMetric{"
+                + "id='"
+                + id
+                + '\''
+                + ", mim='"
+                + min
+                + '\''
+                + ", max='"
+                + max
+                + '\''
+                + ", avg='"
+                + avg
+                + '\''
+                + ", sum='"
+                + sum
+                + '\''
+                + ", skew='"
+                + skew
+                + '\''
+                + '}';
+    }
 }

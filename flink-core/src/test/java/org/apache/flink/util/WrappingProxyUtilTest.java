@@ -19,58 +19,51 @@
 
 package org.apache.flink.util;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import static org.hamcrest.CoreMatchers.containsString;
-import static org.hamcrest.CoreMatchers.instanceOf;
-import static org.hamcrest.CoreMatchers.is;
-import static org.hamcrest.CoreMatchers.not;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.fail;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/**
- * Tests for {@link WrappingProxyUtil}.
- */
-public class WrappingProxyUtilTest {
+/** Tests for {@link WrappingProxyUtil}. */
+class WrappingProxyUtilTest {
 
-	@Test
-	public void testThrowsExceptionIfTooManyProxies() {
-		try {
-			WrappingProxyUtil.stripProxy(new SelfWrappingProxy(WrappingProxyUtil.SAFETY_NET_MAX_ITERATIONS));
-			fail("Expected exception not thrown");
-		} catch (final IllegalArgumentException e) {
-			assertThat(e.getMessage(), containsString("Are there loops in the object graph?"));
-		}
-	}
+    @Test
+    void testThrowsExceptionIfTooManyProxies() {
+        assertThatThrownBy(
+                        () ->
+                                WrappingProxyUtil.stripProxy(
+                                        new SelfWrappingProxy(
+                                                WrappingProxyUtil.SAFETY_NET_MAX_ITERATIONS)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Are there loops in the object graph?");
+    }
 
-	@Test
-	public void testStripsAllProxies() {
-		final SelfWrappingProxy wrappingProxy = new SelfWrappingProxy(WrappingProxyUtil.SAFETY_NET_MAX_ITERATIONS - 1);
-		assertThat(WrappingProxyUtil.stripProxy(wrappingProxy), is(not(instanceOf(SelfWrappingProxy.class))));
-	}
+    @Test
+    void testStripsAllProxies() {
+        final SelfWrappingProxy wrappingProxy =
+                new SelfWrappingProxy(WrappingProxyUtil.SAFETY_NET_MAX_ITERATIONS - 1);
+        assertThat(WrappingProxyUtil.stripProxy(wrappingProxy))
+                .isNotInstanceOf(SelfWrappingProxy.class);
+    }
 
-	private static class Wrapped {
-	}
+    private static class Wrapped {}
 
-	/**
-	 * Wraps around {@link Wrapped} a specified number of times.
-	 */
-	private static class SelfWrappingProxy extends Wrapped implements WrappingProxy<Wrapped> {
+    /** Wraps around {@link Wrapped} a specified number of times. */
+    private static class SelfWrappingProxy extends Wrapped implements WrappingProxy<Wrapped> {
 
-		private int levels;
+        private int levels;
 
-		private SelfWrappingProxy(final int levels) {
-			this.levels = levels;
-		}
+        private SelfWrappingProxy(final int levels) {
+            this.levels = levels;
+        }
 
-		@Override
-		public Wrapped getWrappedDelegate() {
-			if (levels-- == 0) {
-				return new Wrapped();
-			} else {
-				return this;
-			}
-		}
-	}
-
+        @Override
+        public Wrapped getWrappedDelegate() {
+            if (levels-- == 0) {
+                return new Wrapped();
+            } else {
+                return this;
+            }
+        }
+    }
 }

@@ -18,23 +18,25 @@
 
 package org.apache.flink.runtime.state;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-public class OperatorStreamStateHandleTest {
+import static org.assertj.core.api.Assertions.assertThat;
 
-	@Test
-	public void testFixedEnumOrder() {
+class OperatorStreamStateHandleTest {
 
-		// Ensure the order / ordinal of all values of enum 'mode' are fixed, as this is used for serialization
-		Assert.assertEquals(0, OperatorStateHandle.Mode.SPLIT_DISTRIBUTE.ordinal());
-		Assert.assertEquals(1, OperatorStateHandle.Mode.UNION.ordinal());
-		Assert.assertEquals(2, OperatorStateHandle.Mode.BROADCAST.ordinal());
+    @Test
+    void testFixedEnumOrder() {
 
-		// Ensure all enum values are registered and fixed forever by this test
-		Assert.assertEquals(3, OperatorStateHandle.Mode.values().length);
+        // Ensure the order / ordinal of all values of enum 'mode' are fixed, as this is used for
+        // serialization
+        assertThat(OperatorStateHandle.Mode.SPLIT_DISTRIBUTE.ordinal()).isZero();
+        assertThat(OperatorStateHandle.Mode.UNION.ordinal()).isOne();
+        assertThat(OperatorStateHandle.Mode.BROADCAST.ordinal()).isEqualTo(2);
 
-		// Byte is used to encode enum value on serialization
-		Assert.assertTrue(OperatorStateHandle.Mode.values().length <= Byte.MAX_VALUE);
-	}
+        // Ensure all enum values are registered and fixed forever by this test
+        assertThat(OperatorStateHandle.Mode.values()).hasSize(3);
+
+        // Byte is used to encode enum value on serialization
+        assertThat(OperatorStateHandle.Mode.values()).hasSizeLessThanOrEqualTo(Byte.MAX_VALUE);
+    }
 }

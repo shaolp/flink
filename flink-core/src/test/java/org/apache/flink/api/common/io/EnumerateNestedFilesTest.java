@@ -18,312 +18,283 @@
 
 package org.apache.flink.api.common.io;
 
-import java.io.File;
-import java.io.IOException;
-
 import org.apache.flink.api.common.io.statistics.BaseStatistics;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.core.fs.FileInputSplit;
 import org.apache.flink.core.fs.Path;
 import org.apache.flink.testutils.TestFileUtils;
+import org.apache.flink.testutils.junit.utils.TempDirUtils;
 import org.apache.flink.types.IntValue;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
 
-public class EnumerateNestedFilesTest {
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
-	@Rule
-	public TemporaryFolder tempFolder = new TemporaryFolder();
+import java.io.File;
+import java.io.IOException;
 
-	protected Configuration config;
+import static org.apache.flink.configuration.ConfigurationUtils.getBooleanConfigOption;
+import static org.assertj.core.api.Assertions.assertThat;
 
-	private DummyFileInputFormat format;
+class EnumerateNestedFilesTest {
 
-	@Before
-	public void setup() {
-		this.config = new Configuration();
-		format = new DummyFileInputFormat();
-	}
+    @TempDir private static java.nio.file.Path tempDir;
 
-	@After
-	public void setdown() throws Exception {
-		if (this.format != null) {
-			this.format.close();
-		}
-	}
+    protected Configuration config;
 
-	/**
-	 * Test without nested directory and recursive.file.enumeration = true
-	 */
-	@Test
-	public void testNoNestedDirectoryTrue() {
-		try {
-			String filePath = TestFileUtils.createTempFile("foo");
+    private DummyFileInputFormat format;
 
-			this.format.setFilePath(new Path(filePath));
-			this.config.setBoolean("recursive.file.enumeration", true);
-			format.configure(this.config);
+    @BeforeEach
+    void setup() {
+        this.config = new Configuration();
+        format = new DummyFileInputFormat();
+    }
 
-			FileInputSplit[] splits = format.createInputSplits(1);
-			Assert.assertEquals(1, splits.length);
-		} catch (Exception ex) {
-			ex.printStackTrace();
-			Assert.fail(ex.getMessage());
-		}
-	}
+    @AfterEach
+    void setdown() throws Exception {
+        if (this.format != null) {
+            this.format.close();
+        }
+    }
 
-	/**
-	 * Test with one nested directory and recursive.file.enumeration = true
-	 */
-	@Test
-	public void testOneNestedDirectoryTrue() {
-		try {
-			String firstLevelDir = TestFileUtils.randomFileName();
-			String secondLevelDir = TestFileUtils.randomFileName();
+    /** Test without nested directory and recursive.file.enumeration = true */
+    @Test
+    void testNoNestedDirectoryTrue() throws IOException {
+        String filePath = TestFileUtils.createTempFile("foo");
 
-			File insideNestedDir = tempFolder.newFolder(firstLevelDir, secondLevelDir);
-			File nestedDir = insideNestedDir.getParentFile();
+        this.format.setFilePath(new Path(filePath));
+        this.config.set(getBooleanConfigOption("recursive.file.enumeration"), true);
+        format.configure(this.config);
 
-			// create a file in the first-level and two files in the nested dir
-			TestFileUtils.createTempFileInDirectory(nestedDir.getAbsolutePath(), "paella");
-			TestFileUtils.createTempFileInDirectory(insideNestedDir.getAbsolutePath(), "kalamari");
-			TestFileUtils.createTempFileInDirectory(insideNestedDir.getAbsolutePath(), "fideua");
+        FileInputSplit[] splits = format.createInputSplits(1);
+        assertThat(splits).hasSize(1);
+    }
 
-			this.format.setFilePath(new Path(nestedDir.toURI().toString()));
-			this.config.setBoolean("recursive.file.enumeration", true);
-			format.configure(this.config);
+    /** Test with one nested directory and recursive.file.enumeration = true */
+    @Test
+    void testOneNestedDirectoryTrue() throws IOException {
+        String firstLevelDir = TestFileUtils.randomFileName();
+        String secondLevelDir = TestFileUtils.randomFileName();
 
-			FileInputSplit[] splits = format.createInputSplits(1);
-			Assert.assertEquals(3, splits.length);
-		} catch (Exception ex) {
-			ex.printStackTrace();
-			Assert.fail(ex.getMessage());
-		}
-	}
+        File insideNestedDir = TempDirUtils.newFolder(tempDir, firstLevelDir, secondLevelDir);
+        File nestedDir = insideNestedDir.getParentFile();
 
-	/**
-	 * Test with one nested directory and recursive.file.enumeration = false
-	 */
-	@Test
-	public void testOneNestedDirectoryFalse() {
-		try {
-			String firstLevelDir = TestFileUtils.randomFileName();
-			String secondLevelDir = TestFileUtils.randomFileName();
+        // create a file in the first-level and two files in the nested dir
+        TestFileUtils.createTempFileInDirectory(nestedDir.getAbsolutePath(), "paella");
+        TestFileUtils.createTempFileInDirectory(insideNestedDir.getAbsolutePath(), "kalamari");
+        TestFileUtils.createTempFileInDirectory(insideNestedDir.getAbsolutePath(), "fideua");
 
-			File insideNestedDir = tempFolder.newFolder(firstLevelDir, secondLevelDir);
-			File nestedDir = insideNestedDir.getParentFile();
+        this.format.setFilePath(new Path(nestedDir.toURI().toString()));
+        this.config.set(getBooleanConfigOption("recursive.file.enumeration"), true);
+        format.configure(this.config);
 
-			// create a file in the first-level and two files in the nested dir
-			TestFileUtils.createTempFileInDirectory(nestedDir.getAbsolutePath(), "paella");
-			TestFileUtils.createTempFileInDirectory(insideNestedDir.getAbsolutePath(), "kalamari");
-			TestFileUtils.createTempFileInDirectory(insideNestedDir.getAbsolutePath(), "fideua");
+        FileInputSplit[] splits = format.createInputSplits(1);
+        assertThat(splits).hasSize(3);
+    }
 
-			this.format.setFilePath(new Path(nestedDir.toURI().toString()));
-			this.config.setBoolean("recursive.file.enumeration", false);
-			format.configure(this.config);
+    /** Test with one nested directory and recursive.file.enumeration = false */
+    @Test
+    void testOneNestedDirectoryFalse() throws IOException {
+        String firstLevelDir = TestFileUtils.randomFileName();
+        String secondLevelDir = TestFileUtils.randomFileName();
 
-			FileInputSplit[] splits = format.createInputSplits(1);
-			Assert.assertEquals(1, splits.length);
-		} catch (Exception ex) {
-			ex.printStackTrace();
-			Assert.fail(ex.getMessage());
-		}
-	}
+        File insideNestedDir = TempDirUtils.newFolder(tempDir, firstLevelDir, secondLevelDir);
+        File nestedDir = insideNestedDir.getParentFile();
 
-	/**
-	 * Test with two nested directories and recursive.file.enumeration = true
-	 */
-	@Test
-	public void testTwoNestedDirectoriesTrue() {
-		try {
-			String firstLevelDir = TestFileUtils.randomFileName();
-			String secondLevelDir = TestFileUtils.randomFileName();
-			String thirdLevelDir = TestFileUtils.randomFileName();
+        // create a file in the first-level and two files in the nested dir
+        TestFileUtils.createTempFileInDirectory(nestedDir.getAbsolutePath(), "paella");
+        TestFileUtils.createTempFileInDirectory(insideNestedDir.getAbsolutePath(), "kalamari");
+        TestFileUtils.createTempFileInDirectory(insideNestedDir.getAbsolutePath(), "fideua");
 
-			File nestedNestedDir = tempFolder.newFolder(firstLevelDir, secondLevelDir, thirdLevelDir);
-			File insideNestedDir = nestedNestedDir.getParentFile();
-			File nestedDir = insideNestedDir.getParentFile();
+        this.format.setFilePath(new Path(nestedDir.toURI().toString()));
+        this.config.set(getBooleanConfigOption("recursive.file.enumeration"), false);
+        format.configure(this.config);
 
-			// create a file in the first-level, two files in the second level and one in the third level
-			TestFileUtils.createTempFileInDirectory(nestedDir.getAbsolutePath(), "paella");
-			TestFileUtils.createTempFileInDirectory(insideNestedDir.getAbsolutePath(), "kalamari");
-			TestFileUtils.createTempFileInDirectory(insideNestedDir.getAbsolutePath(), "fideua");
-			TestFileUtils.createTempFileInDirectory(nestedNestedDir.getAbsolutePath(), "bravas");
+        FileInputSplit[] splits = format.createInputSplits(1);
+        assertThat(splits).hasSize(1);
+    }
 
-			this.format.setFilePath(new Path(nestedDir.toURI().toString()));
-			this.config.setBoolean("recursive.file.enumeration", true);
-			format.configure(this.config);
-			
-			FileInputSplit[] splits = format.createInputSplits(1);
-			Assert.assertEquals(4, splits.length);
-		} catch (Exception ex) {
-			ex.printStackTrace();
-			Assert.fail(ex.getMessage());
-		}
-	}
+    /** Test with two nested directories and recursive.file.enumeration = true */
+    @Test
+    void testTwoNestedDirectoriesTrue() throws IOException {
 
-	/**
-	 * Tests if the recursion is invoked correctly in nested directories.
-	 */
-	@Test
-	public void testOnlyLevel2NestedDirectories() {
-		try {
-			String rootDir = TestFileUtils.randomFileName();
-			String nestedDir = TestFileUtils.randomFileName();
-			String firstNestedNestedDir = TestFileUtils.randomFileName();
-			String secondNestedNestedDir = TestFileUtils.randomFileName();
+        String firstLevelDir = TestFileUtils.randomFileName();
+        String secondLevelDir = TestFileUtils.randomFileName();
+        String thirdLevelDir = TestFileUtils.randomFileName();
 
-			File testDir = tempFolder.newFolder(rootDir);
-			tempFolder.newFolder(rootDir, nestedDir);
-			File nestedNestedDir1 = tempFolder.newFolder(rootDir, nestedDir, firstNestedNestedDir);
-			File nestedNestedDir2 = tempFolder.newFolder(rootDir, nestedDir, secondNestedNestedDir);
+        File nestedNestedDir =
+                TempDirUtils.newFolder(tempDir, firstLevelDir, secondLevelDir, thirdLevelDir);
+        File insideNestedDir = nestedNestedDir.getParentFile();
+        File nestedDir = insideNestedDir.getParentFile();
 
-			// create files in second level
-			TestFileUtils.createTempFileInDirectory(nestedNestedDir1.getAbsolutePath(), "paella");
-			TestFileUtils.createTempFileInDirectory(nestedNestedDir1.getAbsolutePath(), "kalamari");
-			TestFileUtils.createTempFileInDirectory(nestedNestedDir2.getAbsolutePath(), "fideua");
-			TestFileUtils.createTempFileInDirectory(nestedNestedDir2.getAbsolutePath(), "bravas");
+        // create a file in the first-level, two files in the second level and one in the third
+        // level
+        TestFileUtils.createTempFileInDirectory(nestedDir.getAbsolutePath(), "paella");
+        TestFileUtils.createTempFileInDirectory(insideNestedDir.getAbsolutePath(), "kalamari");
+        TestFileUtils.createTempFileInDirectory(insideNestedDir.getAbsolutePath(), "fideua");
+        TestFileUtils.createTempFileInDirectory(nestedNestedDir.getAbsolutePath(), "bravas");
 
-			this.format.setFilePath(new Path(testDir.getAbsolutePath()));
-			this.config.setBoolean("recursive.file.enumeration", true);
-			format.configure(this.config);
+        this.format.setFilePath(new Path(nestedDir.toURI().toString()));
+        this.config.set(getBooleanConfigOption("recursive.file.enumeration"), true);
+        format.configure(this.config);
 
-			FileInputSplit[] splits = format.createInputSplits(1);
-			Assert.assertEquals(4, splits.length);
-		} catch (Exception ex) {
-			ex.printStackTrace();
-			Assert.fail(ex.getMessage());
-		}
-	}
+        FileInputSplit[] splits = format.createInputSplits(1);
+        assertThat(splits).hasSize(4);
+    }
 
-	/**
-	 * Test with two nested directories and recursive.file.enumeration = true
-	 */
-	@Test
-	public void testTwoNestedDirectoriesWithFilteredFilesTrue() {
-		try {
-			String firstLevelDir = TestFileUtils.randomFileName();
-			String secondLevelDir = TestFileUtils.randomFileName();
-			String thirdLevelDir = TestFileUtils.randomFileName();
-			String secondLevelFilterDir = "_"+TestFileUtils.randomFileName();
-			String thirdLevelFilterDir = "_"+TestFileUtils.randomFileName();
+    /** Tests if the recursion is invoked correctly in nested directories. */
+    @Test
+    void testOnlyLevel2NestedDirectories() throws IOException {
 
-			File nestedNestedDirFiltered = tempFolder.newFolder(firstLevelDir, secondLevelDir, thirdLevelDir, thirdLevelFilterDir);
-			File nestedNestedDir = nestedNestedDirFiltered.getParentFile();
-			File insideNestedDir = nestedNestedDir.getParentFile();
-			File nestedDir = insideNestedDir.getParentFile();
-			File insideNestedDirFiltered = tempFolder.newFolder(firstLevelDir, secondLevelFilterDir);
-			File filteredFile = new File(nestedDir, "_IWillBeFiltered");
-			filteredFile.createNewFile();
+        String rootDir = TestFileUtils.randomFileName();
+        String nestedDir = TestFileUtils.randomFileName();
+        String firstNestedNestedDir = TestFileUtils.randomFileName();
+        String secondNestedNestedDir = TestFileUtils.randomFileName();
 
-			// create a file in the first-level, two files in the second level and one in the third level
-			TestFileUtils.createTempFileInDirectory(nestedDir.getAbsolutePath(), "paella");
-			TestFileUtils.createTempFileInDirectory(insideNestedDir.getAbsolutePath(), "kalamari");
-			TestFileUtils.createTempFileInDirectory(insideNestedDir.getAbsolutePath(), "fideua");
-			TestFileUtils.createTempFileInDirectory(nestedNestedDir.getAbsolutePath(), "bravas");
-			// create files which are filtered
-			TestFileUtils.createTempFileInDirectory(insideNestedDirFiltered.getAbsolutePath(), "kalamari");
-			TestFileUtils.createTempFileInDirectory(insideNestedDirFiltered.getAbsolutePath(), "fideua");
-			TestFileUtils.createTempFileInDirectory(nestedNestedDirFiltered.getAbsolutePath(), "bravas");
+        File testDir = TempDirUtils.newFolder(tempDir, rootDir);
+        TempDirUtils.newFolder(tempDir, rootDir, nestedDir);
+        File nestedNestedDir1 =
+                TempDirUtils.newFolder(tempDir, rootDir, nestedDir, firstNestedNestedDir);
+        File nestedNestedDir2 =
+                TempDirUtils.newFolder(tempDir, rootDir, nestedDir, secondNestedNestedDir);
 
-			this.format.setFilePath(new Path(nestedDir.toURI().toString()));
-			this.config.setBoolean("recursive.file.enumeration", true);
-			format.configure(this.config);
+        // create files in second level
+        TestFileUtils.createTempFileInDirectory(nestedNestedDir1.getAbsolutePath(), "paella");
+        TestFileUtils.createTempFileInDirectory(nestedNestedDir1.getAbsolutePath(), "kalamari");
+        TestFileUtils.createTempFileInDirectory(nestedNestedDir2.getAbsolutePath(), "fideua");
+        TestFileUtils.createTempFileInDirectory(nestedNestedDir2.getAbsolutePath(), "bravas");
 
-			FileInputSplit[] splits = format.createInputSplits(1);
-			Assert.assertEquals(4, splits.length);
-		} catch (Exception ex) {
-			ex.printStackTrace();
-			Assert.fail(ex.getMessage());
-		}
-	}
+        this.format.setFilePath(new Path(testDir.getAbsolutePath()));
+        this.config.set(getBooleanConfigOption("recursive.file.enumeration"), true);
+        format.configure(this.config);
 
-	@Test
-	public void testGetStatisticsOneFileInNestedDir() {
-		try {
-			final long SIZE = 1024 * 500;
-			String firstLevelDir = TestFileUtils.randomFileName();
-			String secondLevelDir = TestFileUtils.randomFileName();
+        FileInputSplit[] splits = format.createInputSplits(1);
+        assertThat(splits).hasSize(4);
+    }
 
-			File insideNestedDir = tempFolder.newFolder(firstLevelDir, secondLevelDir);
-			File nestedDir = insideNestedDir.getParentFile();
+    /** Test with two nested directories and recursive.file.enumeration = true */
+    @Test
+    void testTwoNestedDirectoriesWithFilteredFilesTrue() throws IOException {
 
-			// create a file in the nested dir
-			TestFileUtils.createTempFileInDirectory(insideNestedDir.getAbsolutePath(), SIZE);
+        String firstLevelDir = TestFileUtils.randomFileName();
+        String secondLevelDir = TestFileUtils.randomFileName();
+        String thirdLevelDir = TestFileUtils.randomFileName();
+        String secondLevelFilterDir = "_" + TestFileUtils.randomFileName();
+        String thirdLevelFilterDir = "_" + TestFileUtils.randomFileName();
 
-			this.format.setFilePath(new Path(nestedDir.toURI().toString()));
-			this.config.setBoolean("recursive.file.enumeration", true);
-			format.configure(this.config);
+        File nestedNestedDirFiltered =
+                TempDirUtils.newFolder(
+                        tempDir, firstLevelDir, secondLevelDir, thirdLevelDir, thirdLevelFilterDir);
+        File nestedNestedDir = nestedNestedDirFiltered.getParentFile();
+        File insideNestedDir = nestedNestedDir.getParentFile();
+        File nestedDir = insideNestedDir.getParentFile();
+        File insideNestedDirFiltered =
+                TempDirUtils.newFolder(tempDir, firstLevelDir, secondLevelFilterDir);
+        File filteredFile = new File(nestedDir, "_IWillBeFiltered");
+        filteredFile.createNewFile();
 
-			BaseStatistics stats = format.getStatistics(null);
-			Assert.assertEquals("The file size from the statistics is wrong.", SIZE, stats.getTotalInputSize());
-		} catch (Exception ex) {
-			ex.printStackTrace();
-			Assert.fail(ex.getMessage());
-		}
-	}
+        // create a file in the first-level, two files in the second level and one in the third
+        // level
+        TestFileUtils.createTempFileInDirectory(nestedDir.getAbsolutePath(), "paella");
+        TestFileUtils.createTempFileInDirectory(insideNestedDir.getAbsolutePath(), "kalamari");
+        TestFileUtils.createTempFileInDirectory(insideNestedDir.getAbsolutePath(), "fideua");
+        TestFileUtils.createTempFileInDirectory(nestedNestedDir.getAbsolutePath(), "bravas");
+        // create files which are filtered
+        TestFileUtils.createTempFileInDirectory(
+                insideNestedDirFiltered.getAbsolutePath(), "kalamari");
+        TestFileUtils.createTempFileInDirectory(
+                insideNestedDirFiltered.getAbsolutePath(), "fideua");
+        TestFileUtils.createTempFileInDirectory(
+                nestedNestedDirFiltered.getAbsolutePath(), "bravas");
 
-	@Test
-	public void testGetStatisticsMultipleNestedFiles() {
-		try {
-			final long SIZE1 = 2077;
-			final long SIZE2 = 31909;
-			final long SIZE3 = 10;
-			final long SIZE4 = 71;
-			final long TOTAL = SIZE1 + SIZE2 + SIZE3 + SIZE4;
+        this.format.setFilePath(new Path(nestedDir.toURI().toString()));
+        this.config.set(getBooleanConfigOption("recursive.file.enumeration"), true);
+        format.configure(this.config);
 
-			String firstLevelDir = TestFileUtils.randomFileName();
-			String secondLevelDir = TestFileUtils.randomFileName();
-			String secondLevelDir2 = TestFileUtils.randomFileName();
+        FileInputSplit[] splits = format.createInputSplits(1);
+        assertThat(splits).hasSize(4);
+    }
 
-			File insideNestedDir = tempFolder.newFolder(firstLevelDir, secondLevelDir);
-			File insideNestedDir2 = tempFolder.newFolder(firstLevelDir, secondLevelDir2);
-			File nestedDir = insideNestedDir.getParentFile();
+    @Test
+    void testGetStatisticsOneFileInNestedDir() throws IOException {
 
-			// create a file in the first-level and two files in the nested dir
-			TestFileUtils.createTempFileInDirectory(nestedDir.getAbsolutePath(), SIZE1);
-			TestFileUtils.createTempFileInDirectory(insideNestedDir.getAbsolutePath(), SIZE2);
-			TestFileUtils.createTempFileInDirectory(insideNestedDir.getAbsolutePath(), SIZE3);
-			TestFileUtils.createTempFileInDirectory(insideNestedDir2.getAbsolutePath(), SIZE4);
+        final long SIZE = 1024 * 500;
+        String firstLevelDir = TestFileUtils.randomFileName();
+        String secondLevelDir = TestFileUtils.randomFileName();
 
-			this.format.setFilePath(new Path(nestedDir.toURI().toString()));
-			this.config.setBoolean("recursive.file.enumeration", true);
-			format.configure(this.config);
+        File insideNestedDir = TempDirUtils.newFolder(tempDir, firstLevelDir, secondLevelDir);
+        File nestedDir = insideNestedDir.getParentFile();
 
-			BaseStatistics stats = format.getStatistics(null);
-			Assert.assertEquals("The file size from the statistics is wrong.", TOTAL, stats.getTotalInputSize());
+        // create a file in the nested dir
+        TestFileUtils.createTempFileInDirectory(insideNestedDir.getAbsolutePath(), SIZE);
 
-			/* Now invalidate the cache and check again */
-			Thread.sleep(1000); // accuracy of file modification times is rather low
-			TestFileUtils.createTempFileInDirectory(insideNestedDir.getAbsolutePath(), 42L);
+        this.format.setFilePath(new Path(nestedDir.toURI().toString()));
+        this.config.set(getBooleanConfigOption("recursive.file.enumeration"), true);
+        format.configure(this.config);
 
-			BaseStatistics stats2 = format.getStatistics(stats);
-			Assert.assertNotEquals(stats2, stats);
-			Assert.assertEquals("The file size from the statistics is wrong.", TOTAL + 42L, stats2.getTotalInputSize());
+        BaseStatistics stats = format.getStatistics(null);
+        assertThat(stats.getTotalInputSize())
+                .as("The file size from the statistics is wrong.")
+                .isEqualTo(SIZE);
+    }
 
-		} catch (Exception ex) {
-			ex.printStackTrace();
-			Assert.fail(ex.getMessage());
-		}
-	}
+    @Test
+    void testGetStatisticsMultipleNestedFiles() throws IOException, InterruptedException {
 
-	// ------------------------------------------------------------------------
-	
-	private class DummyFileInputFormat extends FileInputFormat<IntValue> {
-		private static final long serialVersionUID = 1L;
+        final long SIZE1 = 2077;
+        final long SIZE2 = 31909;
+        final long SIZE3 = 10;
+        final long SIZE4 = 71;
+        final long TOTAL = SIZE1 + SIZE2 + SIZE3 + SIZE4;
 
-		@Override
-		public boolean reachedEnd() throws IOException {
-			return true;
-		}
+        String firstLevelDir = TestFileUtils.randomFileName();
+        String secondLevelDir = TestFileUtils.randomFileName();
+        String secondLevelDir2 = TestFileUtils.randomFileName();
 
-		@Override
-		public IntValue nextRecord(IntValue reuse) throws IOException {
-			return null;
-		}
-	}
+        File insideNestedDir = TempDirUtils.newFolder(tempDir, firstLevelDir, secondLevelDir);
+        File insideNestedDir2 = TempDirUtils.newFolder(tempDir, firstLevelDir, secondLevelDir2);
+        File nestedDir = insideNestedDir.getParentFile();
+
+        // create a file in the first-level and two files in the nested dir
+        TestFileUtils.createTempFileInDirectory(nestedDir.getAbsolutePath(), SIZE1);
+        TestFileUtils.createTempFileInDirectory(insideNestedDir.getAbsolutePath(), SIZE2);
+        TestFileUtils.createTempFileInDirectory(insideNestedDir.getAbsolutePath(), SIZE3);
+        TestFileUtils.createTempFileInDirectory(insideNestedDir2.getAbsolutePath(), SIZE4);
+
+        this.format.setFilePath(new Path(nestedDir.toURI().toString()));
+        this.config.set(getBooleanConfigOption("recursive.file.enumeration"), true);
+        format.configure(this.config);
+
+        BaseStatistics stats = format.getStatistics(null);
+        assertThat(stats.getTotalInputSize())
+                .as("The file size from the statistics is wrong.")
+                .isEqualTo(TOTAL);
+
+        /* Now invalidate the cache and check again */
+        Thread.sleep(1000); // accuracy of file modification times is rather low
+        TestFileUtils.createTempFileInDirectory(insideNestedDir.getAbsolutePath(), 42L);
+
+        BaseStatistics stats2 = format.getStatistics(stats);
+        assertThat(stats).isNotEqualTo(stats2);
+        assertThat(stats2.getTotalInputSize())
+                .as("The file size from the statistics is wrong.")
+                .isEqualTo(TOTAL + 42L);
+    }
+
+    // ------------------------------------------------------------------------
+
+    private class DummyFileInputFormat extends FileInputFormat<IntValue> {
+        private static final long serialVersionUID = 1L;
+
+        @Override
+        public boolean reachedEnd() {
+            return true;
+        }
+
+        @Override
+        public IntValue nextRecord(IntValue reuse) {
+            return null;
+        }
+    }
 }

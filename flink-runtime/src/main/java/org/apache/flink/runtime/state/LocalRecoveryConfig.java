@@ -18,42 +18,71 @@
 
 package org.apache.flink.runtime.state;
 
+import org.apache.flink.util.Preconditions;
+
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+
+import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
- * This class encapsulates the completed configuration for local recovery, i.e. the root
- * directories into which all file-based snapshots can be written and the general mode for the local recover feature.
+ * This class encapsulates the completed configuration for local recovery, i.e. the root directories
+ * into which all file-based snapshots can be written and the general mode for the local recover
+ * feature.
  */
 public class LocalRecoveryConfig {
 
-	/** The local recovery mode. */
-	private final boolean localRecoveryEnabled;
+    public static final LocalRecoveryConfig BACKUP_AND_RECOVERY_DISABLED =
+            new LocalRecoveryConfig(false, false, null);
 
-	/** Encapsulates the root directories and the subtask-specific path. */
-	@Nonnull
-	private final LocalRecoveryDirectoryProvider localStateDirectories;
+    /** Whether to recover from the local snapshot. */
+    private final boolean localRecoveryEnabled;
 
-	public LocalRecoveryConfig(
-		boolean localRecoveryEnabled,
-		@Nonnull LocalRecoveryDirectoryProvider directoryProvider) {
-		this.localRecoveryEnabled = localRecoveryEnabled;
-		this.localStateDirectories = directoryProvider;
-	}
+    /** Whether to do backup checkpoint on local disk. */
+    private final boolean localBackupEnabled;
 
-	public boolean isLocalRecoveryEnabled() {
-		return localRecoveryEnabled;
-	}
+    /** Encapsulates the root directories and the subtask-specific path. */
+    @Nullable private final LocalSnapshotDirectoryProvider localStateDirectories;
 
-	@Nonnull
-	public LocalRecoveryDirectoryProvider getLocalStateDirectoryProvider() {
-		return localStateDirectories;
-	}
+    public LocalRecoveryConfig(
+            boolean localRecoveryEnabled,
+            boolean localBackupEnabled,
+            @Nullable LocalSnapshotDirectoryProvider directoryProvider) {
+        this.localRecoveryEnabled = localRecoveryEnabled;
+        this.localBackupEnabled = localBackupEnabled;
+        this.localStateDirectories = directoryProvider;
+    }
 
-	@Override
-	public String toString() {
-		return "LocalRecoveryConfig{" +
-			"localRecoveryMode=" + localRecoveryEnabled +
-			", localStateDirectories=" + localStateDirectories +
-			'}';
-	}
+    public boolean isLocalRecoveryEnabled() {
+        return localRecoveryEnabled;
+    }
+
+    public boolean isLocalBackupEnabled() {
+        return localBackupEnabled;
+    }
+
+    public boolean isLocalRecoveryOrLocalBackupEnabled() {
+        return localRecoveryEnabled || localBackupEnabled;
+    }
+
+    public Optional<LocalSnapshotDirectoryProvider> getLocalStateDirectoryProvider() {
+        return Optional.ofNullable(localStateDirectories);
+    }
+
+    @Override
+    public String toString() {
+        return "LocalRecoveryConfig{" + "localStateDirectories=" + localStateDirectories + '}';
+    }
+
+    public static Supplier<IllegalStateException> localRecoveryNotEnabled() {
+        return () ->
+                new IllegalStateException(
+                        "Getting a LocalRecoveryDirectoryProvider is only supported with the local recovery enabled. This is a bug and should be reported.");
+    }
+
+    public static LocalRecoveryConfig backupAndRecoveryEnabled(
+            @Nonnull LocalSnapshotDirectoryProvider directoryProvider) {
+        return new LocalRecoveryConfig(true, true, Preconditions.checkNotNull(directoryProvider));
+    }
 }

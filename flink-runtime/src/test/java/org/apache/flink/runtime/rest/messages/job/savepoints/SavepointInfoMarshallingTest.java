@@ -19,60 +19,63 @@
 package org.apache.flink.runtime.rest.messages.job.savepoints;
 
 import org.apache.flink.runtime.rest.messages.RestResponseMarshallingTestBase;
+import org.apache.flink.testutils.junit.extensions.parameterized.ParameterizedTestExtension;
+import org.apache.flink.testutils.junit.extensions.parameterized.Parameters;
 import org.apache.flink.util.SerializedThrowable;
 
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.util.Arrays;
 import java.util.Collection;
 
-import static org.hamcrest.Matchers.is;
-import static org.hamcrest.Matchers.notNullValue;
-import static org.junit.Assert.assertThat;
+import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * Marshalling tests for the {@link SavepointInfo}.
- */
-@RunWith(Parameterized.class)
+/** Marshalling tests for the {@link SavepointInfo}. */
+@ExtendWith(ParameterizedTestExtension.class)
 public class SavepointInfoMarshallingTest extends RestResponseMarshallingTestBase<SavepointInfo> {
 
-	@Parameterized.Parameters
-	public static Collection<Object[]> data() {
-		return Arrays.asList(new Object[][]{
-			{new SavepointInfo(
-				"/tmp",
-				null
-			)},
-			{new SavepointInfo(
-				null,
-				new SerializedThrowable(new RuntimeException("expected")))}});
-	}
+    @Parameters
+    public static Collection<Object[]> data() {
+        return Arrays.asList(
+                new Object[][] {
+                    {new SavepointInfo("/tmp", null)},
+                    {
+                        new SavepointInfo(
+                                null, new SerializedThrowable(new RuntimeException("expected")))
+                    }
+                });
+    }
 
-	private final SavepointInfo savepointInfo;
+    private final SavepointInfo savepointInfo;
 
-	public SavepointInfoMarshallingTest(SavepointInfo savepointInfo) {
-		this.savepointInfo = savepointInfo;
-	}
+    public SavepointInfoMarshallingTest(SavepointInfo savepointInfo) {
+        this.savepointInfo = savepointInfo;
+    }
 
-	@Override
-	protected Class<SavepointInfo> getTestResponseClass() {
-		return SavepointInfo.class;
-	}
+    @Override
+    protected Class<SavepointInfo> getTestResponseClass() {
+        return SavepointInfo.class;
+    }
 
-	@Override
-	protected SavepointInfo getTestResponseInstance() throws Exception {
-		return savepointInfo;
-	}
+    @Override
+    protected SavepointInfo getTestResponseInstance() throws Exception {
+        return savepointInfo;
+    }
 
-	@Override
-	protected void assertOriginalEqualsToUnmarshalled(SavepointInfo expected, SavepointInfo actual) {
-		assertThat(actual.getLocation(), is(expected.getLocation()));
-		if (expected.getFailureCause() != null) {
-			assertThat(actual.getFailureCause(), notNullValue());
-			assertThat(
-				actual.getFailureCause().deserializeError(ClassLoader.getSystemClassLoader()).getMessage(),
-				is(expected.getFailureCause().deserializeError(ClassLoader.getSystemClassLoader()).getMessage()));
-		}
-	}
+    @Override
+    protected void assertOriginalEqualsToUnmarshalled(
+            SavepointInfo expected, SavepointInfo actual) {
+        assertThat(actual.getLocation()).isEqualTo(expected.getLocation());
+        if (expected.getFailureCause() != null) {
+            assertThat(actual.getFailureCause()).isNotNull();
+            assertThat(
+                            actual.getFailureCause()
+                                    .deserializeError(ClassLoader.getSystemClassLoader())
+                                    .getMessage())
+                    .isEqualTo(
+                            expected.getFailureCause()
+                                    .deserializeError(ClassLoader.getSystemClassLoader())
+                                    .getMessage());
+        }
+    }
 }

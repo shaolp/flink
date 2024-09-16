@@ -20,28 +20,29 @@ package org.apache.flink.runtime.webmonitor.handlers;
 
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.runtime.rest.messages.RestResponseMarshallingTestBase;
+import org.apache.flink.testutils.junit.extensions.parameterized.NoOpTestExtension;
 
-import static org.junit.Assert.assertEquals;
+import org.junit.jupiter.api.extension.ExtendWith;
 
-/**
- * Tests for {@link JarRunResponseBody}.
- */
-public class JarRunResponseBodyTest extends RestResponseMarshallingTestBase<JarRunResponseBody> {
+import static org.assertj.core.api.Assertions.assertThat;
 
-	@Override
-	protected Class<JarRunResponseBody> getTestResponseClass() {
-		return JarRunResponseBody.class;
-	}
+/** Tests for {@link JarRunResponseBody}. */
+@ExtendWith(NoOpTestExtension.class)
+class JarRunResponseBodyTest extends RestResponseMarshallingTestBase<JarRunResponseBody> {
 
-	@Override
-	protected JarRunResponseBody getTestResponseInstance() throws Exception {
-		return new JarRunResponseBody(new JobID());
-	}
+    @Override
+    protected Class<JarRunResponseBody> getTestResponseClass() {
+        return JarRunResponseBody.class;
+    }
 
-	@Override
-	protected void assertOriginalEqualsToUnmarshalled(
-			final JarRunResponseBody expected,
-			final JarRunResponseBody actual) {
-		assertEquals(expected.getJobId(), actual.getJobId());
-	}
+    @Override
+    protected JarRunResponseBody getTestResponseInstance() throws Exception {
+        return new JarRunResponseBody(new JobID());
+    }
+
+    @Override
+    protected void assertOriginalEqualsToUnmarshalled(
+            final JarRunResponseBody expected, final JarRunResponseBody actual) {
+        assertThat(actual.getJobId()).isEqualTo(expected.getJobId());
+    }
 }

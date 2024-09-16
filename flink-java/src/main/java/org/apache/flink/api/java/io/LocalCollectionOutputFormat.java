@@ -33,63 +33,73 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- *  An output format that adds records to a collection.
+ * An output format that adds records to a collection.
+ *
+ * @deprecated All Flink DataSet APIs are deprecated since Flink 1.18 and will be removed in a
+ *     future Flink major version. You can still build your application in DataSet, but you should
+ *     move to either the DataStream and/or Table API.
+ * @see <a href="https://cwiki.apache.org/confluence/pages/viewpage.action?pageId=158866741">
+ *     FLIP-131: Consolidate the user-facing Dataflow SDKs/APIs (and deprecate the DataSet API</a>
  */
+@Deprecated
 @PublicEvolving
-public class LocalCollectionOutputFormat<T> extends RichOutputFormat<T> implements InputTypeConfigurable {
+public class LocalCollectionOutputFormat<T> extends RichOutputFormat<T>
+        implements InputTypeConfigurable {
 
-	private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = 1L;
 
-	private static final Map<Integer, Collection<?>> RESULT_HOLDER = new HashMap<Integer, Collection<?>>();
+    private static final Map<Integer, Collection<?>> RESULT_HOLDER =
+            new HashMap<Integer, Collection<?>>();
 
-	private transient ArrayList<T> taskResult;
+    private transient ArrayList<T> taskResult;
 
-	private TypeSerializer<T> typeSerializer;
+    private TypeSerializer<T> typeSerializer;
 
-	private int id;
+    private int id;
 
-	public LocalCollectionOutputFormat(Collection<T> out) {
-		synchronized (RESULT_HOLDER) {
-			this.id = generateRandomId();
-			RESULT_HOLDER.put(this.id, out);
-		}
-	}
+    public LocalCollectionOutputFormat(Collection<T> out) {
+        synchronized (RESULT_HOLDER) {
+            this.id = generateRandomId();
+            RESULT_HOLDER.put(this.id, out);
+        }
+    }
 
-	private int generateRandomId() {
-		int num = (int) (Math.random() * Integer.MAX_VALUE);
-		while (RESULT_HOLDER.containsKey(num)) {
-			num = (int) (Math.random() * Integer.MAX_VALUE);
-		}
-		return num;
-	}
+    private int generateRandomId() {
+        int num = (int) (Math.random() * Integer.MAX_VALUE);
+        while (RESULT_HOLDER.containsKey(num)) {
+            num = (int) (Math.random() * Integer.MAX_VALUE);
+        }
+        return num;
+    }
 
-	@Override
-	public void configure(Configuration parameters) {}
+    @Override
+    public void configure(Configuration parameters) {}
 
-	@Override
-	public void open(int taskNumber, int numTasks) throws IOException {
-		this.taskResult = new ArrayList<T>();
-	}
+    @Override
+    public void open(int taskNumber, int numTasks) throws IOException {
+        this.taskResult = new ArrayList<T>();
+    }
 
-	@Override
-	public void writeRecord(T record) throws IOException {
-		T recordCopy = this.typeSerializer.createInstance();
-		recordCopy = this.typeSerializer.copy(record, recordCopy);
-		this.taskResult.add(recordCopy);
-	}
+    @Override
+    public void writeRecord(T record) throws IOException {
+        T recordCopy = this.typeSerializer.createInstance();
+        recordCopy = this.typeSerializer.copy(record, recordCopy);
+        this.taskResult.add(recordCopy);
+    }
 
-	@Override
-	public void close() throws IOException {
-		synchronized (RESULT_HOLDER) {
-			@SuppressWarnings("unchecked")
-			Collection<T> result = (Collection<T>) RESULT_HOLDER.get(this.id);
-			result.addAll(this.taskResult);
-		}
-	}
+    @Override
+    public void close() throws IOException {
+        synchronized (RESULT_HOLDER) {
+            @SuppressWarnings("unchecked")
+            Collection<T> result = (Collection<T>) RESULT_HOLDER.get(this.id);
+            result.addAll(this.taskResult);
+        }
+    }
 
-	@Override
-	@SuppressWarnings("unchecked")
-	public void setInputType(TypeInformation<?> type, ExecutionConfig executionConfig) {
-		this.typeSerializer = (TypeSerializer<T>) type.createSerializer(executionConfig);
-	}
+    @Override
+    @SuppressWarnings("unchecked")
+    public void setInputType(TypeInformation<?> type, ExecutionConfig executionConfig) {
+        this.typeSerializer =
+                (TypeSerializer<T>) type.createSerializer(executionConfig.getSerializerConfig());
+    }
 }

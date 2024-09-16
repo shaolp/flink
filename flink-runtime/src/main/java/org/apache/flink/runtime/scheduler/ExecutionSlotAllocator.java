@@ -19,33 +19,28 @@
 package org.apache.flink.runtime.scheduler;
 
 import org.apache.flink.runtime.executiongraph.Execution;
-import org.apache.flink.runtime.scheduler.strategy.ExecutionVertexID;
+import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
 
-import java.util.Collection;
-import java.util.concurrent.CompletableFuture;
+import java.util.List;
+import java.util.Map;
 
-/**
- * Component responsible for assigning slots to a collection of {@link Execution}.
- */
+/** Component responsible for assigning slots to a collection of {@link Execution}. */
 public interface ExecutionSlotAllocator {
 
-	/**
-	 * Allocate slots for the given executions.
-	 *
-	 * @param executionVertexSchedulingRequirements The requirements for scheduling the executions.
-	 */
-	Collection<SlotExecutionVertexAssignment> allocateSlotsFor(
-			Collection<ExecutionVertexSchedulingRequirements> executionVertexSchedulingRequirements);
+    /**
+     * Allocate slots for the given executions.
+     *
+     * @param executionAttemptIds executions to allocate slots for
+     * @return Map of slot assignments to the executions
+     */
+    Map<ExecutionAttemptID, ExecutionSlotAssignment> allocateSlotsFor(
+            List<ExecutionAttemptID> executionAttemptIds);
 
-	/**
-	 * Cancel an ongoing slot request.
-	 *
-	 * @param executionVertexId identifying which slot request should be canceled.
-	 */
-	void cancel(ExecutionVertexID executionVertexId);
-
-	/**
-	 * Stop the allocator.
-	 */
-	CompletableFuture<Void> stop();
+    /**
+     * Cancel the ongoing slot request of the given {@link Execution}.
+     *
+     * @param executionAttemptId identifying the {@link Execution} of which the slot request should
+     *     be canceled.
+     */
+    void cancel(ExecutionAttemptID executionAttemptId);
 }

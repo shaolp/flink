@@ -26,21 +26,27 @@ import org.apache.flink.configuration.Configuration;
  * An output format that simply discards all elements.
  *
  * @param <T> The type of the elements accepted by the output format.
+ * @deprecated All Flink DataSet APIs are deprecated since Flink 1.18 and will be removed in a
+ *     future Flink major version. You can still build your application in DataSet, but you should
+ *     move to either the DataStream and/or Table API.
+ * @see <a href="https://cwiki.apache.org/confluence/pages/viewpage.action?pageId=158866741">
+ *     FLIP-131: Consolidate the user-facing Dataflow SDKs/APIs (and deprecate the DataSet API</a>
  */
+@Deprecated
 @Public
 public class DiscardingOutputFormat<T> implements OutputFormat<T> {
 
-	private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = 1L;
 
-	@Override
-	public void configure(Configuration parameters) {}
+    @Override
+    public void configure(Configuration parameters) {}
 
-	@Override
-	public void open(int taskNumber, int numTasks) {}
+    @Override
+    public void open(int taskNumber, int numTasks) {}
 
-	@Override
-	public void writeRecord(T record) {}
+    @Override
+    public void writeRecord(T record) {}
 
-	@Override
-	public void close() {}
+    @Override
+    public void close() {}
 }

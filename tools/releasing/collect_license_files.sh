@@ -32,7 +32,6 @@ PWD=$(pwd)
 TMP="${DST}/tmp"
 DIR=$(dirname "$0")
 NOTICE_BINARY_PREAMBLE="${DIR}/NOTICE-binary_PREAMBLE.txt"
-SLF4J_LICENSE="${DIR}/LICENSE.slf4j"
 
 USAGE="collect_license_files <SOURCE_DIRECTORY:-.> <OUTPUT_DIRECTORY:-licenses-output>"
 
@@ -49,15 +48,18 @@ do
 	(cd "${DIR}" && jar xf ${JAR} META-INF/NOTICE META-INF/licenses)
 done
 
-NOTICE="${DST}/NOTICE-binary"
+NOTICE="${DST}/NOTICE"
 [ -f "${NOTICE}" ] && rm "${NOTICE}"
 cp "${NOTICE_BINARY_PREAMBLE}" "${NOTICE}"
 (export LC_ALL=C; find "${TMP}" -name "NOTICE" | sort | xargs cat >> "${NOTICE}")
 
-LICENSES="${DST}/licenses-binary"
+LICENSES="${DST}/licenses"
 [ -f "${LICENSES}" ] && rm -r "${LICENSES}"
 find "${TMP}" -name "licenses" -type d -exec cp -r -- "{}" "${DST}" \;
-mv "${DST}/licenses" "${LICENSES}"
-cp "${SLF4J_LICENSE}" "${LICENSES}"
+
+# Search the binary distribution directory and collect those license files that
+# not bundled in any jars.
+find "${SRC}" -name "LICENSE.*" -type f \
+! -path "${DST}/licenses/*" ! -path "${TMP}/licenses/*" -exec cp -- "{}" "${DST}/licenses" \;
 
 rm -r "${TMP}"

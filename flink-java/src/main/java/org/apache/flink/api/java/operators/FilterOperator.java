@@ -26,48 +26,57 @@ import org.apache.flink.api.java.DataSet;
 import org.apache.flink.api.java.operators.translation.PlanFilterOperator;
 
 /**
- * This operator represents the application of a "filter" function on a data set, and the
- * result data set produced by the function.
+ * This operator represents the application of a "filter" function on a data set, and the result
+ * data set produced by the function.
  *
  * @param <T> The type of the data set filtered by the operator.
+ * @deprecated All Flink DataSet APIs are deprecated since Flink 1.18 and will be removed in a
+ *     future Flink major version. You can still build your application in DataSet, but you should
+ *     move to either the DataStream and/or Table API.
+ * @see <a href="https://cwiki.apache.org/confluence/pages/viewpage.action?pageId=158866741">
+ *     FLIP-131: Consolidate the user-facing Dataflow SDKs/APIs (and deprecate the DataSet API</a>
  */
+@Deprecated
 @Public
 public class FilterOperator<T> extends SingleInputUdfOperator<T, T, FilterOperator<T>> {
 
-	protected final FilterFunction<T> function;
+    protected final FilterFunction<T> function;
 
-	protected final String defaultName;
+    protected final String defaultName;
 
-	public FilterOperator(DataSet<T> input, FilterFunction<T> function, String defaultName) {
-		super(input, input.getType());
+    public FilterOperator(DataSet<T> input, FilterFunction<T> function, String defaultName) {
+        super(input, input.getType());
 
-		this.function = function;
-		this.defaultName = defaultName;
-	}
+        this.function = function;
+        this.defaultName = defaultName;
+    }
 
-	@Override
-	protected FilterFunction<T> getFunction() {
-		return function;
-	}
+    @Override
+    protected FilterFunction<T> getFunction() {
+        return function;
+    }
 
-	@Override
-	protected org.apache.flink.api.common.operators.base.FilterOperatorBase<T, FlatMapFunction<T, T>> translateToDataFlow(Operator<T> input) {
+    @Override
+    protected org.apache.flink.api.common.operators.base.FilterOperatorBase<
+                    T, FlatMapFunction<T, T>>
+            translateToDataFlow(Operator<T> input) {
 
-		String name = getName() != null ? getName() : "Filter at " + defaultName;
+        String name = getName() != null ? getName() : "Filter at " + defaultName;
 
-		// create operator
-		PlanFilterOperator<T> po = new PlanFilterOperator<T>(function, name, getInputType());
-		po.setInput(input);
+        // create operator
+        PlanFilterOperator<T> po = new PlanFilterOperator<T>(function, name, getInputType());
+        po.setInput(input);
 
-		// set parallelism
-		if (getParallelism() > 0) {
-			// use specified parallelism
-			po.setParallelism(getParallelism());
-		} else {
-			// if no parallelism has been specified, use parallelism of input operator to enable chaining
-			po.setParallelism(input.getParallelism());
-		}
+        // set parallelism
+        if (getParallelism() > 0) {
+            // use specified parallelism
+            po.setParallelism(getParallelism());
+        } else {
+            // if no parallelism has been specified, use parallelism of input operator to enable
+            // chaining
+            po.setParallelism(input.getParallelism());
+        }
 
-		return po;
-	}
+        return po;
+    }
 }

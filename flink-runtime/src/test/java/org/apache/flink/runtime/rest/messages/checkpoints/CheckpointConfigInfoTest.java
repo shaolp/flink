@@ -19,27 +19,38 @@
 package org.apache.flink.runtime.rest.messages.checkpoints;
 
 import org.apache.flink.runtime.rest.messages.RestResponseMarshallingTestBase;
+import org.apache.flink.testutils.junit.extensions.parameterized.NoOpTestExtension;
 
-/**
- * Tests for the {@link CheckpointConfigInfo}.
- */
-public class CheckpointConfigInfoTest extends RestResponseMarshallingTestBase<CheckpointConfigInfo> {
-	@Override
-	protected Class<CheckpointConfigInfo> getTestResponseClass() {
-		return CheckpointConfigInfo.class;
-	}
+import org.junit.jupiter.api.extension.ExtendWith;
 
-	@Override
-	protected CheckpointConfigInfo getTestResponseInstance() {
-		final CheckpointConfigInfo.ExternalizedCheckpointInfo externalizedCheckpointInfo = new CheckpointConfigInfo.ExternalizedCheckpointInfo(true, false);
+/** Tests for the {@link CheckpointConfigInfo}. */
+@ExtendWith(NoOpTestExtension.class)
+class CheckpointConfigInfoTest extends RestResponseMarshallingTestBase<CheckpointConfigInfo> {
+    @Override
+    protected Class<CheckpointConfigInfo> getTestResponseClass() {
+        return CheckpointConfigInfo.class;
+    }
 
-		return new CheckpointConfigInfo(
-			CheckpointConfigInfo.ProcessingMode.AT_LEAST_ONCE,
-			1L,
-			2L,
-			3L,
-			4,
-			externalizedCheckpointInfo);
+    @Override
+    protected CheckpointConfigInfo getTestResponseInstance() {
+        final CheckpointConfigInfo.ExternalizedCheckpointInfo externalizedCheckpointInfo =
+                new CheckpointConfigInfo.ExternalizedCheckpointInfo(true, false);
 
-	}
+        return new CheckpointConfigInfo(
+                CheckpointConfigInfo.ProcessingMode.AT_LEAST_ONCE,
+                1L,
+                2L,
+                3L,
+                4,
+                externalizedCheckpointInfo,
+                "stateBackendName",
+                "checkpointStorageName",
+                true,
+                3,
+                4,
+                true,
+                false,
+                0,
+                null);
+    }
 }

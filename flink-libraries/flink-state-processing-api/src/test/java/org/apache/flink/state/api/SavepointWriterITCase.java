@@ -18,6 +18,8 @@
 
 package org.apache.flink.state.api;
 
+import org.apache.flink.api.common.RuntimeExecutionMode;
+import org.apache.flink.api.common.functions.OpenContext;
 import org.apache.flink.api.common.functions.RichFlatMapFunction;
 import org.apache.flink.api.common.functions.RichMapFunction;
 import org.apache.flink.api.common.state.ListState;
@@ -26,18 +28,12 @@ import org.apache.flink.api.common.state.MapStateDescriptor;
 import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.api.common.typeinfo.Types;
-import org.apache.flink.api.java.DataSet;
-import org.apache.flink.api.java.ExecutionEnvironment;
-import org.apache.flink.client.program.ClusterClient;
-import org.apache.flink.client.program.ProgramInvocationException;
-import org.apache.flink.configuration.Configuration;
-import org.apache.flink.contrib.streaming.state.RocksDBStateBackend;
-import org.apache.flink.runtime.jobgraph.JobGraph;
+import org.apache.flink.contrib.streaming.state.EmbeddedRocksDBStateBackend;
 import org.apache.flink.runtime.jobgraph.SavepointRestoreSettings;
 import org.apache.flink.runtime.state.FunctionInitializationContext;
 import org.apache.flink.runtime.state.FunctionSnapshotContext;
 import org.apache.flink.runtime.state.StateBackend;
-import org.apache.flink.runtime.state.memory.MemoryStateBackend;
+import org.apache.flink.runtime.state.hashmap.HashMapStateBackend;
 import org.apache.flink.state.api.functions.BroadcastStateBootstrapFunction;
 import org.apache.flink.state.api.functions.KeyedStateBootstrapFunction;
 import org.apache.flink.state.api.functions.StateBootstrapFunction;
@@ -45,16 +41,15 @@ import org.apache.flink.streaming.api.checkpoint.CheckpointedFunction;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.co.BroadcastProcessFunction;
-import org.apache.flink.streaming.api.functions.sink.DiscardingSink;
-import org.apache.flink.streaming.api.functions.sink.SinkFunction;
-import org.apache.flink.test.util.AbstractTestBase;
+import org.apache.flink.streaming.api.functions.sink.v2.DiscardingSink;
+import org.apache.flink.streaming.api.graph.StreamGraph;
+import org.apache.flink.test.util.AbstractTestBaseJUnit4;
 import org.apache.flink.util.AbstractID;
+import org.apache.flink.util.CloseableIterator;
 import org.apache.flink.util.Collector;
 
 import org.junit.Assert;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -63,380 +58,365 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.ConcurrentSkipListSet;
 
-/**
- * IT test for writing savepoints.
- */
-@RunWith(value = Parameterized.class)
-public class SavepointWriterITCase extends AbstractTestBase {
-	private static final String ACCOUNT_UID = "accounts";
+import static org.assertj.core.api.Assertions.assertThat;
 
-	private static final String CURRENCY_UID = "currency";
+/** IT test for writing savepoints. */
+public class SavepointWriterITCase extends AbstractTestBaseJUnit4 {
 
-	private static final String MODIFY_UID = "numbers";
+    private static final String ACCOUNT_UID = "accounts";
 
-	private static final MapStateDescriptor<String, Double> descriptor = new MapStateDescriptor<>(
-		"currency-rate", Types.STRING, Types.DOUBLE);
+    private static final String CURRENCY_UID = "currency";
 
-	private final StateBackend backend;
+    private static final String MODIFY_UID = "numbers";
 
-	private static final Collection<Account> accounts = Arrays.asList(
-		new Account(1, 100.0),
-		new Account(2, 100.0),
-		new Account(3, 100.0));
+    private static final MapStateDescriptor<String, Double> descriptor =
+            new MapStateDescriptor<>("currency-rate", Types.STRING, Types.DOUBLE);
 
-	private static final Collection<CurrencyRate> currencyRates = Arrays.asList(
-		new CurrencyRate("USD", 1.0),
-		new CurrencyRate("EUR", 1.3)
-	);
+    private static final Collection<Account> accounts =
+            Arrays.asList(new Account(1, 100.0), new Account(2, 100.0), new Account(3, 100.0));
 
-	public SavepointWriterITCase(StateBackend backend) throws Exception {
-		this.backend = backend;
+    private static final Collection<CurrencyRate> currencyRates =
+            Arrays.asList(new CurrencyRate("USD", 1.0), new CurrencyRate("EUR", 1.3));
 
-		//reset the cluster so we can change the state backend
-		miniClusterResource.after();
-		miniClusterResource.before();
-	}
+    @Test
+    public void testDefaultStateBackend() throws Exception {
+        testStateBootstrapAndModification(null);
+    }
 
-	@Parameterized.Parameters(name = "Savepoint Writer: {0}")
-	public static Collection<StateBackend> data() {
-		return Arrays.asList(
-			new MemoryStateBackend(),
-			new RocksDBStateBackend((StateBackend) new MemoryStateBackend()));
-	}
+    @Test
+    public void testHashMapStateBackend() throws Exception {
+        testStateBootstrapAndModification(new HashMapStateBackend());
+    }
 
-	@Test
-	public void testStateBootstrapAndModification() throws Exception {
-		final String savepointPath = getTempDirPath(new AbstractID().toHexString());
+    @Test
+    public void testEmbeddedRocksDBStateBackend() throws Exception {
+        testStateBootstrapAndModification(new EmbeddedRocksDBStateBackend());
+    }
 
-		bootstrapState(savepointPath);
+    public void testStateBootstrapAndModification(StateBackend backend) throws Exception {
+        final String savepointPath = getTempDirPath(new AbstractID().toHexString());
 
-		validateBootstrap(savepointPath);
+        bootstrapState(backend, savepointPath);
 
-		final String modifyPath = getTempDirPath(new AbstractID().toHexString());
+        validateBootstrap(backend, savepointPath);
 
-		modifySavepoint(savepointPath, modifyPath);
+        final String modifyPath = getTempDirPath(new AbstractID().toHexString());
 
-		validateModification(modifyPath);
-	}
+        modifySavepoint(backend, savepointPath, modifyPath);
 
-	private void bootstrapState(String savepointPath) throws Exception {
-		ExecutionEnvironment bEnv = ExecutionEnvironment.getExecutionEnvironment();
+        validateModification(backend, modifyPath);
+    }
 
-		DataSet<Account> accountDataSet = bEnv.fromCollection(accounts);
+    private void bootstrapState(StateBackend backend, String savepointPath) throws Exception {
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        env.setRuntimeMode(RuntimeExecutionMode.AUTOMATIC);
 
-		BootstrapTransformation<Account> transformation = OperatorTransformation
-			.bootstrapWith(accountDataSet)
-			.keyBy(acc -> acc.id)
-			.transform(new AccountBootstrapper());
+        StateBootstrapTransformation<Account> transformation =
+                OperatorTransformation.bootstrapWith(env.fromData(accounts))
+                        .keyBy(acc -> acc.id)
+                        .transform(new AccountBootstrapper());
 
-		DataSet<CurrencyRate> currencyDataSet = bEnv.fromCollection(currencyRates);
+        StateBootstrapTransformation<CurrencyRate> broadcastTransformation =
+                OperatorTransformation.bootstrapWith(env.fromData(currencyRates))
+                        .transform(new CurrencyBootstrapFunction());
 
-		BootstrapTransformation<CurrencyRate> broadcastTransformation = OperatorTransformation
-			.bootstrapWith(currencyDataSet)
-			.transform(new CurrencyBootstrapFunction());
+        SavepointWriter writer =
+                backend == null
+                        ? SavepointWriter.newSavepoint(env, 128)
+                        : SavepointWriter.newSavepoint(env, backend, 128);
 
-		Savepoint
-			.create(backend, 128)
-			.withOperator(ACCOUNT_UID, transformation)
-			.withOperator(CURRENCY_UID, broadcastTransformation)
-			.write(savepointPath);
+        writer.withOperator(OperatorIdentifier.forUid(ACCOUNT_UID), transformation)
+                .withOperator(getUidHashFromUid(CURRENCY_UID), broadcastTransformation)
+                .write(savepointPath);
 
-		bEnv.execute("Bootstrap");
-	}
+        env.execute("Bootstrap");
+    }
 
-	private void validateBootstrap(String savepointPath) throws ProgramInvocationException {
-		StreamExecutionEnvironment sEnv = StreamExecutionEnvironment.getExecutionEnvironment();
-		sEnv.setStateBackend(backend);
+    private void validateBootstrap(StateBackend backend, String savepointPath) throws Exception {
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 
-		CollectSink.accountList.clear();
+        if (backend != null) {
+            env.setStateBackend(backend);
+        }
 
-		sEnv.fromCollection(accounts)
-			.keyBy(acc -> acc.id)
-			.flatMap(new UpdateAndGetAccount())
-			.uid(ACCOUNT_UID)
-			.addSink(new CollectSink());
+        DataStream<Account> stream =
+                env.fromData(accounts)
+                        .keyBy(acc -> acc.id)
+                        .flatMap(new UpdateAndGetAccount())
+                        .uid(ACCOUNT_UID);
 
-		sEnv
-			.fromCollection(currencyRates)
-			.connect(sEnv.fromCollection(currencyRates).broadcast(descriptor))
-			.process(new CurrencyValidationFunction())
-			.uid(CURRENCY_UID)
-			.addSink(new DiscardingSink<>());
+        final CloseableIterator<Account> results = stream.collectAsync();
 
-		JobGraph jobGraph = sEnv.getStreamGraph().getJobGraph();
-		jobGraph.setSavepointRestoreSettings(SavepointRestoreSettings.forPath(savepointPath, false));
+        env.fromData(currencyRates)
+                .connect(env.fromData(currencyRates).broadcast(descriptor))
+                .process(new CurrencyValidationFunction())
+                .uid(CURRENCY_UID)
+                .sinkTo(new DiscardingSink<>());
 
-		ClusterClient<?> client = miniClusterResource.getClusterClient();
-		client.submitJob(jobGraph, SavepointWriterITCase.class.getClassLoader());
+        final StreamGraph streamGraph = env.getStreamGraph();
+        streamGraph.setSavepointRestoreSettings(
+                SavepointRestoreSettings.forPath(savepointPath, false));
 
-		Assert.assertEquals("Unexpected output", 3, CollectSink.accountList.size());
-	}
-
-	private void modifySavepoint(String savepointPath, String modifyPath) throws Exception {
-		ExecutionEnvironment bEnv = ExecutionEnvironment.getExecutionEnvironment();
-
-		DataSet<Integer> data = bEnv.fromElements(1, 2, 3);
-
-		BootstrapTransformation<Integer> transformation = OperatorTransformation
-			.bootstrapWith(data)
-			.transform(new ModifyProcessFunction());
-
-		Savepoint
-			.load(bEnv, savepointPath, backend)
-			.removeOperator(CURRENCY_UID)
-			.withOperator(MODIFY_UID, transformation)
-			.write(modifyPath);
-
-		bEnv.execute("Modifying");
-	}
-
-	private void validateModification(String savepointPath) throws ProgramInvocationException {
-		StreamExecutionEnvironment sEnv = StreamExecutionEnvironment.getExecutionEnvironment();
-		sEnv.setStateBackend(backend);
-
-		CollectSink.accountList.clear();
-
-		DataStream<Account> stream = sEnv.fromCollection(accounts)
-			.keyBy(acc -> acc.id)
-			.flatMap(new UpdateAndGetAccount())
-			.uid(ACCOUNT_UID);
-
-		stream.addSink(new CollectSink());
-
-		stream
-			.map(acc -> acc.id)
-			.map(new StatefulOperator())
-			.uid(MODIFY_UID)
-			.addSink(new DiscardingSink<>());
-
-		JobGraph jobGraph = sEnv.getStreamGraph().getJobGraph();
-		jobGraph.setSavepointRestoreSettings(SavepointRestoreSettings.forPath(savepointPath, false));
-
-		ClusterClient<?> client = miniClusterResource.getClusterClient();
-		client.submitJob(jobGraph, SavepointWriterITCase.class.getClassLoader());
-
-		Assert.assertEquals("Unexpected output", 3, CollectSink.accountList.size());
-	}
-
-	/**
-	 * A simple pojo.
-	 */
-	@SuppressWarnings("WeakerAccess")
-	public static class Account {
-		Account(int id, double amount) {
-			this.id = id;
-			this.amount = amount;
-			this.timestamp = 1000L;
-		}
-
-		public int id;
-
-		public double amount;
-
-		public long timestamp;
-
-		@Override
-		public boolean equals(Object obj) {
-			return obj instanceof Account && ((Account) obj).id == id && ((Account) obj).amount == amount;
-		}
-
-		@Override
-		public int hashCode() {
-			return Objects.hash(id, amount);
-		}
-	}
-
-	/**
-	 * A simple pojo.
-	 */
-	@SuppressWarnings("WeakerAccess")
-	public static class CurrencyRate {
-		public String currency;
-
-		public Double rate;
-
-		CurrencyRate(String currency, double rate) {
-			this.currency = currency;
-			this.rate = rate;
-		}
-
-		@Override
-		public boolean equals(Object obj) {
-			return obj instanceof CurrencyRate
-				&& ((CurrencyRate) obj).currency.equals(currency)
-				&& ((CurrencyRate) obj).rate.equals(rate);
-		}
-
-		@Override
-		public int hashCode() {
-			return Objects.hash(currency, rate);
-		}
-	}
-
-	/**
-	 * A savepoint writer function.
-	 */
-	public static class AccountBootstrapper extends KeyedStateBootstrapFunction<Integer, Account> {
-		ValueState<Double> state;
-
-		@Override
-		public void open(Configuration parameters) {
-			ValueStateDescriptor<Double> descriptor = new ValueStateDescriptor<>("total", Types.DOUBLE);
-			state = getRuntimeContext().getState(descriptor);
-		}
-
-		@Override
-		public void processElement(Account value, Context ctx) throws Exception {
-			state.update(value.amount);
-		}
-	}
-
-	/**
-	 * A streaming function bootstrapped off the state.
-	 */
-	public static class UpdateAndGetAccount extends RichFlatMapFunction<Account, Account> {
-		ValueState<Double> state;
-
-		@Override
-		public void open(Configuration parameters) throws Exception {
-			super.open(parameters);
-
-			ValueStateDescriptor<Double> descriptor = new ValueStateDescriptor<>("total", Types.DOUBLE);
-			state = getRuntimeContext().getState(descriptor);
-		}
-
-		@Override
-		public void flatMap(Account value, Collector<Account> out) throws Exception {
-			Double current = state.value();
-			if (current != null) {
-				value.amount += current;
-			}
-
-			state.update(value.amount);
-			out.collect(value);
-		}
-	}
-
-	/**
-	 * A bootstrap function.
-	 */
-	public static class ModifyProcessFunction extends StateBootstrapFunction<Integer> {
-		List<Integer> numbers;
-
-		ListState<Integer> state;
-
-		@Override
-		public void open(Configuration parameters) {
-			numbers = new ArrayList<>();
-		}
-
-		@Override
-		public void processElement(Integer value, Context ctx) {
-			numbers.add(value);
-		}
-
-		@Override
-		public void snapshotState(FunctionSnapshotContext context) throws Exception {
-			state.clear();
-			state.addAll(numbers);
-		}
-
-		@Override
-		public void initializeState(FunctionInitializationContext context) throws Exception {
-			state = context.getOperatorStateStore().getUnionListState(
-				new ListStateDescriptor<>("numbers", Types.INT)
-			);
-		}
-	}
-
-	/**
-	 * A streaming function bootstrapped off the state.
-	 */
-	public static class StatefulOperator extends RichMapFunction<Integer, Integer> implements CheckpointedFunction {
-		List<Integer> numbers;
-
-		ListState<Integer> state;
-
-		@Override
-		public void open(Configuration parameters) {
-			numbers = new ArrayList<>();
-		}
-
-		@Override
-		public void snapshotState(FunctionSnapshotContext context) throws Exception {
-			state.clear();
-			state.addAll(numbers);
-		}
-
-		@Override
-		public void initializeState(FunctionInitializationContext context) throws Exception {
-			state = context.getOperatorStateStore().getUnionListState(
-				new ListStateDescriptor<>("numbers", Types.INT)
-			);
-
-			if (context.isRestored()) {
-				Set<Integer> expected = new HashSet<>();
-				expected.add(1);
-				expected.add(2);
-				expected.add(3);
-
-				for (Integer number : state.get()) {
-					Assert.assertTrue("Duplicate state", expected.contains(number));
-					expected.remove(number);
-				}
-
-				Assert.assertTrue("Failed to bootstrap all state elements: " + Arrays.toString(expected.toArray()), expected.isEmpty());
-			}
-		}
-
-		@Override
-		public Integer map(Integer value) {
-			return null;
-		}
-	}
-
-	/**
-	 * A broadcast bootstrap function.
-	 */
-	public static class CurrencyBootstrapFunction extends BroadcastStateBootstrapFunction<CurrencyRate> {
-
-		@Override
-		public void processElement(CurrencyRate value, Context ctx) throws Exception {
-			ctx.getBroadcastState(descriptor).put(value.currency, value.rate);
-		}
-	}
-
-	/**
-	 * Checks the restored broadcast state.
-	 */
-	public static class CurrencyValidationFunction extends BroadcastProcessFunction<CurrencyRate, CurrencyRate, Void> {
-
-		@Override
-		public void processElement(CurrencyRate value, ReadOnlyContext ctx, Collector<Void> out) throws Exception {
-			Assert.assertEquals(
-				"Incorrect currency rate",
-				value.rate,
-				ctx.getBroadcastState(descriptor).get(value.currency),
-				0.0001);
-		}
-
-		@Override
-		public void processBroadcastElement(CurrencyRate value, Context ctx, Collector<Void> out) {
-			//ignore
-		}
-	}
-
-	/**
-	 * A simple collections sink.
-	 */
-	public static class CollectSink implements SinkFunction<Account> {
-		static Set<Integer> accountList = new ConcurrentSkipListSet<>();
-
-		@Override
-		public void invoke(Account value, Context context) {
-			accountList.add(value.id);
-		}
-	}
+        env.execute(streamGraph);
+
+        assertThat(results).toIterable().hasSize(3);
+        results.close();
+    }
+
+    private void modifySavepoint(StateBackend backend, String savepointPath, String modifyPath)
+            throws Exception {
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        env.setRuntimeMode(RuntimeExecutionMode.AUTOMATIC);
+
+        StateBootstrapTransformation<Integer> transformation =
+                OperatorTransformation.bootstrapWith(env.fromData(1, 2, 3))
+                        .transform(new ModifyProcessFunction());
+
+        SavepointWriter writer =
+                backend == null
+                        ? SavepointWriter.fromExistingSavepoint(env, savepointPath)
+                        : SavepointWriter.fromExistingSavepoint(env, savepointPath, backend);
+
+        writer.removeOperator(OperatorIdentifier.forUid(CURRENCY_UID))
+                .withOperator(getUidHashFromUid(MODIFY_UID), transformation)
+                .write(modifyPath);
+
+        env.execute("Modifying");
+    }
+
+    private void validateModification(StateBackend backend, String savepointPath) throws Exception {
+        StreamExecutionEnvironment sEnv = StreamExecutionEnvironment.getExecutionEnvironment();
+        if (backend != null) {
+            sEnv.setStateBackend(backend);
+        }
+
+        DataStream<Account> stream =
+                sEnv.fromData(accounts)
+                        .keyBy(acc -> acc.id)
+                        .flatMap(new UpdateAndGetAccount())
+                        .uid(ACCOUNT_UID);
+
+        final CloseableIterator<Account> results = stream.collectAsync();
+
+        stream.map(acc -> acc.id)
+                .map(new StatefulOperator())
+                .uid(MODIFY_UID)
+                .sinkTo(new DiscardingSink<>());
+
+        final StreamGraph streamGraph = sEnv.getStreamGraph();
+        streamGraph.setSavepointRestoreSettings(
+                SavepointRestoreSettings.forPath(savepointPath, false));
+
+        sEnv.execute(streamGraph);
+
+        assertThat(results).toIterable().hasSize(3);
+        results.close();
+    }
+
+    private static OperatorIdentifier getUidHashFromUid(String uid) {
+        return OperatorIdentifier.forUidHash(
+                OperatorIdentifier.forUid(uid).getOperatorId().toHexString());
+    }
+
+    /** A simple pojo. */
+    @SuppressWarnings("WeakerAccess")
+    public static class Account {
+        Account(int id, double amount) {
+            this.id = id;
+            this.amount = amount;
+            this.timestamp = 1000L;
+        }
+
+        public int id;
+
+        public double amount;
+
+        public long timestamp;
+
+        @Override
+        public boolean equals(Object obj) {
+            return obj instanceof Account
+                    && ((Account) obj).id == id
+                    && ((Account) obj).amount == amount;
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(id, amount);
+        }
+    }
+
+    /** A simple pojo. */
+    @SuppressWarnings("WeakerAccess")
+    public static class CurrencyRate {
+        public String currency;
+
+        public Double rate;
+
+        CurrencyRate(String currency, double rate) {
+            this.currency = currency;
+            this.rate = rate;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            return obj instanceof CurrencyRate
+                    && ((CurrencyRate) obj).currency.equals(currency)
+                    && ((CurrencyRate) obj).rate.equals(rate);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(currency, rate);
+        }
+    }
+
+    /** A savepoint writer function. */
+    public static class AccountBootstrapper extends KeyedStateBootstrapFunction<Integer, Account> {
+        ValueState<Double> state;
+
+        @Override
+        public void open(OpenContext openContext) {
+            ValueStateDescriptor<Double> descriptor =
+                    new ValueStateDescriptor<>("total", Types.DOUBLE);
+            state = getRuntimeContext().getState(descriptor);
+        }
+
+        @Override
+        public void processElement(Account value, Context ctx) throws Exception {
+            state.update(value.amount);
+        }
+    }
+
+    /** A streaming function bootstrapped off the state. */
+    public static class UpdateAndGetAccount extends RichFlatMapFunction<Account, Account> {
+        ValueState<Double> state;
+
+        @Override
+        public void open(OpenContext openContext) throws Exception {
+            super.open(openContext);
+
+            ValueStateDescriptor<Double> descriptor =
+                    new ValueStateDescriptor<>("total", Types.DOUBLE);
+            state = getRuntimeContext().getState(descriptor);
+        }
+
+        @Override
+        public void flatMap(Account value, Collector<Account> out) throws Exception {
+            Double current = state.value();
+            if (current != null) {
+                value.amount += current;
+            }
+
+            state.update(value.amount);
+            out.collect(value);
+        }
+    }
+
+    /** A bootstrap function. */
+    public static class ModifyProcessFunction extends StateBootstrapFunction<Integer> {
+        List<Integer> numbers;
+
+        ListState<Integer> state;
+
+        @Override
+        public void open(OpenContext openContext) {
+            numbers = new ArrayList<>();
+        }
+
+        @Override
+        public void processElement(Integer value, Context ctx) {
+            numbers.add(value);
+        }
+
+        @Override
+        public void snapshotState(FunctionSnapshotContext context) throws Exception {
+            state.update(numbers);
+        }
+
+        @Override
+        public void initializeState(FunctionInitializationContext context) throws Exception {
+            state =
+                    context.getOperatorStateStore()
+                            .getUnionListState(new ListStateDescriptor<>("numbers", Types.INT));
+        }
+    }
+
+    /** A streaming function bootstrapped off the state. */
+    public static class StatefulOperator extends RichMapFunction<Integer, Integer>
+            implements CheckpointedFunction {
+        List<Integer> numbers;
+
+        ListState<Integer> state;
+
+        @Override
+        public void open(OpenContext openContext) {
+            numbers = new ArrayList<>();
+        }
+
+        @Override
+        public void snapshotState(FunctionSnapshotContext context) throws Exception {
+            state.update(numbers);
+        }
+
+        @Override
+        public void initializeState(FunctionInitializationContext context) throws Exception {
+            state =
+                    context.getOperatorStateStore()
+                            .getUnionListState(new ListStateDescriptor<>("numbers", Types.INT));
+
+            if (context.isRestored()) {
+                Set<Integer> expected = new HashSet<>();
+                expected.add(1);
+                expected.add(2);
+                expected.add(3);
+
+                for (Integer number : state.get()) {
+                    Assert.assertTrue("Duplicate state", expected.contains(number));
+                    expected.remove(number);
+                }
+
+                Assert.assertTrue(
+                        "Failed to bootstrap all state elements: "
+                                + Arrays.toString(expected.toArray()),
+                        expected.isEmpty());
+            }
+        }
+
+        @Override
+        public Integer map(Integer value) {
+            return null;
+        }
+    }
+
+    /** A broadcast bootstrap function. */
+    public static class CurrencyBootstrapFunction
+            extends BroadcastStateBootstrapFunction<CurrencyRate> {
+
+        @Override
+        public void processElement(CurrencyRate value, Context ctx) throws Exception {
+            ctx.getBroadcastState(descriptor).put(value.currency, value.rate);
+        }
+    }
+
+    /** Checks the restored broadcast state. */
+    public static class CurrencyValidationFunction
+            extends BroadcastProcessFunction<CurrencyRate, CurrencyRate, Void> {
+
+        @Override
+        public void processElement(CurrencyRate value, ReadOnlyContext ctx, Collector<Void> out)
+                throws Exception {
+            Assert.assertEquals(
+                    "Incorrect currency rate",
+                    value.rate,
+                    ctx.getBroadcastState(descriptor).get(value.currency),
+                    0.0001);
+        }
+
+        @Override
+        public void processBroadcastElement(CurrencyRate value, Context ctx, Collector<Void> out) {
+            // ignore
+        }
+    }
 }

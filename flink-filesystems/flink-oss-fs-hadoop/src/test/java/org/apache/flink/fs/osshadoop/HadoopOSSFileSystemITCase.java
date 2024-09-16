@@ -24,53 +24,59 @@ import org.apache.flink.core.fs.Path;
 import org.apache.flink.runtime.fs.hdfs.AbstractHadoopFileSystemITTest;
 import org.apache.flink.testutils.oss.OSSTestCredentials;
 
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.util.UUID;
 
-import static junit.framework.TestCase.assertEquals;
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Unit tests for the OSS file system support via AliyunOSSFileSystem.
- * These tests do actually read from or write to OSS.
+ * Unit tests for the OSS file system support via AliyunOSSFileSystem. These tests do actually read
+ * from or write to OSS.
  */
-public class HadoopOSSFileSystemITCase extends AbstractHadoopFileSystemITTest {
+class HadoopOSSFileSystemITCase extends AbstractHadoopFileSystemITTest {
 
-	private static final String TEST_DATA_DIR = "tests-" + UUID.randomUUID();
+    private static final String TEST_DATA_DIR = "tests-" + UUID.randomUUID();
 
-	@BeforeClass
-	public static void setup() throws IOException {
-		OSSTestCredentials.assumeCredentialsAvailable();
+    @BeforeAll
+    static void setup() throws IOException {
+        OSSTestCredentials.assumeCredentialsAvailable();
 
-		final Configuration conf = new Configuration();
-		conf.setString("fs.oss.endpoint", OSSTestCredentials.getOSSEndpoint());
-		conf.setString("fs.oss.accessKeyId", OSSTestCredentials.getOSSAccessKey());
-		conf.setString("fs.oss.accessKeySecret", OSSTestCredentials.getOSSSecretKey());
-		FileSystem.initialize(conf);
-		basePath = new Path(OSSTestCredentials.getTestBucketUri() + TEST_DATA_DIR);
-		fs = basePath.getFileSystem();
-		deadline = 0;
-	}
+        final Configuration conf = new Configuration();
+        conf.setString("fs.oss.endpoint", OSSTestCredentials.getOSSEndpoint());
+        conf.setString("fs.oss.accessKeyId", OSSTestCredentials.getOSSAccessKey());
+        conf.setString("fs.oss.accessKeySecret", OSSTestCredentials.getOSSSecretKey());
+        FileSystem.initialize(conf);
+        basePath = new Path(OSSTestCredentials.getTestBucketUri() + TEST_DATA_DIR);
+        fs = basePath.getFileSystem();
+        consistencyToleranceNS = 0;
+    }
 
-	@Test
-	public void testShadedConfigurations() {
-		final Configuration conf = new Configuration();
-		conf.setString("fs.oss.endpoint", OSSTestCredentials.getOSSEndpoint());
-		conf.setString("fs.oss.accessKeyId", OSSTestCredentials.getOSSAccessKey());
-		conf.setString("fs.oss.accessKeySecret", OSSTestCredentials.getOSSSecretKey());
-		conf.setString("fs.oss.credentials.provider", "org.apache.hadoop.fs.aliyun.oss.AliyunCredentialsProvider");
+    @Test
+    void testShadedConfigurations() {
+        final Configuration conf = new Configuration();
+        conf.setString("fs.oss.endpoint", OSSTestCredentials.getOSSEndpoint());
+        conf.setString("fs.oss.accessKeyId", OSSTestCredentials.getOSSAccessKey());
+        conf.setString("fs.oss.accessKeySecret", OSSTestCredentials.getOSSSecretKey());
+        conf.setString(
+                "fs.oss.credentials.provider",
+                "org.apache.hadoop.fs.aliyun.oss.AliyunCredentialsProvider");
 
-		OSSFileSystemFactory ossfsFactory = new OSSFileSystemFactory();
-		ossfsFactory.configure(conf);
-		org.apache.hadoop.conf.Configuration configuration = ossfsFactory.getHadoopConfiguration();
-		// shaded
-		assertEquals("org.apache.flink.fs.shaded.hadoop3.org.apache.hadoop.fs.aliyun.oss.AliyunCredentialsProvider",
-			configuration.get("fs.oss.credentials.provider"));
-		// should not shaded
-		assertEquals(OSSTestCredentials.getOSSEndpoint(), configuration.get("fs.oss.endpoint"));
-		assertEquals(OSSTestCredentials.getOSSAccessKey(), configuration.get("fs.oss.accessKeyId"));
-		assertEquals(OSSTestCredentials.getOSSSecretKey(), configuration.get("fs.oss.accessKeySecret"));
-	}
+        OSSFileSystemFactory ossfsFactory = new OSSFileSystemFactory();
+        ossfsFactory.configure(conf);
+        org.apache.hadoop.conf.Configuration configuration = ossfsFactory.getHadoopConfiguration();
+        // shaded
+        assertThat(configuration.get("fs.oss.credentials.provider"))
+                .isEqualTo(
+                        "org.apache.flink.fs.osshadoop.shaded.org.apache.hadoop.fs.aliyun.oss.AliyunCredentialsProvider");
+        // should not shaded
+        assertThat(configuration.get("fs.oss.endpoint"))
+                .isEqualTo(OSSTestCredentials.getOSSEndpoint());
+        assertThat(configuration.get("fs.oss.accessKeyId"))
+                .isEqualTo(OSSTestCredentials.getOSSAccessKey());
+        assertThat(configuration.get("fs.oss.accessKeySecret"))
+                .isEqualTo(OSSTestCredentials.getOSSSecretKey());
+    }
 }

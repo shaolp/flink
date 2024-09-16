@@ -18,131 +18,131 @@
 
 package org.apache.flink.runtime.io.network.partition;
 
-import org.apache.flink.configuration.AkkaOptions;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.NettyShuffleEnvironmentOptions;
+import org.apache.flink.configuration.RpcOptions;
+import org.apache.flink.runtime.checkpoint.channel.ChannelStateWriter;
 import org.apache.flink.runtime.execution.Environment;
 import org.apache.flink.runtime.io.network.api.writer.ResultPartitionWriter;
 import org.apache.flink.runtime.io.network.buffer.Buffer;
-import org.apache.flink.runtime.io.network.buffer.BufferBuilder;
 import org.apache.flink.runtime.io.network.partition.consumer.InputGate;
 import org.apache.flink.runtime.jobgraph.DistributionPattern;
 import org.apache.flink.runtime.jobgraph.JobGraph;
+import org.apache.flink.runtime.jobgraph.JobGraphTestUtils;
 import org.apache.flink.runtime.jobgraph.JobVertex;
 import org.apache.flink.runtime.jobgraph.tasks.AbstractInvokable;
 import org.apache.flink.runtime.jobmanager.scheduler.SlotSharingGroup;
-import org.apache.flink.runtime.testingUtils.TestingUtils;
-import org.apache.flink.runtime.testutils.MiniClusterResource;
+import org.apache.flink.runtime.testutils.InternalMiniClusterExtension;
 import org.apache.flink.runtime.testutils.MiniClusterResourceConfiguration;
-import org.apache.flink.util.TestLogger;
+import org.apache.flink.testutils.TestingUtils;
 
-import org.junit.ClassRule;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
 
-/**
- * Test for consuming a pipelined result only partially.
- */
-public class PartialConsumePipelinedResultTest extends TestLogger {
+import java.nio.ByteBuffer;
 
-	// Test configuration
-	private static final int NUMBER_OF_TMS = 1;
-	private static final int NUMBER_OF_SLOTS_PER_TM = 1;
-	private static final int PARALLELISM = NUMBER_OF_TMS * NUMBER_OF_SLOTS_PER_TM;
+/** Test for consuming a pipelined result only partially. */
+class PartialConsumePipelinedResultTest {
 
-	private static final int NUMBER_OF_NETWORK_BUFFERS = 128;
+    // Test configuration
+    private static final int NUMBER_OF_TMS = 1;
+    private static final int NUMBER_OF_SLOTS_PER_TM = 1;
+    private static final int PARALLELISM = NUMBER_OF_TMS * NUMBER_OF_SLOTS_PER_TM;
 
-	@ClassRule
-	public static final MiniClusterResource MINI_CLUSTER_RESOURCE = new MiniClusterResource(
-		new MiniClusterResourceConfiguration.Builder()
-			.setConfiguration(getFlinkConfiguration())
-			.setNumberTaskManagers(NUMBER_OF_TMS)
-			.setNumberSlotsPerTaskManager(NUMBER_OF_SLOTS_PER_TM)
-			.build());
+    private static final int NUMBER_OF_NETWORK_BUFFERS = 128;
 
-	private static Configuration getFlinkConfiguration() {
-		final Configuration config = new Configuration();
-		config.setString(AkkaOptions.ASK_TIMEOUT, TestingUtils.DEFAULT_AKKA_ASK_TIMEOUT());
-		config.setInteger(NettyShuffleEnvironmentOptions.NETWORK_NUM_BUFFERS, NUMBER_OF_NETWORK_BUFFERS);
+    @RegisterExtension
+    private static final InternalMiniClusterExtension MINI_CLUSTER_RESOURCE =
+            new InternalMiniClusterExtension(
+                    new MiniClusterResourceConfiguration.Builder()
+                            .setConfiguration(getFlinkConfiguration())
+                            .setNumberTaskManagers(NUMBER_OF_TMS)
+                            .setNumberSlotsPerTaskManager(NUMBER_OF_SLOTS_PER_TM)
+                            .build());
 
-		return config;
-	}
+    private static Configuration getFlinkConfiguration() {
+        final Configuration config = new Configuration();
+        config.set(RpcOptions.ASK_TIMEOUT_DURATION, TestingUtils.DEFAULT_ASK_TIMEOUT);
+        config.set(NettyShuffleEnvironmentOptions.NETWORK_NUM_BUFFERS, NUMBER_OF_NETWORK_BUFFERS);
 
-	/**
-	 * Tests a fix for FLINK-1930.
-	 *
-	 * <p>When consuming a pipelined result only partially, is is possible that local channels
-	 * release the buffer pool, which is associated with the result partition, too early. If the
-	 * producer is still producing data when this happens, it runs into an IllegalStateException,
-	 * because of the destroyed buffer pool.
-	 *
-	 * @see <a href="https://issues.apache.org/jira/browse/FLINK-1930">FLINK-1930</a>
-	 */
-	@Test
-	public void testPartialConsumePipelinedResultReceiver() throws Exception {
-		final JobVertex sender = new JobVertex("Sender");
-		sender.setInvokableClass(SlowBufferSender.class);
-		sender.setParallelism(PARALLELISM);
+        return config;
+    }
 
-		final JobVertex receiver = new JobVertex("Receiver");
-		receiver.setInvokableClass(SingleBufferReceiver.class);
-		receiver.setParallelism(PARALLELISM);
+    /**
+     * Tests a fix for FLINK-1930.
+     *
+     * <p>When consuming a pipelined result only partially, is is possible that local channels
+     * release the buffer pool, which is associated with the result partition, too early. If the
+     * producer is still producing data when this happens, it runs into an IllegalStateException,
+     * because of the destroyed buffer pool.
+     *
+     * @see <a href="https://issues.apache.org/jira/browse/FLINK-1930">FLINK-1930</a>
+     */
+    @Test
+    void testPartialConsumePipelinedResultReceiver() throws Exception {
+        final JobVertex sender = new JobVertex("Sender");
+        sender.setInvokableClass(SlowBufferSender.class);
+        sender.setParallelism(PARALLELISM);
 
-		// The partition needs to be pipelined, otherwise the original issue does not occur, because
-		// the sender and receiver are not online at the same time.
-		receiver.connectNewDataSetAsInput(
-			sender, DistributionPattern.POINTWISE, ResultPartitionType.PIPELINED);
+        final JobVertex receiver = new JobVertex("Receiver");
+        receiver.setInvokableClass(SingleBufferReceiver.class);
+        receiver.setParallelism(PARALLELISM);
 
-		final JobGraph jobGraph = new JobGraph("Partial Consume of Pipelined Result", sender, receiver);
+        // The partition needs to be pipelined, otherwise the original issue does not occur, because
+        // the sender and receiver are not online at the same time.
+        receiver.connectNewDataSetAsInput(
+                sender, DistributionPattern.POINTWISE, ResultPartitionType.PIPELINED);
 
-		final SlotSharingGroup slotSharingGroup = new SlotSharingGroup(
-			sender.getID(), receiver.getID());
+        final JobGraph jobGraph = JobGraphTestUtils.streamingJobGraph(sender, receiver);
 
-		sender.setSlotSharingGroup(slotSharingGroup);
-		receiver.setSlotSharingGroup(slotSharingGroup);
+        final SlotSharingGroup slotSharingGroup = new SlotSharingGroup();
 
-		MINI_CLUSTER_RESOURCE.getMiniCluster().executeJobBlocking(jobGraph);
-	}
+        sender.setSlotSharingGroup(slotSharingGroup);
+        receiver.setSlotSharingGroup(slotSharingGroup);
 
-	// ---------------------------------------------------------------------------------------------
+        MINI_CLUSTER_RESOURCE.getMiniCluster().executeJobBlocking(jobGraph);
+    }
 
-	/**
-	 * Sends a fixed number of buffers and sleeps in-between sends.
-	 */
-	public static class SlowBufferSender extends AbstractInvokable {
+    // ---------------------------------------------------------------------------------------------
 
-		public SlowBufferSender(Environment environment) {
-			super(environment);
-		}
+    /** Sends a fixed number of buffers and sleeps in-between sends. */
+    public static class SlowBufferSender extends AbstractInvokable {
 
-		@Override
-		public void invoke() throws Exception {
-			final ResultPartitionWriter writer = getEnvironment().getWriter(0);
+        public SlowBufferSender(Environment environment) {
+            super(environment);
+        }
 
-			for (int i = 0; i < 8; i++) {
-				final BufferBuilder bufferBuilder = writer.getBufferBuilder();
-				writer.addBufferConsumer(bufferBuilder.createBufferConsumer(), 0);
-				Thread.sleep(50);
-				bufferBuilder.finish();
-			}
-		}
-	}
+        @Override
+        public void invoke() throws Exception {
+            final ResultPartitionWriter writer = getEnvironment().getWriter(0);
 
-	/**
-	 * Reads a single buffer and recycles it.
-	 */
-	public static class SingleBufferReceiver extends AbstractInvokable {
+            for (int i = 0; i < 8; i++) {
+                writer.emitRecord(ByteBuffer.allocate(1024), 0);
+                Thread.sleep(50);
+            }
+        }
+    }
 
-		public SingleBufferReceiver(Environment environment) {
-			super(environment);
-		}
+    /** Reads a single buffer and recycles it. */
+    public static class SingleBufferReceiver extends AbstractInvokable {
 
-		@Override
-		public void invoke() throws Exception {
-			InputGate gate = getEnvironment().getInputGate(0);
-			Buffer buffer = gate.getNext().orElseThrow(IllegalStateException::new).getBuffer();
-			if (buffer != null) {
-				buffer.recycleBuffer();
-			}
-		}
-	}
+        public SingleBufferReceiver(Environment environment) {
+            super(environment);
+        }
+
+        @Override
+        public void invoke() throws Exception {
+            InputGate gate = getEnvironment().getInputGate(0);
+            gate.finishReadRecoveredState();
+            while (!gate.getStateConsumedFuture().isDone()) {
+                gate.pollNext();
+            }
+            gate.setChannelStateWriter(ChannelStateWriter.NO_OP);
+            gate.requestPartitions();
+            Buffer buffer = gate.getNext().orElseThrow(IllegalStateException::new).getBuffer();
+            if (buffer != null) {
+                buffer.recycleBuffer();
+            }
+        }
+    }
 }

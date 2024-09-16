@@ -18,11 +18,9 @@
 
 package org.apache.flink.api.common.operators.base;
 
-import java.util.ArrayList;
-import java.util.List;
-
 import org.apache.flink.annotation.Internal;
 import org.apache.flink.api.common.ExecutionConfig;
+import org.apache.flink.api.common.functions.DefaultOpenContext;
 import org.apache.flink.api.common.functions.MapPartitionFunction;
 import org.apache.flink.api.common.functions.RuntimeContext;
 import org.apache.flink.api.common.functions.util.CopyingIterator;
@@ -35,48 +33,63 @@ import org.apache.flink.api.common.operators.util.UserCodeObjectWrapper;
 import org.apache.flink.api.common.operators.util.UserCodeWrapper;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
- *
  * @param <IN> The input type.
  * @param <OUT> The result type.
  * @param <FT> The type of the user-defined function.
  */
 @Internal
-public class MapPartitionOperatorBase<IN, OUT, FT extends MapPartitionFunction<IN, OUT>> extends SingleInputOperator<IN, OUT, FT> {
-	
-	public MapPartitionOperatorBase(UserCodeWrapper<FT> udf, UnaryOperatorInformation<IN, OUT> operatorInfo, String name) {
-		super(udf, operatorInfo, name);
-	}
-	
-	public MapPartitionOperatorBase(FT udf, UnaryOperatorInformation<IN, OUT> operatorInfo, String name) {
-		super(new UserCodeObjectWrapper<FT>(udf), operatorInfo, name);
-	}
-	
-	public MapPartitionOperatorBase(Class<? extends FT> udf, UnaryOperatorInformation<IN, OUT> operatorInfo, String name) {
-		super(new UserCodeClassWrapper<FT>(udf), operatorInfo, name);
-	}
+public class MapPartitionOperatorBase<IN, OUT, FT extends MapPartitionFunction<IN, OUT>>
+        extends SingleInputOperator<IN, OUT, FT> {
 
-	// --------------------------------------------------------------------------------------------
-	
-	@Override
-	protected List<OUT> executeOnCollections(List<IN> inputData, RuntimeContext ctx, ExecutionConfig executionConfig) throws Exception {
-		MapPartitionFunction<IN, OUT> function = this.userFunction.getUserCodeObject();
-		
-		FunctionUtils.setFunctionRuntimeContext(function, ctx);
-		FunctionUtils.openFunction(function, this.parameters);
-		
-		ArrayList<OUT> result = new ArrayList<OUT>(inputData.size() / 4);
+    public MapPartitionOperatorBase(
+            UserCodeWrapper<FT> udf, UnaryOperatorInformation<IN, OUT> operatorInfo, String name) {
+        super(udf, operatorInfo, name);
+    }
 
-		TypeSerializer<IN> inSerializer = getOperatorInfo().getInputType().createSerializer(executionConfig);
-		TypeSerializer<OUT> outSerializer = getOperatorInfo().getOutputType().createSerializer(executionConfig);
+    public MapPartitionOperatorBase(
+            FT udf, UnaryOperatorInformation<IN, OUT> operatorInfo, String name) {
+        super(new UserCodeObjectWrapper<FT>(udf), operatorInfo, name);
+    }
 
-		CopyingIterator<IN> source = new CopyingIterator<IN>(inputData.iterator(), inSerializer);
-		CopyingListCollector<OUT> resultCollector = new CopyingListCollector<OUT>(result, outSerializer);
+    public MapPartitionOperatorBase(
+            Class<? extends FT> udf, UnaryOperatorInformation<IN, OUT> operatorInfo, String name) {
+        super(new UserCodeClassWrapper<FT>(udf), operatorInfo, name);
+    }
 
-		function.mapPartition(source, resultCollector);
+    // --------------------------------------------------------------------------------------------
 
-		result.trimToSize();
-		FunctionUtils.closeFunction(function);
-		return result;
-	}
+    @Override
+    protected List<OUT> executeOnCollections(
+            List<IN> inputData, RuntimeContext ctx, ExecutionConfig executionConfig)
+            throws Exception {
+        MapPartitionFunction<IN, OUT> function = this.userFunction.getUserCodeObject();
+
+        FunctionUtils.setFunctionRuntimeContext(function, ctx);
+        FunctionUtils.openFunction(function, DefaultOpenContext.INSTANCE);
+
+        ArrayList<OUT> result = new ArrayList<OUT>(inputData.size() / 4);
+
+        TypeSerializer<IN> inSerializer =
+                getOperatorInfo()
+                        .getInputType()
+                        .createSerializer(executionConfig.getSerializerConfig());
+        TypeSerializer<OUT> outSerializer =
+                getOperatorInfo()
+                        .getOutputType()
+                        .createSerializer(executionConfig.getSerializerConfig());
+
+        CopyingIterator<IN> source = new CopyingIterator<IN>(inputData.iterator(), inSerializer);
+        CopyingListCollector<OUT> resultCollector =
+                new CopyingListCollector<OUT>(result, outSerializer);
+
+        function.mapPartition(source, resultCollector);
+
+        result.trimToSize();
+        FunctionUtils.closeFunction(function);
+        return result;
+    }
 }

@@ -23,98 +23,120 @@ import org.apache.flink.util.Preconditions;
 
 import java.io.IOException;
 import java.util.Map;
+import java.util.Optional;
 
 /**
- * State handle for partitionable operator state. Besides being a {@link StreamStateHandle}, this also provides a
- * map that contains the offsets to the partitions of named states in the stream.
+ * State handle for partitionable operator state. Besides being a {@link StreamStateHandle}, this
+ * also provides a map that contains the offsets to the partitions of named states in the stream.
  */
 public class OperatorStreamStateHandle implements OperatorStateHandle {
 
-	private static final long serialVersionUID = 35876522969227335L;
+    private static final long serialVersionUID = 35876522969227335L;
 
-	/**
-	 * unique state name -> offsets for available partitions in the handle stream
-	 */
-	private final Map<String, StateMetaInfo> stateNameToPartitionOffsets;
-	private final StreamStateHandle delegateStateHandle;
+    /** unique state name -> offsets for available partitions in the handle stream */
+    private final Map<String, StateMetaInfo> stateNameToPartitionOffsets;
 
-	public OperatorStreamStateHandle(
-			Map<String, StateMetaInfo> stateNameToPartitionOffsets,
-			StreamStateHandle delegateStateHandle) {
+    private final StreamStateHandle delegateStateHandle;
 
-		this.delegateStateHandle = Preconditions.checkNotNull(delegateStateHandle);
-		this.stateNameToPartitionOffsets = Preconditions.checkNotNull(stateNameToPartitionOffsets);
-	}
+    public OperatorStreamStateHandle(
+            Map<String, StateMetaInfo> stateNameToPartitionOffsets,
+            StreamStateHandle delegateStateHandle) {
 
-	@Override
-	public Map<String, StateMetaInfo> getStateNameToPartitionOffsets() {
-		return stateNameToPartitionOffsets;
-	}
+        this.delegateStateHandle = Preconditions.checkNotNull(delegateStateHandle);
+        this.stateNameToPartitionOffsets = Preconditions.checkNotNull(stateNameToPartitionOffsets);
+    }
 
-	@Override
-	public void discardState() throws Exception {
-		delegateStateHandle.discardState();
-	}
+    @Override
+    public Map<String, StateMetaInfo> getStateNameToPartitionOffsets() {
+        return stateNameToPartitionOffsets;
+    }
 
-	@Override
-	public long getStateSize() {
-		return delegateStateHandle.getStateSize();
-	}
+    @Override
+    public void discardState() throws Exception {
+        delegateStateHandle.discardState();
+    }
 
-	@Override
-	public FSDataInputStream openInputStream() throws IOException {
-		return delegateStateHandle.openInputStream();
-	}
+    @Override
+    public long getStateSize() {
+        return delegateStateHandle.getStateSize();
+    }
 
-	@Override
-	public StreamStateHandle getDelegateStateHandle() {
-		return delegateStateHandle;
-	}
+    @Override
+    public void collectSizeStats(StateObjectSizeStatsCollector collector) {
+        delegateStateHandle.collectSizeStats(collector);
+    }
 
-	@Override
-	public boolean equals(Object o) {
-		if (this == o) {
-			return true;
-		}
+    @Override
+    public FSDataInputStream openInputStream() throws IOException {
+        return delegateStateHandle.openInputStream();
+    }
 
-		if (!(o instanceof OperatorStreamStateHandle)) {
-			return false;
-		}
+    @Override
+    public Optional<byte[]> asBytesIfInMemory() {
+        return delegateStateHandle.asBytesIfInMemory();
+    }
 
-		OperatorStreamStateHandle that = (OperatorStreamStateHandle) o;
+    @Override
+    public Optional<org.apache.flink.core.fs.Path> maybeGetPath() {
+        return delegateStateHandle.maybeGetPath();
+    }
 
-		if (stateNameToPartitionOffsets.size() != that.stateNameToPartitionOffsets.size()) {
-			return false;
-		}
+    @Override
+    public PhysicalStateHandleID getStreamStateHandleID() {
+        return delegateStateHandle.getStreamStateHandleID();
+    }
 
-		for (Map.Entry<String, StateMetaInfo> entry : stateNameToPartitionOffsets.entrySet()) {
-			if (!entry.getValue().equals(that.stateNameToPartitionOffsets.get(entry.getKey()))) {
-				return false;
-			}
-		}
+    @Override
+    public StreamStateHandle getDelegateStateHandle() {
+        return delegateStateHandle;
+    }
 
-		return delegateStateHandle.equals(that.delegateStateHandle);
-	}
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
 
-	@Override
-	public int hashCode() {
-		int result = delegateStateHandle.hashCode();
-		for (Map.Entry<String, StateMetaInfo> entry : stateNameToPartitionOffsets.entrySet()) {
+        if (!(o instanceof OperatorStreamStateHandle)) {
+            return false;
+        }
 
-			int entryHash = entry.getKey().hashCode();
-			if (entry.getValue() != null) {
-				entryHash += entry.getValue().hashCode();
-			}
-			result = 31 * result + entryHash;
-		}
-		return result;
-	}
+        OperatorStreamStateHandle that = (OperatorStreamStateHandle) o;
 
-	@Override
-	public String toString() {
-		return "OperatorStateHandle{" +
-				"stateNameToPartitionOffsets=" + stateNameToPartitionOffsets +
-				", delegateStateHandle=" + delegateStateHandle +
-				'}';
-	}
+        if (stateNameToPartitionOffsets.size() != that.stateNameToPartitionOffsets.size()) {
+            return false;
+        }
+
+        for (Map.Entry<String, StateMetaInfo> entry : stateNameToPartitionOffsets.entrySet()) {
+            if (!entry.getValue().equals(that.stateNameToPartitionOffsets.get(entry.getKey()))) {
+                return false;
+            }
+        }
+
+        return delegateStateHandle.equals(that.delegateStateHandle);
+    }
+
+    @Override
+    public int hashCode() {
+        int result = delegateStateHandle.hashCode();
+        for (Map.Entry<String, StateMetaInfo> entry : stateNameToPartitionOffsets.entrySet()) {
+
+            int entryHash = entry.getKey().hashCode();
+            if (entry.getValue() != null) {
+                entryHash += entry.getValue().hashCode();
+            }
+            result = 31 * result + entryHash;
+        }
+        return result;
+    }
+
+    @Override
+    public String toString() {
+        return "OperatorStateHandle{"
+                + "stateNameToPartitionOffsets="
+                + stateNameToPartitionOffsets
+                + ", delegateStateHandle="
+                + delegateStateHandle
+                + '}';
+    }
 }

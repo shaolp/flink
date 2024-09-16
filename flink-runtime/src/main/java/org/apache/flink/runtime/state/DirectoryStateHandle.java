@@ -18,70 +18,103 @@
 
 package org.apache.flink.runtime.state;
 
-import org.apache.flink.core.fs.FileSystem;
-import org.apache.flink.core.fs.Path;
+import org.apache.flink.util.FileUtils;
 
 import javax.annotation.Nonnull;
 
 import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 /**
- * This state handle represents a directory. This class is, for example, used to represent the directory of RocksDB's
- * native checkpoint directories for local recovery.
+ * This state handle represents a directory. This class is, for example, used to represent the
+ * directory of RocksDB's native checkpoint directories for local recovery.
  */
 public class DirectoryStateHandle implements StateObject {
 
-	/** Serial version. */
-	private static final long serialVersionUID = 1L;
+    /** Serial version. */
+    private static final long serialVersionUID = 1L;
 
-	/** The path that describes the directory. */
-	@Nonnull
-	private final Path directory;
+    /** The path that describes the directory, as a string, to be serializable. */
+    private final String directoryString;
 
-	public DirectoryStateHandle(@Nonnull Path directory) {
-		this.directory = directory;
-	}
+    /** (Optional) Size of the directory, used for metrics. Can be 0 if unknown or empty. */
+    private final long directorySize;
 
-	@Override
-	public void discardState() throws IOException {
-		FileSystem fileSystem = directory.getFileSystem();
-		fileSystem.delete(directory, true);
-	}
+    /** Transient path cache, to avoid re-parsing the string. */
+    private transient Path directory;
 
-	@Override
-	public long getStateSize() {
-		// For now, we will not report any size, but in the future this could (if needed) return the total dir size.
-		return 0L; // unknown
-	}
+    public DirectoryStateHandle(@Nonnull Path directory, long directorySize) {
+        this.directory = directory;
+        this.directoryString = directory.toString();
+        this.directorySize = directorySize;
+    }
 
-	@Nonnull
-	public Path getDirectory() {
-		return directory;
-	}
+    public static DirectoryStateHandle forPathWithSize(@Nonnull Path directory) {
+        long size;
+        try {
+            size = FileUtils.getDirectoryFilesSize(directory);
+        } catch (IOException e) {
+            size = 0L;
+        }
+        return new DirectoryStateHandle(directory, size);
+    }
 
-	@Override
-	public boolean equals(Object o) {
-		if (this == o) {
-			return true;
-		}
-		if (o == null || getClass() != o.getClass()) {
-			return false;
-		}
+    @Override
+    public void discardState() throws IOException {
+        ensurePath();
+        FileUtils.deleteDirectory(directory.toFile());
+    }
 
-		DirectoryStateHandle that = (DirectoryStateHandle) o;
+    @Override
+    public long getStateSize() {
+        return directorySize;
+    }
 
-		return directory.equals(that.directory);
-	}
+    @Override
+    public void collectSizeStats(StateObjectSizeStatsCollector collector) {
+        collector.add(StateObjectLocation.LOCAL_DISK, directorySize);
+    }
 
-	@Override
-	public int hashCode() {
-		return directory.hashCode();
-	}
+    @Nonnull
+    public Path getDirectory() {
+        ensurePath();
+        return directory;
+    }
 
-	@Override
-	public String toString() {
-		return "DirectoryStateHandle{" +
-			"directory=" + directory +
-			'}';
-	}
+    private void ensurePath() {
+        if (directory == null) {
+            directory = Paths.get(directoryString);
+        }
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+
+        DirectoryStateHandle that = (DirectoryStateHandle) o;
+
+        return directoryString.equals(that.directoryString);
+    }
+
+    @Override
+    public int hashCode() {
+        return directoryString.hashCode();
+    }
+
+    @Override
+    public String toString() {
+        return "DirectoryStateHandle{"
+                + "directory='"
+                + directoryString
+                + '\''
+                + ", directorySize="
+                + directorySize
+                + '}';
+    }
 }

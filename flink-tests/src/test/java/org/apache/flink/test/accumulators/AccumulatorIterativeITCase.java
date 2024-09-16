@@ -19,62 +19,62 @@
 package org.apache.flink.test.accumulators;
 
 import org.apache.flink.api.common.accumulators.IntCounter;
+import org.apache.flink.api.common.functions.OpenContext;
 import org.apache.flink.api.common.functions.RichGroupReduceFunction;
 import org.apache.flink.api.java.ExecutionEnvironment;
 import org.apache.flink.api.java.io.DiscardingOutputFormat;
 import org.apache.flink.api.java.operators.IterativeDataSet;
-import org.apache.flink.configuration.Configuration;
-import org.apache.flink.test.util.JavaProgramTestBase;
+import org.apache.flink.test.util.JavaProgramTestBaseJUnit4;
 import org.apache.flink.util.Collector;
 
 import org.junit.Assert;
 
-/**
- * Test accumulator within iteration.
- */
-public class AccumulatorIterativeITCase extends JavaProgramTestBase {
-	private static final int NUM_ITERATIONS = 3;
-	private static final int NUM_SUBTASKS = 1;
-	private static final String ACC_NAME = "test";
+/** Test accumulator within iteration. */
+public class AccumulatorIterativeITCase extends JavaProgramTestBaseJUnit4 {
+    private static final int NUM_ITERATIONS = 3;
+    private static final int NUM_SUBTASKS = 1;
+    private static final String ACC_NAME = "test";
 
-	@Override
-	protected boolean skipCollectionExecution() {
-		return true;
-	}
+    @Override
+    protected boolean skipCollectionExecution() {
+        return true;
+    }
 
-	@Override
-	protected void testProgram() throws Exception {
-		ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
-		env.setParallelism(NUM_SUBTASKS);
+    @Override
+    protected void testProgram() throws Exception {
+        ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
+        env.setParallelism(NUM_SUBTASKS);
 
-		IterativeDataSet<Integer> iteration = env.fromElements(1, 2, 3).iterate(NUM_ITERATIONS);
+        IterativeDataSet<Integer> iteration = env.fromElements(1, 2, 3).iterate(NUM_ITERATIONS);
 
-		iteration.closeWith(iteration.reduceGroup(new SumReducer())).output(new DiscardingOutputFormat<Integer>());
+        iteration
+                .closeWith(iteration.reduceGroup(new SumReducer()))
+                .output(new DiscardingOutputFormat<Integer>());
 
-		Assert.assertEquals(NUM_ITERATIONS * 6, (int) env.execute().getAccumulatorResult(ACC_NAME));
-	}
+        Assert.assertEquals(NUM_ITERATIONS * 6, (int) env.execute().getAccumulatorResult(ACC_NAME));
+    }
 
-	static final class SumReducer extends RichGroupReduceFunction<Integer, Integer> {
+    static final class SumReducer extends RichGroupReduceFunction<Integer, Integer> {
 
-		private static final long serialVersionUID = 1L;
+        private static final long serialVersionUID = 1L;
 
-		private IntCounter testCounter = new IntCounter();
+        private IntCounter testCounter = new IntCounter();
 
-		@Override
-		public void open(Configuration config) throws Exception {
-			getRuntimeContext().addAccumulator(ACC_NAME, this.testCounter);
-		}
+        @Override
+        public void open(OpenContext openContext) throws Exception {
+            getRuntimeContext().addAccumulator(ACC_NAME, this.testCounter);
+        }
 
-		@Override
-		public void reduce(Iterable<Integer> values, Collector<Integer> out) {
-			// Compute the sum
-			int sum = 0;
+        @Override
+        public void reduce(Iterable<Integer> values, Collector<Integer> out) {
+            // Compute the sum
+            int sum = 0;
 
-			for (Integer value : values) {
-				sum += value;
-				testCounter.add(value);
-			}
-			out.collect(sum);
-		}
-	}
+            for (Integer value : values) {
+                sum += value;
+                testCounter.add(value);
+            }
+            out.collect(sum);
+        }
+    }
 }

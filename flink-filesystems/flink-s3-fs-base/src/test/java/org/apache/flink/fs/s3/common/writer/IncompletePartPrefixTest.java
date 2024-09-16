@@ -18,40 +18,57 @@
 
 package org.apache.flink.fs.s3.common.writer;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Tests for the {@link RecoverableMultiPartUploadImpl#createIncompletePartObjectNamePrefix(String)}.
+ * Tests for the {@link
+ * RecoverableMultiPartUploadImpl#createIncompletePartObjectNamePrefix(String)}.
  */
-public class IncompletePartPrefixTest {
+class IncompletePartPrefixTest {
 
-	@Test(expected = NullPointerException.class)
-	public void nullObjectNameShouldThroughException() {
-		RecoverableMultiPartUploadImpl.createIncompletePartObjectNamePrefix(null);
-	}
+    @Test
+    void nullObjectNameShouldThroughException() {
+        assertThatThrownBy(
+                        () ->
+                                RecoverableMultiPartUploadImpl.createIncompletePartObjectNamePrefix(
+                                        null))
+                .isInstanceOf(NullPointerException.class);
+    }
 
-	@Test
-	public void emptyInitialNameShouldSucceed() {
-		String objectNamePrefix = RecoverableMultiPartUploadImpl.createIncompletePartObjectNamePrefix("");
-		Assert.assertEquals("_tmp_", objectNamePrefix);
-	}
+    @Test
+    void emptyInitialNameShouldSucceed() {
+        String objectNamePrefix =
+                RecoverableMultiPartUploadImpl.createIncompletePartObjectNamePrefix("");
 
-	@Test
-	public void nameWithoutSlashShouldSucceed() {
-		String objectNamePrefix = RecoverableMultiPartUploadImpl.createIncompletePartObjectNamePrefix("no_slash_path");
-		Assert.assertEquals("_no_slash_path_tmp_", objectNamePrefix);
-	}
+        assertThat(objectNamePrefix).isEqualTo("_tmp_");
+    }
 
-	@Test
-	public void nameWithOnlySlashShouldSucceed() {
-		String objectNamePrefix = RecoverableMultiPartUploadImpl.createIncompletePartObjectNamePrefix("/");
-		Assert.assertEquals("/_tmp_", objectNamePrefix);
-	}
+    @Test
+    void nameWithoutSlashShouldSucceed() {
+        String objectNamePrefix =
+                RecoverableMultiPartUploadImpl.createIncompletePartObjectNamePrefix(
+                        "no_slash_path");
 
-	@Test
-	public void normalPathShouldSucceed() {
-		String objectNamePrefix = RecoverableMultiPartUploadImpl.createIncompletePartObjectNamePrefix("/root/home/test-file");
-		Assert.assertEquals("/root/home/_test-file_tmp_", objectNamePrefix);
-	}
+        assertThat(objectNamePrefix).isEqualTo("_no_slash_path_tmp_");
+    }
+
+    @Test
+    void nameWithOnlySlashShouldSucceed() {
+        String objectNamePrefix =
+                RecoverableMultiPartUploadImpl.createIncompletePartObjectNamePrefix("/");
+
+        assertThat(objectNamePrefix).isEqualTo("/_tmp_");
+    }
+
+    @Test
+    void normalPathShouldSucceed() {
+        String objectNamePrefix =
+                RecoverableMultiPartUploadImpl.createIncompletePartObjectNamePrefix(
+                        "/root/home/test-file");
+
+        assertThat(objectNamePrefix).isEqualTo("/root/home/_test-file_tmp_");
+    }
 }

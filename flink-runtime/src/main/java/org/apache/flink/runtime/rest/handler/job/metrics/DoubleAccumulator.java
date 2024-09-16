@@ -18,240 +18,288 @@
 
 package org.apache.flink.runtime.rest.handler.job.metrics;
 
-/**
- * An interface for accumulating double values.
- */
+import org.apache.flink.annotation.VisibleForTesting;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/** An interface for accumulating double values. */
 interface DoubleAccumulator {
 
-	/**
-	 * Adds the given value to this accumulator.
-	 *
-	 * @param value value to add
-	 */
-	void add(double value);
+    /**
+     * Adds the given value to this accumulator.
+     *
+     * @param value value to add
+     */
+    void add(double value);
 
-	/**
-	 * Returns the current value of this accumulator.
-	 *
-	 * @return current value of this accumulator
-	 */
-	double getValue();
+    /**
+     * Returns the current value of this accumulator.
+     *
+     * @return current value of this accumulator
+     */
+    double getValue();
 
-	/**
-	 * Returns the name of this accumulator type. This name is used as a suffix for exposed metrics.
-	 *
-	 * @return name of this accumulator type
-	 */
-	String getName();
+    /**
+     * Returns the name of this accumulator type. This name is used as a suffix for exposed metrics.
+     *
+     * @return name of this accumulator type
+     */
+    String getName();
 
-	/**
-	 * A factory for {@link DoubleAccumulator}s. This allows us to regenerate a new set of accumulators for each metrics
-	 * without re-evaluating the "agg" query parameter or re-using existing accumulators.
-	 *
-	 * @param <A> DoubleAccumulator subclass
-	 */
-	interface DoubleAccumulatorFactory<A extends DoubleAccumulator> {
-		/**
-		 * Creates a new accumulator with the given initial value.
-		 *
-		 * @param init initial value
-		 * @return new accumulator with the given initial value
-		 */
-		A get(double init);
-	}
+    /**
+     * A factory for {@link DoubleAccumulator}s. This allows us to regenerate a new set of
+     * accumulators for each metrics without re-evaluating the "agg" query parameter or re-using
+     * existing accumulators.
+     *
+     * @param <A> DoubleAccumulator subclass
+     */
+    interface DoubleAccumulatorFactory<A extends DoubleAccumulator> {
+        /**
+         * Creates a new accumulator with the given initial value.
+         *
+         * @param init initial value
+         * @return new accumulator with the given initial value
+         */
+        A get(double init);
+    }
 
-	/**
-	 * Factory for {@link DoubleMaximum}.
-	 */
-	final class DoubleMaximumFactory implements DoubleAccumulatorFactory<DoubleMaximum> {
-		private static final DoubleMaximumFactory INSTANCE = new DoubleMaximumFactory();
+    /** Factory for {@link DoubleMaximum}. */
+    final class DoubleMaximumFactory implements DoubleAccumulatorFactory<DoubleMaximum> {
+        private static final DoubleMaximumFactory INSTANCE = new DoubleMaximumFactory();
 
-		private DoubleMaximumFactory(){
-		}
+        private DoubleMaximumFactory() {}
 
-		@Override
-		public DoubleMaximum get(double init) {
-			return new DoubleMaximum(init);
-		}
+        @Override
+        public DoubleMaximum get(double init) {
+            return new DoubleMaximum(init);
+        }
 
-		public static DoubleMaximumFactory get() {
-			return INSTANCE;
-		}
-	}
+        public static DoubleMaximumFactory get() {
+            return INSTANCE;
+        }
+    }
 
-	/**
-	 * Factory for {@link DoubleMinimum}.
-	 */
-	final class DoubleMinimumFactory implements DoubleAccumulatorFactory<DoubleMinimum> {
-		private static final DoubleMinimumFactory INSTANCE = new DoubleMinimumFactory();
+    /** Factory for {@link DoubleMinimum}. */
+    final class DoubleMinimumFactory implements DoubleAccumulatorFactory<DoubleMinimum> {
+        private static final DoubleMinimumFactory INSTANCE = new DoubleMinimumFactory();
 
-		private DoubleMinimumFactory(){
-		}
+        private DoubleMinimumFactory() {}
 
-		@Override
-		public DoubleMinimum get(double init) {
-			return new DoubleMinimum(init);
-		}
+        @Override
+        public DoubleMinimum get(double init) {
+            return new DoubleMinimum(init);
+        }
 
-		public static DoubleMinimumFactory get() {
-			return INSTANCE;
-		}
-	}
+        public static DoubleMinimumFactory get() {
+            return INSTANCE;
+        }
+    }
 
-	/**
-	 * Factory for {@link DoubleSum}.
-	 */
-	final class DoubleSumFactory implements DoubleAccumulatorFactory<DoubleSum> {
-		private static final DoubleSumFactory INSTANCE = new DoubleSumFactory();
+    /** Factory for {@link DoubleSum}. */
+    final class DoubleSumFactory implements DoubleAccumulatorFactory<DoubleSum> {
+        private static final DoubleSumFactory INSTANCE = new DoubleSumFactory();
 
-		private DoubleSumFactory(){
-		}
+        private DoubleSumFactory() {}
 
-		@Override
-		public DoubleSum get(double init) {
-			return new DoubleSum(init);
-		}
+        @Override
+        public DoubleSum get(double init) {
+            return new DoubleSum(init);
+        }
 
-		public static DoubleSumFactory get() {
-			return INSTANCE;
-		}
-	}
+        public static DoubleSumFactory get() {
+            return INSTANCE;
+        }
+    }
 
-	/**
-	 * Factory for {@link DoubleAverage}.
-	 */
-	final class DoubleAverageFactory implements DoubleAccumulatorFactory<DoubleAverage> {
-		private static final DoubleAverageFactory INSTANCE = new DoubleAverageFactory();
+    /** Factory for {@link DoubleAverage}. */
+    final class DoubleAverageFactory implements DoubleAccumulatorFactory<DoubleAverage> {
+        private static final DoubleAverageFactory INSTANCE = new DoubleAverageFactory();
 
-		private DoubleAverageFactory(){
-		}
+        private DoubleAverageFactory() {}
 
-		@Override
-		public DoubleAverage get(double init) {
-			return new DoubleAverage(init);
-		}
+        @Override
+        public DoubleAverage get(double init) {
+            return new DoubleAverage(init);
+        }
 
-		public static DoubleAverageFactory get() {
-			return INSTANCE;
-		}
-	}
+        public static DoubleAverageFactory get() {
+            return INSTANCE;
+        }
+    }
 
-	/**
-	 * {@link DoubleAccumulator} that returns the maximum value.
-	 */
-	final class DoubleMaximum implements DoubleAccumulator {
+    /** Factory for {@link DoubleDataSkew}. */
+    final class DoubleDataSkewFactory implements DoubleAccumulatorFactory<DoubleDataSkew> {
+        private static final DoubleDataSkewFactory INSTANCE = new DoubleDataSkewFactory();
 
-		public static final String NAME = "max";
+        private DoubleDataSkewFactory() {}
 
-		private double value;
+        @Override
+        public DoubleDataSkew get(double init) {
+            return new DoubleDataSkew(init);
+        }
 
-		private DoubleMaximum(double init) {
-			value = init;
-		}
+        public static DoubleDataSkewFactory get() {
+            return INSTANCE;
+        }
+    }
 
-		@Override
-		public void add(double value) {
-			this.value = Math.max(this.value, value);
-		}
+    /** {@link DoubleAccumulator} that returns the maximum value. */
+    final class DoubleMaximum implements DoubleAccumulator {
 
-		@Override
-		public double getValue() {
-			return value;
-		}
+        public static final String NAME = "max";
 
-		@Override
-		public String getName() {
-			return NAME;
-		}
-	}
+        private double value;
 
-	/**
-	 * {@link DoubleAccumulator} that returns the minimum value.
-	 */
-	final class DoubleMinimum implements DoubleAccumulator {
+        private DoubleMaximum(double init) {
+            value = init;
+        }
 
-		public static final String NAME = "min";
+        @Override
+        public void add(double value) {
+            this.value = Math.max(this.value, value);
+        }
 
-		private double value;
+        @Override
+        public double getValue() {
+            return value;
+        }
 
-		private DoubleMinimum(double init) {
-			value = init;
-		}
+        @Override
+        public String getName() {
+            return NAME;
+        }
+    }
 
-		@Override
-		public void add(double value) {
-			this.value = Math.min(this.value, value);
-		}
+    /** {@link DoubleAccumulator} that returns the minimum value. */
+    final class DoubleMinimum implements DoubleAccumulator {
 
-		@Override
-		public double getValue() {
-			return value;
-		}
+        public static final String NAME = "min";
 
-		@Override
-		public String getName() {
-			return NAME;
-		}
-	}
+        private double value;
 
-	/**
-	 * {@link DoubleAccumulator} that returns the sum of all values.
-	 */
-	final class DoubleSum implements DoubleAccumulator {
+        private DoubleMinimum(double init) {
+            value = init;
+        }
 
-		public static final String NAME = "sum";
+        @Override
+        public void add(double value) {
+            this.value = Math.min(this.value, value);
+        }
 
-		private double value;
+        @Override
+        public double getValue() {
+            return value;
+        }
 
-		private DoubleSum(double init) {
-			value = init;
-		}
+        @Override
+        public String getName() {
+            return NAME;
+        }
+    }
 
-		@Override
-		public void add(double value) {
-			this.value += value;
-		}
+    /** {@link DoubleAccumulator} that returns the sum of all values. */
+    final class DoubleSum implements DoubleAccumulator {
 
-		@Override
-		public double getValue() {
-			return value;
-		}
+        public static final String NAME = "sum";
 
-		@Override
-		public String getName() {
-			return NAME;
-		}
-	}
+        private double value;
 
-	/**
-	 * {@link DoubleAccumulator} that returns the average over all values.
-	 */
-	final class DoubleAverage implements DoubleAccumulator {
+        private DoubleSum(double init) {
+            value = init;
+        }
 
-		public static final String NAME = "avg";
+        @Override
+        public void add(double value) {
+            this.value += value;
+        }
 
-		private double sum;
-		private int count;
+        @Override
+        public double getValue() {
+            return value;
+        }
 
-		private DoubleAverage(double init) {
-			sum = init;
-			count = 1;
-		}
+        @Override
+        public String getName() {
+            return NAME;
+        }
+    }
 
-		@Override
-		public void add(double value) {
-			this.sum += value;
-			this.count++;
-		}
+    /** {@link DoubleAccumulator} that returns the average over all values. */
+    final class DoubleAverage implements DoubleAccumulator {
 
-		@Override
-		public double getValue() {
-			return sum / count;
-		}
+        public static final String NAME = "avg";
 
-		@Override
-		public String getName() {
-			return NAME;
-		}
-	}
+        private double sum;
+        private int count;
+
+        private DoubleAverage(double init) {
+            sum = init;
+            count = 1;
+        }
+
+        @Override
+        public void add(double value) {
+            this.sum += value;
+            this.count++;
+        }
+
+        @Override
+        public double getValue() {
+            return sum / count;
+        }
+
+        @Override
+        public String getName() {
+            return NAME;
+        }
+    }
+
+    /**
+     * {@link DoubleAccumulator} that returns the skew percentage over all values. Uses a version of
+     * the Coefficient of Variation (CV) statistic to calculate skew. This version of CV uses
+     * average absolute deviation, instead of std deviation. This method currently assumes a dataset
+     * of positive numbers and 0.
+     */
+    final class DoubleDataSkew implements DoubleAccumulator {
+
+        public static final String NAME = "skew";
+
+        private final List<Double> values = new ArrayList<>();
+
+        @VisibleForTesting
+        DoubleDataSkew() {}
+
+        private DoubleDataSkew(double init) {
+            values.add(init);
+        }
+
+        @Override
+        public void add(double value) {
+            values.add(value);
+        }
+
+        @Override
+        public double getValue() {
+            if (values.isEmpty()) {
+                return 0.0;
+            }
+            double sum = values.stream().reduce(Double::sum).orElse(0.0);
+            double avg = sum / values.size();
+            if (avg == 0.0) {
+                // Avoid division by zero in below calculations
+                // This also makes sense because avg of 0 implies no data skew
+                return 0.0;
+            }
+            double totalAbsDev =
+                    values.stream().map(v -> Math.abs(avg - v)).reduce(Double::sum).orElse(0.0);
+            double avgDev = totalAbsDev / values.size();
+            return Math.min((avgDev / avg) * 100.0, 100.0);
+        }
+
+        @Override
+        public String getName() {
+            return NAME;
+        }
+    }
 }

@@ -21,39 +21,43 @@ package org.apache.flink.test.hadoopcompatibility.mapred;
 import org.apache.flink.test.hadoopcompatibility.mapred.example.HadoopMapredCompatWordCount;
 import org.apache.flink.test.testdata.WordCountData;
 import org.apache.flink.test.util.JavaProgramTestBase;
+import org.apache.flink.testutils.junit.extensions.parameterized.ParameterizedTestExtension;
 import org.apache.flink.util.OperatingSystem;
 
-import org.junit.Assume;
-import org.junit.Before;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.extension.ExtendWith;
 
-/**
- * IT cases for mapred.
- */
+import static org.apache.flink.test.util.TestBaseUtils.compareResultsByLinesInMemory;
+import static org.assertj.core.api.Assumptions.assumeThat;
+
+/** IT cases for mapred. */
+@ExtendWith(ParameterizedTestExtension.class)
 public class HadoopMapredITCase extends JavaProgramTestBase {
 
-	protected String textPath;
-	protected String resultPath;
+    protected String textPath;
+    protected String resultPath;
 
-	@Before
-	public void checkOperatingSystem() {
-		// FLINK-5164 - see https://wiki.apache.org/hadoop/WindowsProblems
-		Assume.assumeTrue("This test can't run successfully on Windows.", !OperatingSystem.isWindows());
-	}
+    @BeforeEach
+    public void checkOperatingSystem() {
+        // FLINK-5164 - see https://wiki.apache.org/hadoop/WindowsProblems
+        assumeThat(OperatingSystem.isWindows())
+                .as("This test can't run successfully on Windows.")
+                .isFalse();
+    }
 
-	@Override
-	protected void preSubmit() throws Exception {
-		textPath = createTempFile("text.txt", WordCountData.TEXT);
-		resultPath = getTempDirPath("result");
-	}
+    @Override
+    protected void preSubmit() throws Exception {
+        textPath = createTempFile("text.txt", WordCountData.TEXT);
+        resultPath = getTempDirPath("result");
+    }
 
-	@Override
-	protected void postSubmit() throws Exception {
-		compareResultsByLinesInMemory(WordCountData.COUNTS, resultPath, new String[]{".", "_"});
-	}
+    @Override
+    protected void postSubmit() throws Exception {
+        compareResultsByLinesInMemory(WordCountData.COUNTS, resultPath, new String[] {".", "_"});
+    }
 
-	@Override
-	protected void testProgram() throws Exception {
-		HadoopMapredCompatWordCount.main(new String[] { textPath, resultPath });
-	}
-
+    @Override
+    protected void testProgram() throws Exception {
+        HadoopMapredCompatWordCount.main(new String[] {textPath, resultPath});
+    }
 }

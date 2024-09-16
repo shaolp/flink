@@ -19,6 +19,7 @@
 package org.apache.flink.formats.avro;
 
 import org.apache.flink.api.java.tuple.Tuple3;
+import org.apache.flink.api.java.tuple.Tuple4;
 import org.apache.flink.formats.avro.utils.AvroTestUtils;
 import org.apache.flink.types.Row;
 import org.apache.flink.util.InstantiationUtil;
@@ -27,178 +28,347 @@ import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.specific.SpecificRecord;
 import org.junit.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 
-import static org.junit.Assert.assertEquals;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/**
- * Test for the Avro serialization and deserialization schema.
- */
-public class AvroRowDeSerializationSchemaTest {
+/** Test for the Avro serialization and deserialization schema. */
+class AvroRowDeSerializationSchemaTest {
 
-	@Test
-	public void testSpecificSerializeDeserializeFromClass() throws IOException {
-		final Tuple3<Class<? extends SpecificRecord>, SpecificRecord, Row> testData = AvroTestUtils.getSpecificTestData();
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void testSpecificSerializeDeserializeFromSchema(boolean legacyTimestampMapping)
+            throws IOException {
+        final Tuple3<Class<? extends SpecificRecord>, SpecificRecord, Row> testData =
+                AvroTestUtils.getSpecificTestData();
+        final String schemaString = testData.f1.getSchema().toString();
 
-		final AvroRowSerializationSchema serializationSchema = new AvroRowSerializationSchema(testData.f0);
-		final AvroRowDeserializationSchema deserializationSchema = new AvroRowDeserializationSchema(testData.f0);
+        final AvroRowSerializationSchema serializationSchema =
+                new AvroRowSerializationSchema(schemaString);
+        final AvroRowDeserializationSchema deserializationSchema =
+                new AvroRowDeserializationSchema(schemaString);
 
-		final byte[] bytes = serializationSchema.serialize(testData.f2);
-		final Row actual = deserializationSchema.deserialize(bytes);
+        if (legacyTimestampMapping) {
+            final byte[] bytes = serializationSchema.serialize(testData.f2);
+            final Row actual = deserializationSchema.deserialize(bytes);
+            assertThat(actual).isEqualTo(testData.f2);
+        } else {
+            final byte[] bytes = serializationSchema.serialize(testData.f2, false);
+            final Row actual = deserializationSchema.deserialize(bytes, false);
+            assertThat(actual).isEqualTo(testData.f2);
+        }
+    }
 
-		assertEquals(testData.f2, actual);
-	}
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void testGenericSerializeDeserialize(boolean legacyTimestampMapping) throws IOException {
+        final Tuple3<GenericRecord, Row, Schema> testData = AvroTestUtils.getGenericTestData();
 
-	@Test
-	public void testSpecificSerializeDeserializeFromSchema() throws IOException {
-		final Tuple3<Class<? extends SpecificRecord>, SpecificRecord, Row> testData = AvroTestUtils.getSpecificTestData();
-		final String schemaString = testData.f1.getSchema().toString();
+        final AvroRowSerializationSchema serializationSchema =
+                new AvroRowSerializationSchema(testData.f2.toString());
+        final AvroRowDeserializationSchema deserializationSchema =
+                new AvroRowDeserializationSchema(testData.f2.toString());
 
-		final AvroRowSerializationSchema serializationSchema = new AvroRowSerializationSchema(schemaString);
-		final AvroRowDeserializationSchema deserializationSchema = new AvroRowDeserializationSchema(schemaString);
+        if (legacyTimestampMapping) {
+            final byte[] bytes = serializationSchema.serialize(testData.f1);
+            final Row actual = deserializationSchema.deserialize(bytes);
+            assertThat(actual).isEqualTo(testData.f1);
+        } else {
+            final byte[] bytes = serializationSchema.serialize(testData.f1, false);
+            final Row actual = deserializationSchema.deserialize(bytes, false);
+            assertThat(actual).isEqualTo(testData.f1);
+        }
+    }
 
-		final byte[] bytes = serializationSchema.serialize(testData.f2);
-		final Row actual = deserializationSchema.deserialize(bytes);
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void testSpecificSerializeFromClassSeveralTimes(boolean legacyTimestampMapping)
+            throws IOException {
+        final Tuple3<Class<? extends SpecificRecord>, SpecificRecord, Row> testData =
+                AvroTestUtils.getSpecificTestData();
 
-		assertEquals(testData.f2, actual);
-	}
+        final AvroRowSerializationSchema serializationSchema =
+                new AvroRowSerializationSchema(testData.f0);
+        final AvroRowDeserializationSchema deserializationSchema =
+                new AvroRowDeserializationSchema(testData.f0);
 
-	@Test
-	public void testGenericSerializeDeserialize() throws IOException {
-		final Tuple3<GenericRecord, Row, Schema> testData = AvroTestUtils.getGenericTestData();
+        if (legacyTimestampMapping) {
+            serializationSchema.serialize(testData.f2);
+            serializationSchema.serialize(testData.f2);
+            final byte[] bytes = serializationSchema.serialize(testData.f2);
+            final Row actual = deserializationSchema.deserialize(bytes);
+            assertThat(actual).isEqualTo(testData.f2);
+        } else {
+            serializationSchema.serialize(testData.f2, false);
+            serializationSchema.serialize(testData.f2, false);
+            final byte[] bytes = serializationSchema.serialize(testData.f2, false);
+            final Row actual = deserializationSchema.deserialize(bytes, false);
+            assertThat(actual).isEqualTo(testData.f2);
+        }
+    }
 
-		final AvroRowSerializationSchema serializationSchema = new AvroRowSerializationSchema(testData.f2.toString());
-		final AvroRowDeserializationSchema deserializationSchema = new AvroRowDeserializationSchema(testData.f2.toString());
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void testSpecificSerializeFromSchemaSeveralTimes(boolean legacyTimestampMapping)
+            throws IOException {
+        final Tuple3<Class<? extends SpecificRecord>, SpecificRecord, Row> testData =
+                AvroTestUtils.getSpecificTestData();
+        final String schemaString = testData.f1.getSchema().toString();
 
-		final byte[] bytes = serializationSchema.serialize(testData.f1);
-		final Row actual = deserializationSchema.deserialize(bytes);
+        final AvroRowSerializationSchema serializationSchema =
+                new AvroRowSerializationSchema(schemaString);
+        final AvroRowDeserializationSchema deserializationSchema =
+                new AvroRowDeserializationSchema(schemaString);
 
-		assertEquals(testData.f1, actual);
-	}
+        if (legacyTimestampMapping) {
+            serializationSchema.serialize(testData.f2);
+            serializationSchema.serialize(testData.f2);
+            final byte[] bytes = serializationSchema.serialize(testData.f2);
+            final Row actual = deserializationSchema.deserialize(bytes);
+            assertThat(actual).isEqualTo(testData.f2);
+        } else {
+            serializationSchema.serialize(testData.f2, false);
+            serializationSchema.serialize(testData.f2, false);
+            final byte[] bytes = serializationSchema.serialize(testData.f2, false);
+            final Row actual = deserializationSchema.deserialize(bytes, false);
+            assertThat(actual).isEqualTo(testData.f2);
+        }
+    }
 
-	@Test
-	public void testSpecificSerializeFromClassSeveralTimes() throws IOException {
-		final Tuple3<Class<? extends SpecificRecord>, SpecificRecord, Row> testData = AvroTestUtils.getSpecificTestData();
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void testGenericSerializeSeveralTimes(boolean legacyTimestampMapping) throws IOException {
+        final Tuple3<GenericRecord, Row, Schema> testData = AvroTestUtils.getGenericTestData();
 
-		final AvroRowSerializationSchema serializationSchema = new AvroRowSerializationSchema(testData.f0);
-		final AvroRowDeserializationSchema deserializationSchema = new AvroRowDeserializationSchema(testData.f0);
+        final AvroRowSerializationSchema serializationSchema =
+                new AvroRowSerializationSchema(testData.f2.toString());
+        final AvroRowDeserializationSchema deserializationSchema =
+                new AvroRowDeserializationSchema(testData.f2.toString());
 
-		serializationSchema.serialize(testData.f2);
-		serializationSchema.serialize(testData.f2);
-		final byte[] bytes = serializationSchema.serialize(testData.f2);
-		final Row actual = deserializationSchema.deserialize(bytes);
+        if (legacyTimestampMapping) {
+            serializationSchema.serialize(testData.f1);
+            serializationSchema.serialize(testData.f1);
+            final byte[] bytes = serializationSchema.serialize(testData.f1);
+            final Row actual = deserializationSchema.deserialize(bytes);
+            assertThat(actual).isEqualTo(testData.f1);
+        } else {
+            serializationSchema.serialize(testData.f1, false);
+            serializationSchema.serialize(testData.f1, false);
+            final byte[] bytes = serializationSchema.serialize(testData.f1, false);
+            final Row actual = deserializationSchema.deserialize(bytes, false);
+            assertThat(actual).isEqualTo(testData.f1);
+        }
+    }
 
-		assertEquals(testData.f2, actual);
-	}
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void testSpecificDeserializeFromClassSeveralTimes(boolean legacyTimestampMapping)
+            throws IOException {
+        final Tuple3<Class<? extends SpecificRecord>, SpecificRecord, Row> testData =
+                AvroTestUtils.getSpecificTestData();
 
-	@Test
-	public void testSpecificSerializeFromSchemaSeveralTimes() throws IOException {
-		final Tuple3<Class<? extends SpecificRecord>, SpecificRecord, Row> testData = AvroTestUtils.getSpecificTestData();
-		final String schemaString = testData.f1.getSchema().toString();
+        final AvroRowSerializationSchema serializationSchema =
+                new AvroRowSerializationSchema(testData.f0);
+        final AvroRowDeserializationSchema deserializationSchema =
+                new AvroRowDeserializationSchema(testData.f0);
 
-		final AvroRowSerializationSchema serializationSchema = new AvroRowSerializationSchema(schemaString);
-		final AvroRowDeserializationSchema deserializationSchema = new AvroRowDeserializationSchema(schemaString);
+        if (legacyTimestampMapping) {
+            final byte[] bytes = serializationSchema.serialize(testData.f2);
+            deserializationSchema.deserialize(bytes);
+            deserializationSchema.deserialize(bytes);
+            final Row actual = deserializationSchema.deserialize(bytes);
+            assertThat(actual).isEqualTo(testData.f2);
+        } else {
+            final byte[] bytes = serializationSchema.serialize(testData.f2, false);
+            deserializationSchema.deserialize(bytes, false);
+            deserializationSchema.deserialize(bytes, false);
+            final Row actual = deserializationSchema.deserialize(bytes, false);
+            assertThat(actual).isEqualTo(testData.f2);
+        }
+    }
 
-		serializationSchema.serialize(testData.f2);
-		serializationSchema.serialize(testData.f2);
-		final byte[] bytes = serializationSchema.serialize(testData.f2);
-		final Row actual = deserializationSchema.deserialize(bytes);
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void testSpecificDeserializeFromSchemaSeveralTimes(boolean legacyTimestampMapping)
+            throws IOException {
+        final Tuple3<Class<? extends SpecificRecord>, SpecificRecord, Row> testData =
+                AvroTestUtils.getSpecificTestData();
+        final String schemaString = testData.f1.getSchema().toString();
 
-		assertEquals(testData.f2, actual);
-	}
+        final AvroRowSerializationSchema serializationSchema =
+                new AvroRowSerializationSchema(schemaString);
+        final AvroRowDeserializationSchema deserializationSchema =
+                new AvroRowDeserializationSchema(schemaString);
 
-	@Test
-	public void testGenericSerializeSeveralTimes() throws IOException {
-		final Tuple3<GenericRecord, Row, Schema> testData = AvroTestUtils.getGenericTestData();
+        if (legacyTimestampMapping) {
+            final byte[] bytes = serializationSchema.serialize(testData.f2);
+            deserializationSchema.deserialize(bytes);
+            deserializationSchema.deserialize(bytes);
+            final Row actual = deserializationSchema.deserialize(bytes);
+            assertThat(actual).isEqualTo(testData.f2);
+        } else {
+            final byte[] bytes = serializationSchema.serialize(testData.f2, false);
+            deserializationSchema.deserialize(bytes, false);
+            deserializationSchema.deserialize(bytes, false);
+            final Row actual = deserializationSchema.deserialize(bytes, false);
+            assertThat(actual).isEqualTo(testData.f2);
+        }
+    }
 
-		final AvroRowSerializationSchema serializationSchema = new AvroRowSerializationSchema(testData.f2.toString());
-		final AvroRowDeserializationSchema deserializationSchema = new AvroRowDeserializationSchema(testData.f2.toString());
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void testGenericDeserializeSeveralTimes(boolean legacyTimestampMapping) throws IOException {
+        final Tuple3<GenericRecord, Row, Schema> testData = AvroTestUtils.getGenericTestData();
 
-		serializationSchema.serialize(testData.f1);
-		serializationSchema.serialize(testData.f1);
-		final byte[] bytes = serializationSchema.serialize(testData.f1);
-		final Row actual = deserializationSchema.deserialize(bytes);
+        final AvroRowSerializationSchema serializationSchema =
+                new AvroRowSerializationSchema(testData.f2.toString());
+        final AvroRowDeserializationSchema deserializationSchema =
+                new AvroRowDeserializationSchema(testData.f2.toString());
 
-		assertEquals(testData.f1, actual);
-	}
+        if (legacyTimestampMapping) {
+            final byte[] bytes = serializationSchema.serialize(testData.f1);
+            deserializationSchema.deserialize(bytes);
+            deserializationSchema.deserialize(bytes);
+            final Row actual = deserializationSchema.deserialize(bytes);
+            assertThat(actual).isEqualTo(testData.f1);
+        } else {
+            final byte[] bytes = serializationSchema.serialize(testData.f1, false);
+            deserializationSchema.deserialize(bytes, false);
+            deserializationSchema.deserialize(bytes, false);
+            final Row actual = deserializationSchema.deserialize(bytes, false);
+            assertThat(actual).isEqualTo(testData.f1);
+        }
+    }
 
-	@Test
-	public void testSpecificDeserializeFromClassSeveralTimes() throws IOException {
-		final Tuple3<Class<? extends SpecificRecord>, SpecificRecord, Row> testData = AvroTestUtils.getSpecificTestData();
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void testSerializability(boolean legacyTimestampMapping) throws Exception {
+        final Tuple3<Class<? extends SpecificRecord>, SpecificRecord, Row> testData =
+                AvroTestUtils.getSpecificTestData();
+        final String schemaString = testData.f1.getSchema().toString();
 
-		final AvroRowSerializationSchema serializationSchema = new AvroRowSerializationSchema(testData.f0);
-		final AvroRowDeserializationSchema deserializationSchema = new AvroRowDeserializationSchema(testData.f0);
+        // from class
+        final AvroRowSerializationSchema classSer = new AvroRowSerializationSchema(testData.f0);
+        final AvroRowDeserializationSchema classDeser =
+                new AvroRowDeserializationSchema(testData.f0);
+        testSerializability(classSer, classDeser, testData.f2, legacyTimestampMapping);
 
-		final byte[] bytes = serializationSchema.serialize(testData.f2);
-		deserializationSchema.deserialize(bytes);
-		deserializationSchema.deserialize(bytes);
-		final Row actual = deserializationSchema.deserialize(bytes);
+        // from schema string
+        final AvroRowSerializationSchema schemaSer = new AvroRowSerializationSchema(schemaString);
+        final AvroRowDeserializationSchema schemaDeser =
+                new AvroRowDeserializationSchema(schemaString);
+        testSerializability(schemaSer, schemaDeser, testData.f2, legacyTimestampMapping);
+    }
 
-		assertEquals(testData.f2, actual);
-	}
+    void testTimestampSerializeDeserializeLegacyMapping() throws Exception {
+        final Tuple4<Class<? extends SpecificRecord>, SpecificRecord, GenericRecord, Row> testData =
+                AvroTestUtils.getTimestampTestData();
 
-	@Test
-	public void testSpecificDeserializeFromSchemaSeveralTimes() throws IOException {
-		final Tuple3<Class<? extends SpecificRecord>, SpecificRecord, Row> testData = AvroTestUtils.getSpecificTestData();
-		final String schemaString = testData.f1.getSchema().toString();
+        final String schemaString = testData.f1.getSchema().toString();
 
-		final AvroRowSerializationSchema serializationSchema = new AvroRowSerializationSchema(schemaString);
-		final AvroRowDeserializationSchema deserializationSchema = new AvroRowDeserializationSchema(schemaString);
+        final AvroRowSerializationSchema serializationSchema =
+                new AvroRowSerializationSchema(schemaString);
+        final AvroRowDeserializationSchema deserializationSchema =
+                new AvroRowDeserializationSchema(schemaString);
 
-		final byte[] bytes = serializationSchema.serialize(testData.f2);
-		deserializationSchema.deserialize(bytes);
-		deserializationSchema.deserialize(bytes);
-		final Row actual = deserializationSchema.deserialize(bytes);
+        assertThatThrownBy(
+                        () -> {
+                            serializationSchema.serialize(testData.f3);
+                        })
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage("Unsupported local timestamp type.");
 
-		assertEquals(testData.f2, actual);
-	}
+        final byte[] bytes = serializationSchema.serialize(testData.f3, false);
 
-	@Test
-	public void testGenericDeserializeSeveralTimes() throws IOException {
-		final Tuple3<GenericRecord, Row, Schema> testData = AvroTestUtils.getGenericTestData();
+        assertThatThrownBy(
+                        () -> {
+                            deserializationSchema.deserialize(bytes);
+                        })
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage("Unsupported local timestamp type.");
+    }
 
-		final AvroRowSerializationSchema serializationSchema = new AvroRowSerializationSchema(testData.f2.toString());
-		final AvroRowDeserializationSchema deserializationSchema = new AvroRowDeserializationSchema(testData.f2.toString());
+    @Test
+    void testTimestampSpecificSerializeDeserializeNewMapping() throws Exception {
+        final Tuple4<Class<? extends SpecificRecord>, SpecificRecord, GenericRecord, Row> testData =
+                AvroTestUtils.getTimestampTestData();
 
-		final byte[] bytes = serializationSchema.serialize(testData.f1);
-		deserializationSchema.deserialize(bytes);
-		deserializationSchema.deserialize(bytes);
-		final Row actual = deserializationSchema.deserialize(bytes);
+        final String schemaString = testData.f1.getSchema().toString();
 
-		assertEquals(testData.f1, actual);
-	}
+        final AvroRowSerializationSchema serializationSchema =
+                new AvroRowSerializationSchema(schemaString);
+        final AvroRowDeserializationSchema deserializationSchema =
+                new AvroRowDeserializationSchema(schemaString);
 
-	@Test
-	public void testSerializability() throws Exception {
-		final Tuple3<Class<? extends SpecificRecord>, SpecificRecord, Row> testData = AvroTestUtils.getSpecificTestData();
-		final String schemaString = testData.f1.getSchema().toString();
+        final byte[] bytes = serializationSchema.serialize(testData.f3, false);
+        final Row actual = deserializationSchema.deserialize(bytes, false);
+        assertThat(actual).isEqualTo(testData.f3);
+    }
 
-		// from class
-		final AvroRowSerializationSchema classSer = new AvroRowSerializationSchema(testData.f0);
-		final AvroRowDeserializationSchema classDeser = new AvroRowDeserializationSchema(testData.f0);
-		testSerializability(classSer, classDeser, testData.f2);
+    @Test
+    void testTimestampGenericGenericSerializeDeserializeNewMapping() throws Exception {
+        final Tuple4<Class<? extends SpecificRecord>, SpecificRecord, GenericRecord, Row> testData =
+                AvroTestUtils.getTimestampTestData();
 
-		// from schema string
-		final AvroRowSerializationSchema schemaSer = new AvroRowSerializationSchema(schemaString);
-		final AvroRowDeserializationSchema schemaDeser = new AvroRowDeserializationSchema(schemaString);
-		testSerializability(schemaSer, schemaDeser, testData.f2);
-	}
+        final String schemaString = testData.f2.getSchema().toString();
 
-	private void testSerializability(AvroRowSerializationSchema ser, AvroRowDeserializationSchema deser, Row data) throws Exception {
-		final byte[] serBytes = InstantiationUtil.serializeObject(ser);
-		final byte[] deserBytes = InstantiationUtil.serializeObject(deser);
+        final AvroRowSerializationSchema serializationSchema =
+                new AvroRowSerializationSchema(schemaString);
+        final AvroRowDeserializationSchema deserializationSchema =
+                new AvroRowDeserializationSchema(schemaString);
 
-		final AvroRowSerializationSchema serCopy =
-			InstantiationUtil.deserializeObject(serBytes, Thread.currentThread().getContextClassLoader());
-		final AvroRowDeserializationSchema deserCopy =
-			InstantiationUtil.deserializeObject(deserBytes, Thread.currentThread().getContextClassLoader());
+        final byte[] bytes = serializationSchema.serialize(testData.f3);
+        final Row actual = deserializationSchema.deserialize(bytes);
+        assertThat(actual).isEqualTo(testData.f3);
+    }
 
-		final byte[] bytes = serCopy.serialize(data);
-		deserCopy.deserialize(bytes);
-		deserCopy.deserialize(bytes);
-		final Row actual = deserCopy.deserialize(bytes);
+    @Test
+    void testTimestampClassSerializeDeserializeNewMapping() throws Exception {
+        final Tuple4<Class<? extends SpecificRecord>, SpecificRecord, GenericRecord, Row> testData =
+                AvroTestUtils.getTimestampTestData();
 
-		assertEquals(data, actual);
-	}
+        final AvroRowSerializationSchema serializationSchema =
+                new AvroRowSerializationSchema(testData.f0);
+        final AvroRowDeserializationSchema deserializationSchema =
+                new AvroRowDeserializationSchema(testData.f0);
+
+        final byte[] bytes = serializationSchema.serialize(testData.f3);
+        final Row actual = deserializationSchema.deserialize(bytes);
+        assertThat(actual).isEqualTo(testData.f3);
+    }
+
+    private void testSerializability(
+            AvroRowSerializationSchema ser,
+            AvroRowDeserializationSchema deser,
+            Row data,
+            boolean legacyTimestampMapping)
+            throws Exception {
+        final byte[] serBytes = InstantiationUtil.serializeObject(ser);
+        final byte[] deserBytes = InstantiationUtil.serializeObject(deser);
+
+        final AvroRowSerializationSchema serCopy =
+                InstantiationUtil.deserializeObject(
+                        serBytes, Thread.currentThread().getContextClassLoader());
+        final AvroRowDeserializationSchema deserCopy =
+                InstantiationUtil.deserializeObject(
+                        deserBytes, Thread.currentThread().getContextClassLoader());
+
+        if (legacyTimestampMapping) {
+            final byte[] bytes = serCopy.serialize(data);
+            deserCopy.deserialize(bytes);
+            deserCopy.deserialize(bytes);
+            final Row actual = deserCopy.deserialize(bytes);
+            assertThat(actual).isEqualTo(data);
+        } else {
+            final byte[] bytes = serCopy.serialize(data, false);
+            deserCopy.deserialize(bytes, false);
+            deserCopy.deserialize(bytes, false);
+            final Row actual = deserCopy.deserialize(bytes, false);
+            assertThat(actual).isEqualTo(data);
+        }
+    }
 }

@@ -19,68 +19,60 @@
 package org.apache.flink.api.java.typeutils.runtime;
 
 import org.apache.flink.core.memory.DataInputView;
-import org.apache.flink.util.TestLogger;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 
-import static org.junit.Assert.assertEquals;
+import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * Unit test for {@link DataInputViewStream}.
- */
-public class DataInputViewStreamTest extends TestLogger {
+/** Unit test for {@link DataInputViewStream}. */
+class DataInputViewStreamTest {
 
-	@Test
-	public void testSkip() throws IOException {
-		final TestInputStream inputStream = new TestInputStream();
-		try (TestDataInputView dataInputView = new TestDataInputView(inputStream)) {
-			try (DataInputViewStream dataInputViewStream = new DataInputViewStream(dataInputView)) {
-				assertEquals(1, dataInputViewStream.skip(1));
-				assertEquals(1, inputStream.skipped);
+    @Test
+    void testSkip() throws IOException {
+        final TestInputStream inputStream = new TestInputStream();
+        try (TestDataInputView dataInputView = new TestDataInputView(inputStream)) {
+            try (DataInputViewStream dataInputViewStream = new DataInputViewStream(dataInputView)) {
+                assertThat(dataInputViewStream.skip(1)).isOne();
+                assertThat(inputStream.skipped).isOne();
 
-				final long bigNumberToSkip = 1024L + 2L * Integer.MAX_VALUE;
-				assertEquals(bigNumberToSkip, dataInputViewStream.skip(bigNumberToSkip));
-				assertEquals(1 + bigNumberToSkip, inputStream.skipped);
-			}
-		}
+                final long bigNumberToSkip = 1024L + 2L * Integer.MAX_VALUE;
+                assertThat(dataInputViewStream.skip(bigNumberToSkip)).isEqualTo(bigNumberToSkip);
+                assertThat(inputStream.skipped).isEqualTo(1 + bigNumberToSkip);
+            }
+        }
+    }
 
-	}
+    /** Test implementation of {@link DataInputView}. */
+    private static class TestDataInputView extends DataInputStream implements DataInputView {
 
-	/**
-	 * Test implementation of {@link DataInputView}.
-	 */
-	private static class TestDataInputView extends DataInputStream implements DataInputView {
+        TestDataInputView(InputStream in) {
+            super(in);
+        }
 
-		TestDataInputView(InputStream in) {
-			super(in);
-		}
+        @Override
+        public void skipBytesToRead(int numBytes) throws IOException {
+            throw new UnsupportedOperationException("Not properly implemented.");
+        }
+    }
 
-		@Override
-		public void skipBytesToRead(int numBytes) throws IOException {
-			throw new UnsupportedOperationException("Not properly implemented.");
-		}
-	}
+    /** Test implementation of {@link InputStream}. */
+    private static class TestInputStream extends InputStream {
 
-	/**
-	 * Test implementation of {@link InputStream}.
-	 */
-	private static class TestInputStream extends InputStream {
+        long skipped = 0;
 
-		long skipped = 0;
+        @Override
+        public int read() throws IOException {
+            return 0;
+        }
 
-		@Override
-		public int read() throws IOException {
-			return 0;
-		}
-
-		@Override
-		public long skip(long n) {
-			skipped += n;
-			return n;
-		}
-	}
+        @Override
+        public long skip(long n) {
+            skipped += n;
+            return n;
+        }
+    }
 }

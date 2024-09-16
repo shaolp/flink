@@ -25,80 +25,53 @@ import javax.annotation.Nullable;
 
 import java.util.Collection;
 
-/**
- * {@link JobGraph} instances for recovery.
- */
-public interface JobGraphStore {
+/** {@link JobGraph} instances for recovery. */
+public interface JobGraphStore extends JobGraphWriter {
 
-	/**
-	 * Starts the {@link JobGraphStore} service.
-	 */
-	void start(JobGraphListener jobGraphListener) throws Exception;
+    /** Starts the {@link JobGraphStore} service. */
+    void start(JobGraphListener jobGraphListener) throws Exception;
 
-	/**
-	 * Stops the {@link JobGraphStore} service.
-	 */
-	void stop() throws Exception;
+    /** Stops the {@link JobGraphStore} service. */
+    void stop() throws Exception;
 
-	/**
-	 * Returns the {@link JobGraph} with the given {@link JobID} or
-	 * {@code null} if no job was registered.
-	 */
-	@Nullable
-	JobGraph recoverJobGraph(JobID jobId) throws Exception;
+    /**
+     * Returns the {@link JobGraph} with the given {@link JobID} or {@code null} if no job was
+     * registered.
+     */
+    @Nullable
+    JobGraph recoverJobGraph(JobID jobId) throws Exception;
 
-	/**
-	 * Adds the {@link JobGraph} instance.
-	 *
-	 * <p>If a job graph with the same {@link JobID} exists, it is replaced.
-	 */
-	void putJobGraph(JobGraph jobGraph) throws Exception;
+    /**
+     * Get all job ids of submitted job graphs to the submitted job graph store.
+     *
+     * @return Collection of submitted job ids
+     * @throws Exception if the operation fails
+     */
+    Collection<JobID> getJobIds() throws Exception;
 
-	/**
-	 * Removes the {@link JobGraph} with the given {@link JobID} if it exists.
-	 */
-	void removeJobGraph(JobID jobId) throws Exception;
+    /**
+     * A listener for {@link JobGraph} instances. This is used to react to races between multiple
+     * running {@link JobGraphStore} instances (on multiple job managers).
+     */
+    interface JobGraphListener {
 
-	/**
-	 * Releases the locks on the specified {@link JobGraph}.
-	 *
-	 * Releasing the locks allows that another instance can delete the job from
-	 * the {@link JobGraphStore}.
-	 *
-	 * @param jobId specifying the job to release the locks for
-	 * @throws Exception if the locks cannot be released
-	 */
-	void releaseJobGraph(JobID jobId) throws Exception;
+        /**
+         * Callback for {@link JobGraph} instances added by a different {@link JobGraphStore}
+         * instance.
+         *
+         * <p><strong>Important:</strong> It is possible to get false positives and be notified
+         * about a job graph, which was added by this instance.
+         *
+         * @param jobId The {@link JobID} of the added job graph
+         */
+        void onAddedJobGraph(JobID jobId);
 
-	/**
-	 * Get all job ids of submitted job graphs to the submitted job graph store.
-	 *
-	 * @return Collection of submitted job ids
-	 * @throws Exception if the operation fails
-	 */
-	Collection<JobID> getJobIds() throws Exception;
-
-	/**
-	 * A listener for {@link JobGraph} instances. This is used to react to races between
-	 * multiple running {@link JobGraphStore} instances (on multiple job managers).
-	 */
-	interface JobGraphListener {
-
-		/**
-		 * Callback for {@link JobGraph} instances added by a different {@link JobGraphStore} instance.
-		 *
-		 * <p><strong>Important:</strong> It is possible to get false positives and be notified
-		 * about a job graph, which was added by this instance.
-		 *
-		 * @param jobId The {@link JobID} of the added job graph
-		 */
-		void onAddedJobGraph(JobID jobId);
-
-		/**
-		 * Callback for {@link JobGraph} instances removed by a different {@link JobGraphStore} instance.
-		 *
-		 * @param jobId The {@link JobID} of the removed job graph
-		 */
-		void onRemovedJobGraph(JobID jobId);
-	}
+        /**
+         * Callback for {@link JobGraph} instances removed by a different {@link JobGraphStore}
+         * instance.
+         *
+         * @param jobId The {@link JobID} of the removed job graph
+         */
+        void onRemovedJobGraph(JobID jobId);
+    }
 }

@@ -21,81 +21,40 @@ package org.apache.flink.runtime.fs.hdfs;
 import org.apache.flink.core.fs.FileSystem;
 import org.apache.flink.core.fs.FileSystemKind;
 import org.apache.flink.core.fs.Path;
-import org.apache.flink.util.TestLogger;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 
-import static org.junit.Assert.assertEquals;
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Tests for extracting the {@link FileSystemKind} from file systems that Flink
- * accesses through Hadoop's File System interface.
+ * Tests for extracting the {@link FileSystemKind} from file systems that Flink accesses through
+ * Hadoop's File System interface.
  *
- * <p>This class needs to be in this package, because it accesses package private methods
- * from the HDFS file system wrapper class.
+ * <p>This class needs to be in this package, because it accesses package private methods from the
+ * HDFS file system wrapper class.
  */
-public class HdfsKindTest extends TestLogger {
+class HdfsKindTest {
 
-	@Test
-	public void testHdfsKind() throws IOException {
-		final FileSystem fs = new Path("hdfs://localhost:55445/my/file").getFileSystem();
-		assertEquals(FileSystemKind.FILE_SYSTEM, fs.getKind());
-	}
+    @Test
+    void testHdfsKind() throws IOException {
+        final FileSystem fs = new Path("hdfs://localhost:55445/my/file").getFileSystem();
+        assertThat(fs.getKind()).isEqualTo(FileSystemKind.FILE_SYSTEM);
+    }
 
-	@Test
-	public void testS3Kind() throws IOException {
-		try {
-			Class.forName("org.apache.hadoop.fs.s3.S3FileSystem");
-		} catch (ClassNotFoundException ignored) {
-			// not in the classpath, cannot run this test
-			log.info("Skipping test 'testS3Kind()' because the S3 file system is not in the class path");
-			return;
-		}
+    @Test
+    void testS3fileSystemSchemes() {
+        assertThat(HadoopFileSystem.getKindForScheme("s3")).isEqualTo(FileSystemKind.OBJECT_STORE);
+        assertThat(HadoopFileSystem.getKindForScheme("s3n")).isEqualTo(FileSystemKind.OBJECT_STORE);
+        assertThat(HadoopFileSystem.getKindForScheme("s3a")).isEqualTo(FileSystemKind.OBJECT_STORE);
+        assertThat(HadoopFileSystem.getKindForScheme("EMRFS"))
+                .isEqualTo(FileSystemKind.OBJECT_STORE);
+    }
 
-		final FileSystem s3 = new Path("s3://myId:mySecret@bucket/some/bucket/some/object").getFileSystem();
-		assertEquals(FileSystemKind.OBJECT_STORE, s3.getKind());
-	}
-
-	@Test
-	public void testS3nKind() throws IOException {
-		try {
-			Class.forName("org.apache.hadoop.fs.s3native.NativeS3FileSystem");
-		} catch (ClassNotFoundException ignored) {
-			// not in the classpath, cannot run this test
-			log.info("Skipping test 'testS3nKind()' because the Native S3 file system is not in the class path");
-			return;
-		}
-
-		final FileSystem s3n = new Path("s3n://myId:mySecret@bucket/some/bucket/some/object").getFileSystem();
-		assertEquals(FileSystemKind.OBJECT_STORE, s3n.getKind());
-	}
-
-	@Test
-	public void testS3aKind() throws IOException {
-		try {
-			Class.forName("org.apache.hadoop.fs.s3a.S3AFileSystem");
-		} catch (ClassNotFoundException ignored) {
-			// not in the classpath, cannot run this test
-			log.info("Skipping test 'testS3aKind()' because the S3AFileSystem is not in the class path");
-			return;
-		}
-
-		final FileSystem s3a = new Path("s3a://myId:mySecret@bucket/some/bucket/some/object").getFileSystem();
-		assertEquals(FileSystemKind.OBJECT_STORE, s3a.getKind());
-	}
-
-	@Test
-	public void testS3fileSystemSchemes() {
-		assertEquals(FileSystemKind.OBJECT_STORE, HadoopFileSystem.getKindForScheme("s3"));
-		assertEquals(FileSystemKind.OBJECT_STORE, HadoopFileSystem.getKindForScheme("s3n"));
-		assertEquals(FileSystemKind.OBJECT_STORE, HadoopFileSystem.getKindForScheme("s3a"));
-		assertEquals(FileSystemKind.OBJECT_STORE, HadoopFileSystem.getKindForScheme("EMRFS"));
-	}
-
-	@Test
-	public void testViewFs() {
-		assertEquals(FileSystemKind.FILE_SYSTEM, HadoopFileSystem.getKindForScheme("viewfs"));
-	}
+    @Test
+    void testViewFs() {
+        assertThat(HadoopFileSystem.getKindForScheme("viewfs"))
+                .isEqualTo(FileSystemKind.FILE_SYSTEM);
+    }
 }

@@ -19,10 +19,10 @@
 package org.apache.flink.cep.functions.adaptors;
 
 import org.apache.flink.annotation.Internal;
+import org.apache.flink.api.common.functions.OpenContext;
 import org.apache.flink.api.common.functions.util.FunctionUtils;
 import org.apache.flink.cep.PatternFlatSelectFunction;
 import org.apache.flink.cep.functions.PatternProcessFunction;
-import org.apache.flink.configuration.Configuration;
 import org.apache.flink.util.Collector;
 
 import java.util.List;
@@ -30,34 +30,31 @@ import java.util.Map;
 
 import static org.apache.flink.util.Preconditions.checkNotNull;
 
-/**
- * Adapter that expresses {@link PatternFlatSelectFunction} with {@link PatternProcessFunction}.
- */
+/** Adapter that expresses {@link PatternFlatSelectFunction} with {@link PatternProcessFunction}. */
 @Internal
 public class PatternFlatSelectAdapter<IN, OUT> extends PatternProcessFunction<IN, OUT> {
 
-	private final PatternFlatSelectFunction<IN, OUT> flatSelectFunction;
+    private final PatternFlatSelectFunction<IN, OUT> flatSelectFunction;
 
-	public PatternFlatSelectAdapter(final PatternFlatSelectFunction<IN, OUT> flatSelectFunction) {
-		this.flatSelectFunction = checkNotNull(flatSelectFunction);
-	}
+    public PatternFlatSelectAdapter(final PatternFlatSelectFunction<IN, OUT> flatSelectFunction) {
+        this.flatSelectFunction = checkNotNull(flatSelectFunction);
+    }
 
-	@Override
-	public void open(final Configuration parameters) throws Exception {
-		FunctionUtils.setFunctionRuntimeContext(flatSelectFunction, getRuntimeContext());
-		FunctionUtils.openFunction(flatSelectFunction, parameters);
-	}
+    @Override
+    public void open(final OpenContext openContext) throws Exception {
+        FunctionUtils.setFunctionRuntimeContext(flatSelectFunction, getRuntimeContext());
+        FunctionUtils.openFunction(flatSelectFunction, openContext);
+    }
 
-	@Override
-	public void close() throws Exception {
-		FunctionUtils.closeFunction(flatSelectFunction);
-	}
+    @Override
+    public void close() throws Exception {
+        FunctionUtils.closeFunction(flatSelectFunction);
+    }
 
-	@Override
-	public void processMatch(
-			final Map<String, List<IN>> match,
-			final Context ctx,
-			final Collector<OUT> out) throws Exception {
-		flatSelectFunction.flatSelect(match, out);
-	}
+    @Override
+    public void processMatch(
+            final Map<String, List<IN>> match, final Context ctx, final Collector<OUT> out)
+            throws Exception {
+        flatSelectFunction.flatSelect(match, out);
+    }
 }

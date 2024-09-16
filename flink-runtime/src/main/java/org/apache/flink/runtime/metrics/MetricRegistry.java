@@ -22,66 +22,59 @@ import org.apache.flink.metrics.Metric;
 import org.apache.flink.runtime.metrics.dump.MetricQueryService;
 import org.apache.flink.runtime.metrics.groups.AbstractMetricGroup;
 import org.apache.flink.runtime.metrics.scope.ScopeFormats;
+import org.apache.flink.traces.Span;
+import org.apache.flink.traces.SpanBuilder;
 
 import javax.annotation.Nullable;
 
-/**
- * Interface for a metric registry.
- */
+/** Interface for a metric registry. */
 public interface MetricRegistry {
 
-	/**
-	 * Returns the global delimiter.
-	 *
-	 * @return global delimiter
-	 */
-	char getDelimiter();
+    /**
+     * Returns the global delimiter.
+     *
+     * @return global delimiter
+     */
+    char getDelimiter();
 
-	/**
-	 * Returns the configured delimiter for the reporter with the given index.
-	 *
-	 * @param index index of the reporter whose delimiter should be used
-	 * @return configured reporter delimiter, or global delimiter if index is invalid
-	 */
-	char getDelimiter(int index);
+    /** Returns the number of registered reporters. */
+    int getNumberReporters();
 
-	/**
-	 * Returns the number of registered reporters.
-	 */
-	int getNumberReporters();
+    /** Add and log a {@link Span}. */
+    void addSpan(SpanBuilder spanBuilder);
 
-	/**
-	 * Registers a new {@link Metric} with this registry.
-	 *
-	 * @param metric      the metric that was added
-	 * @param metricName  the name of the metric
-	 * @param group       the group that contains the metric
-	 */
-	void register(Metric metric, String metricName, AbstractMetricGroup group);
+    /**
+     * Registers a new {@link Metric} with this registry.
+     *
+     * @param metric the metric that was added
+     * @param metricName the name of the metric
+     * @param group the group that contains the metric
+     */
+    void register(Metric metric, String metricName, AbstractMetricGroup group);
 
-	/**
-	 * Un-registers the given {@link Metric} with this registry.
-	 *
-	 * @param metric      the metric that should be removed
-	 * @param metricName  the name of the metric
-	 * @param group       the group that contains the metric
-	 */
-	void unregister(Metric metric, String metricName, AbstractMetricGroup group);
+    /**
+     * Un-registers the given {@link Metric} with this registry.
+     *
+     * @param metric the metric that should be removed
+     * @param metricName the name of the metric
+     * @param group the group that contains the metric
+     */
+    void unregister(Metric metric, String metricName, AbstractMetricGroup group);
 
-	/**
-	 * Returns the scope formats.
-	 *
-	 * @return scope formats
-	 */
-	ScopeFormats getScopeFormats();
+    /**
+     * Returns the scope formats.
+     *
+     * @return scope formats
+     */
+    ScopeFormats getScopeFormats();
 
-	/**
-	 * Returns the gateway of the {@link MetricQueryService} or null, if none is started.
-	 *
-	 * @return Gateway of the MetricQueryService or null, if none is started
-	 */
-	@Nullable
-	default String getMetricQueryServiceGatewayRpcAddress() {
-		return null;
-	}
+    /**
+     * Returns the gateway of the {@link MetricQueryService} or null, if none is started.
+     *
+     * @return Gateway of the MetricQueryService or null, if none is started
+     */
+    @Nullable
+    default String getMetricQueryServiceGatewayRpcAddress() {
+        return null;
+    }
 }

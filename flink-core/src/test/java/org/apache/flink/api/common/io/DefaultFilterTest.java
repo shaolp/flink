@@ -17,54 +17,51 @@
  */
 package org.apache.flink.api.common.io;
 
+import org.apache.flink.core.fs.Path;
+import org.apache.flink.testutils.junit.extensions.parameterized.ParameterizedTestExtension;
+import org.apache.flink.testutils.junit.extensions.parameterized.Parameters;
+
+import org.junit.jupiter.api.TestTemplate;
+import org.junit.jupiter.api.extension.ExtendWith;
+
 import java.util.Arrays;
 import java.util.Collection;
 
-import org.apache.flink.core.fs.Path;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
-import org.junit.runners.Parameterized.Parameters;
+import static org.assertj.core.api.Assertions.assertThat;
 
-import static org.junit.Assert.assertEquals;
+@ExtendWith(ParameterizedTestExtension.class)
+class DefaultFilterTest {
+    @Parameters
+    private static Collection<Object[]> data() {
+        return Arrays.asList(
+                new Object[][] {
+                    {"file.txt", false},
+                    {".file.txt", true},
+                    {"dir/.file.txt", true},
+                    {".dir/file.txt", false},
+                    {"_file.txt", true},
+                    {"dir/_file.txt", true},
+                    {"_dir/file.txt", false},
 
-@RunWith(Parameterized.class)
-public class DefaultFilterTest {
-	@Parameters
-	public static Collection<Object[]> data() {
-		return Arrays.asList(new Object[][] {
-			{"file.txt",			false},
+                    // Check filtering Hadoop's unfinished files
+                    {FilePathFilter.HADOOP_COPYING, true},
+                    {"dir/" + FilePathFilter.HADOOP_COPYING, true},
+                    {FilePathFilter.HADOOP_COPYING + "/file.txt", false},
+                });
+    }
 
-			{".file.txt",			true},
-			{"dir/.file.txt",		true},
-			{".dir/file.txt",		false},
+    private final boolean shouldFilter;
+    private final String filePath;
 
-			{"_file.txt",			true},
-			{"dir/_file.txt",		true},
-			{"_dir/file.txt",		false},
+    DefaultFilterTest(String filePath, boolean shouldFilter) {
+        this.filePath = filePath;
+        this.shouldFilter = shouldFilter;
+    }
 
-			// Check filtering Hadoop's unfinished files
-			{FilePathFilter.HADOOP_COPYING,			true},
-			{"dir/" + FilePathFilter.HADOOP_COPYING,		true},
-			{FilePathFilter.HADOOP_COPYING + "/file.txt",	false},
-		});
-	}
-
-	private final boolean shouldFilter;
-	private final String filePath;
-
-	public DefaultFilterTest(String filePath, boolean shouldFilter) {
-		this.filePath = filePath;
-		this.shouldFilter = shouldFilter;
-	}
-
-	@Test
-	public void test() {
-		FilePathFilter defaultFilter = FilePathFilter.createDefaultFilter();
-		Path path = new Path(filePath);
-		assertEquals(
-			String.format("File: %s", filePath),
-			shouldFilter,
-			defaultFilter.filterPath(path));
-	}
+    @TestTemplate
+    void test() {
+        FilePathFilter defaultFilter = FilePathFilter.createDefaultFilter();
+        Path path = new Path(filePath);
+        assertThat(defaultFilter.filterPath(path)).as("File: " + filePath).isEqualTo(shouldFilter);
+    }
 }

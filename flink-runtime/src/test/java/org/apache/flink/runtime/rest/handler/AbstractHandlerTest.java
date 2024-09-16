@@ -18,183 +18,342 @@
 
 package org.apache.flink.runtime.rest.handler;
 
+import org.apache.flink.configuration.Configuration;
+import org.apache.flink.configuration.RestOptions;
+import org.apache.flink.runtime.rest.FlinkHttpObjectAggregator;
 import org.apache.flink.runtime.rest.HttpMethodWrapper;
+import org.apache.flink.runtime.rest.RestClient;
 import org.apache.flink.runtime.rest.handler.router.RouteResult;
 import org.apache.flink.runtime.rest.handler.router.RoutedRequest;
 import org.apache.flink.runtime.rest.messages.EmptyMessageParameters;
 import org.apache.flink.runtime.rest.messages.EmptyRequestBody;
+import org.apache.flink.runtime.rest.messages.EmptyResponseBody;
 import org.apache.flink.runtime.rest.messages.UntypedResponseMessageHeaders;
+import org.apache.flink.runtime.rest.util.TestMessageHeaders;
+import org.apache.flink.runtime.rest.util.TestRestHandler;
+import org.apache.flink.runtime.rest.util.TestRestServerEndpoint;
+import org.apache.flink.runtime.rest.versioning.RuntimeRestAPIVersion;
 import org.apache.flink.runtime.rpc.RpcUtils;
 import org.apache.flink.runtime.webmonitor.RestfulGateway;
+import org.apache.flink.runtime.webmonitor.TestingDispatcherGateway;
 import org.apache.flink.runtime.webmonitor.TestingRestfulGateway;
 import org.apache.flink.runtime.webmonitor.retriever.GatewayRetriever;
-import org.apache.flink.util.TestLogger;
+import org.apache.flink.util.ConfigurationException;
+import org.apache.flink.util.concurrent.Executors;
+import org.apache.flink.util.concurrent.FutureUtils;
 
 import org.apache.flink.shaded.netty4.io.netty.buffer.Unpooled;
 import org.apache.flink.shaded.netty4.io.netty.channel.Channel;
+import org.apache.flink.shaded.netty4.io.netty.channel.ChannelFuture;
 import org.apache.flink.shaded.netty4.io.netty.channel.ChannelHandlerContext;
+import org.apache.flink.shaded.netty4.io.netty.channel.ChannelPipeline;
 import org.apache.flink.shaded.netty4.io.netty.handler.codec.http.DefaultFullHttpRequest;
 import org.apache.flink.shaded.netty4.io.netty.handler.codec.http.HttpMethod;
 import org.apache.flink.shaded.netty4.io.netty.handler.codec.http.HttpRequest;
+import org.apache.flink.shaded.netty4.io.netty.handler.codec.http.HttpResponse;
+import org.apache.flink.shaded.netty4.io.netty.handler.codec.http.HttpStatusClass;
 import org.apache.flink.shaded.netty4.io.netty.handler.codec.http.HttpVersion;
 import org.apache.flink.shaded.netty4.io.netty.util.Attribute;
 import org.apache.flink.shaded.netty4.io.netty.util.AttributeKey;
 
-import org.junit.Assert;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import javax.annotation.Nonnull;
 
+import java.io.File;
+import java.net.InetAddress;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Matchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-/**
- * Tests for {@link AbstractHandler}.
- */
-public class AbstractHandlerTest extends TestLogger {
+/** Tests for {@link AbstractHandler}. */
+class AbstractHandlerTest {
 
-	@Rule
-	public final TemporaryFolder temporaryFolder = new TemporaryFolder();
+    private static final RestfulGateway mockRestfulGateway =
+            TestingDispatcherGateway.newBuilder().build();
 
-	@Test
-	public void testFileCleanup() throws Exception {
-		final Path dir = temporaryFolder.newFolder().toPath();
-		final Path file = dir.resolve("file");
-		Files.createFile(file);
+    private static final GatewayRetriever<RestfulGateway> mockGatewayRetriever =
+            () -> CompletableFuture.completedFuture(mockRestfulGateway);
 
-		RestfulGateway mockRestfulGateway = TestingRestfulGateway.newBuilder()
-			.build();
+    private static final Configuration REST_BASE_CONFIG;
 
-		final GatewayRetriever<RestfulGateway> mockGatewayRetriever = () ->
-			CompletableFuture.completedFuture(mockRestfulGateway);
+    static {
+        final String loopbackAddress = InetAddress.getLoopbackAddress().getHostAddress();
 
-		CompletableFuture<Void> requestProcessingCompleteFuture = new CompletableFuture<>();
-		TestHandler handler = new TestHandler(requestProcessingCompleteFuture, mockGatewayRetriever);
+        final Configuration config = new Configuration();
+        config.set(RestOptions.BIND_PORT, "0");
+        config.set(RestOptions.BIND_ADDRESS, loopbackAddress);
+        config.set(RestOptions.ADDRESS, loopbackAddress);
 
-		RouteResult<?> routeResult = new RouteResult<>("", "", Collections.emptyMap(), Collections.emptyMap(), "");
-		HttpRequest request = new DefaultFullHttpRequest(
-			HttpVersion.HTTP_1_1,
-			HttpMethod.GET,
-			TestHandler.TestHeaders.INSTANCE.getTargetRestEndpointURL(),
-			Unpooled.wrappedBuffer(new byte[0]));
-		RoutedRequest<?> routerRequest = new RoutedRequest<>(routeResult, request);
+        REST_BASE_CONFIG = config;
+    }
 
-		Attribute<FileUploads> attribute = new SimpleAttribute();
-		attribute.set(new FileUploads(dir));
-		Channel channel = mock(Channel.class);
-		when(channel.attr(any(AttributeKey.class))).thenReturn(attribute);
+    private RestClient createRestClient(int serverPort) throws ConfigurationException {
+        Configuration config = new Configuration(REST_BASE_CONFIG);
+        config.set(RestOptions.PORT, serverPort);
 
-		ChannelHandlerContext context = mock(ChannelHandlerContext.class);
-		when(context.channel()).thenReturn(channel);
+        return new RestClient(config, Executors.directExecutor());
+    }
 
-		handler.respondAsLeader(context, routerRequest, mockRestfulGateway);
+    @Test
+    void testOOMErrorMessageEnrichment() throws Exception {
+        final TestMessageHeaders<EmptyRequestBody, EmptyResponseBody, EmptyMessageParameters>
+                messageHeaders =
+                        TestMessageHeaders.emptyBuilder()
+                                .setTargetRestEndpointURL("/test-handler")
+                                .build();
 
-		// the (asynchronous) request processing is not yet complete so the files should still exist
-		Assert.assertTrue(Files.exists(file));
-		requestProcessingCompleteFuture.complete(null);
-		Assert.assertFalse(Files.exists(file));
-	}
+        final TestRestHandler<
+                        RestfulGateway, EmptyRequestBody, EmptyResponseBody, EmptyMessageParameters>
+                testRestHandler =
+                        new TestRestHandler<>(
+                                mockGatewayRetriever,
+                                messageHeaders,
+                                FutureUtils.completedExceptionally(
+                                        new OutOfMemoryError("Metaspace")));
 
-	private static class SimpleAttribute implements Attribute<FileUploads> {
+        try (final TestRestServerEndpoint server =
+                        TestRestServerEndpoint.builder(REST_BASE_CONFIG)
+                                .withHandler(messageHeaders, testRestHandler)
+                                .buildAndStart();
+                final RestClient restClient =
+                        createRestClient(server.getServerAddress().getPort())) {
+            CompletableFuture<EmptyResponseBody> response =
+                    restClient.sendRequest(
+                            server.getServerAddress().getHostName(),
+                            server.getServerAddress().getPort(),
+                            messageHeaders,
+                            EmptyMessageParameters.getInstance(),
+                            EmptyRequestBody.getInstance());
 
-		private static final AttributeKey<FileUploads> KEY = AttributeKey.valueOf("test");
+            assertThatThrownBy(response::get)
+                    .as(
+                            "An ExecutionException was expected here being caused by the OutOfMemoryError.")
+                    .isInstanceOf(ExecutionException.class)
+                    .hasMessageContaining(
+                            "Metaspace. The metaspace out-of-memory error has occurred. ");
+        }
+    }
 
-		private final AtomicReference<FileUploads> container = new AtomicReference<>();
+    @Test
+    void testFileCleanup(@TempDir File temporaryFolder) throws Exception {
+        final Path dir = temporaryFolder.toPath();
+        final Path file = dir.resolve("file");
+        Files.createFile(file);
 
-		@Override
-		public AttributeKey<FileUploads> key() {
-			return KEY;
-		}
+        RestfulGateway mockRestfulGateway = new TestingRestfulGateway.Builder().build();
 
-		@Override
-		public FileUploads get() {
-			return container.get();
-		}
+        final GatewayRetriever<RestfulGateway> mockGatewayRetriever =
+                () -> CompletableFuture.completedFuture(mockRestfulGateway);
 
-		@Override
-		public void set(FileUploads value) {
-			container.set(value);
-		}
+        CompletableFuture<Void> requestProcessingCompleteFuture = new CompletableFuture<>();
+        TestHandler handler =
+                new TestHandler(requestProcessingCompleteFuture, mockGatewayRetriever);
 
-		@Override
-		public FileUploads getAndSet(FileUploads value) {
-			return container.getAndSet(value);
-		}
+        RouteResult<?> routeResult =
+                new RouteResult<>("", "", Collections.emptyMap(), Collections.emptyMap(), "");
+        HttpRequest request =
+                new DefaultFullHttpRequest(
+                        HttpVersion.HTTP_1_1,
+                        HttpMethod.GET,
+                        TestHandler.TestHeaders.INSTANCE.getTargetRestEndpointURL(),
+                        Unpooled.wrappedBuffer(new byte[0]));
+        RoutedRequest<?> routerRequest = new RoutedRequest<>(routeResult, request);
 
-		@Override
-		public FileUploads setIfAbsent(FileUploads value) {
-			if (container.compareAndSet(null, value)) {
-				return value;
-			} else {
-				return container.get();
-			}
-		}
+        Attribute<FileUploads> attribute = new SimpleAttribute();
+        attribute.set(new FileUploads(dir));
+        Channel channel = mock(Channel.class);
+        when(channel.attr(any(AttributeKey.class))).thenReturn(attribute);
 
-		@Override
-		public FileUploads getAndRemove() {
-			return container.getAndSet(null);
-		}
+        ChannelHandlerContext context = mock(ChannelHandlerContext.class);
+        when(context.channel()).thenReturn(channel);
 
-		@Override
-		public boolean compareAndSet(FileUploads oldValue, FileUploads newValue) {
-			return container.compareAndSet(oldValue, newValue);
-		}
+        handler.respondAsLeader(context, routerRequest, mockRestfulGateway);
 
-		@Override
-		public void remove() {
-			set(null);
-		}
-	}
+        // the (asynchronous) request processing is not yet complete so the files should still exist
+        assertThat(Files.exists(file)).isTrue();
+        requestProcessingCompleteFuture.complete(null);
+        assertThat(Files.exists(file)).isFalse();
+    }
 
-	private static class TestHandler extends AbstractHandler<RestfulGateway, EmptyRequestBody, EmptyMessageParameters> {
-		private final CompletableFuture<Void> completionFuture;
+    @Test
+    void testIgnoringUnknownFields() {
+        RestfulGateway mockRestfulGateway = new TestingRestfulGateway.Builder().build();
 
-		protected TestHandler(CompletableFuture<Void> completionFuture, @Nonnull GatewayRetriever<? extends RestfulGateway> leaderRetriever) {
-			super(leaderRetriever, RpcUtils.INF_TIMEOUT, Collections.emptyMap(), TestHeaders.INSTANCE);
-			this.completionFuture = completionFuture;
-		}
+        CompletableFuture<Void> requestProcessingCompleteFuture = new CompletableFuture<>();
+        TestHandler handler =
+                new TestHandler(requestProcessingCompleteFuture, mockGatewayRetriever);
 
-		@Override
-		protected CompletableFuture<Void> respondToRequest(ChannelHandlerContext ctx, HttpRequest httpRequest, HandlerRequest<EmptyRequestBody, EmptyMessageParameters> handlerRequest, RestfulGateway gateway) throws RestHandlerException {
-			return completionFuture;
-		}
+        RouteResult<?> routeResult =
+                new RouteResult<>("", "", Collections.emptyMap(), Collections.emptyMap(), "");
+        String requestBody = "{\"unknown_field_should_be_ignore\": true}";
+        HttpRequest request =
+                new DefaultFullHttpRequest(
+                        HttpVersion.HTTP_1_1,
+                        HttpMethod.POST,
+                        TestHandler.TestHeaders.INSTANCE.getTargetRestEndpointURL(),
+                        Unpooled.wrappedBuffer(requestBody.getBytes(StandardCharsets.UTF_8)));
+        RoutedRequest<?> routerRequest = new RoutedRequest<>(routeResult, request);
 
-		private enum TestHeaders implements UntypedResponseMessageHeaders<EmptyRequestBody, EmptyMessageParameters> {
-			INSTANCE;
+        AtomicReference<HttpResponse> response = new AtomicReference<>();
 
-			@Override
-			public Class<EmptyRequestBody> getRequestClass() {
-				return EmptyRequestBody.class;
-			}
+        FlinkHttpObjectAggregator aggregator =
+                new FlinkHttpObjectAggregator(
+                        RestOptions.SERVER_MAX_CONTENT_LENGTH.defaultValue(),
+                        Collections.emptyMap());
+        ChannelPipeline pipeline = mock(ChannelPipeline.class);
+        when(pipeline.get(eq(FlinkHttpObjectAggregator.class))).thenReturn(aggregator);
 
-			@Override
-			public EmptyMessageParameters getUnresolvedMessageParameters() {
-				return EmptyMessageParameters.getInstance();
-			}
+        ChannelFuture succeededFuture = mock(ChannelFuture.class);
+        when(succeededFuture.isSuccess()).thenReturn(true);
 
-			@Override
-			public HttpMethodWrapper getHttpMethod() {
-				return HttpMethodWrapper.POST;
-			}
+        Attribute<FileUploads> attribute = new SimpleAttribute();
+        Channel channel = mock(Channel.class);
+        when(channel.attr(any(AttributeKey.class))).thenReturn(attribute);
 
-			@Override
-			public String getTargetRestEndpointURL() {
-				return "/test";
-			}
+        ChannelHandlerContext context = mock(ChannelHandlerContext.class);
+        when(context.pipeline()).thenReturn(pipeline);
+        when(context.channel()).thenReturn(channel);
+        when(context.write(any()))
+                .thenAnswer(
+                        invocation -> {
+                            if (invocation.getArguments().length > 0
+                                    && invocation.getArgument(0) instanceof HttpResponse) {
+                                response.set(invocation.getArgument(0));
+                            }
+                            return succeededFuture;
+                        });
+        when(context.writeAndFlush(any())).thenReturn(succeededFuture);
 
-			@Override
-			public boolean acceptsFileUploads() {
-				return true;
-			}
-		}
-	}
+        handler.respondAsLeader(context, routerRequest, mockRestfulGateway);
+        assertThat(
+                        response.get() == null
+                                || response.get().status().codeClass() == HttpStatusClass.SUCCESS)
+                .isTrue();
+    }
+
+    private static class SimpleAttribute implements Attribute<FileUploads> {
+
+        private static final AttributeKey<FileUploads> KEY = AttributeKey.valueOf("test");
+
+        private final AtomicReference<FileUploads> container = new AtomicReference<>();
+
+        @Override
+        public AttributeKey<FileUploads> key() {
+            return KEY;
+        }
+
+        @Override
+        public FileUploads get() {
+            return container.get();
+        }
+
+        @Override
+        public void set(FileUploads value) {
+            container.set(value);
+        }
+
+        @Override
+        public FileUploads getAndSet(FileUploads value) {
+            return container.getAndSet(value);
+        }
+
+        @Override
+        public FileUploads setIfAbsent(FileUploads value) {
+            if (container.compareAndSet(null, value)) {
+                return value;
+            } else {
+                return container.get();
+            }
+        }
+
+        @Override
+        public FileUploads getAndRemove() {
+            return container.getAndSet(null);
+        }
+
+        @Override
+        public boolean compareAndSet(FileUploads oldValue, FileUploads newValue) {
+            return container.compareAndSet(oldValue, newValue);
+        }
+
+        @Override
+        public void remove() {
+            set(null);
+        }
+    }
+
+    private static class TestHandler
+            extends AbstractHandler<RestfulGateway, EmptyRequestBody, EmptyMessageParameters> {
+        private final CompletableFuture<Void> completionFuture;
+
+        protected TestHandler(
+                CompletableFuture<Void> completionFuture,
+                @Nonnull GatewayRetriever<? extends RestfulGateway> leaderRetriever) {
+            super(
+                    leaderRetriever,
+                    RpcUtils.INF_TIMEOUT,
+                    Collections.emptyMap(),
+                    TestHeaders.INSTANCE);
+            this.completionFuture = completionFuture;
+        }
+
+        @Override
+        protected CompletableFuture<Void> respondToRequest(
+                ChannelHandlerContext ctx,
+                HttpRequest httpRequest,
+                HandlerRequest<EmptyRequestBody> handlerRequest,
+                RestfulGateway gateway)
+                throws RestHandlerException {
+            return completionFuture;
+        }
+
+        private enum TestHeaders
+                implements UntypedResponseMessageHeaders<EmptyRequestBody, EmptyMessageParameters> {
+            INSTANCE;
+
+            @Override
+            public Class<EmptyRequestBody> getRequestClass() {
+                return EmptyRequestBody.class;
+            }
+
+            @Override
+            public EmptyMessageParameters getUnresolvedMessageParameters() {
+                return EmptyMessageParameters.getInstance();
+            }
+
+            @Override
+            public HttpMethodWrapper getHttpMethod() {
+                return HttpMethodWrapper.POST;
+            }
+
+            @Override
+            public String getTargetRestEndpointURL() {
+                return "/test";
+            }
+
+            @Override
+            public boolean acceptsFileUploads() {
+                return true;
+            }
+
+            @Override
+            public Collection<RuntimeRestAPIVersion> getSupportedAPIVersions() {
+                return Collections.singleton(RuntimeRestAPIVersion.V1);
+            }
+        }
+    }
 }

@@ -19,103 +19,178 @@
 package org.apache.flink.client.program;
 
 import org.apache.flink.api.common.ExecutionConfig;
-import org.apache.flink.api.common.InvalidProgramException;
 import org.apache.flink.api.common.JobExecutionResult;
-import org.apache.flink.api.common.JobSubmissionResult;
-import org.apache.flink.api.common.Plan;
 import org.apache.flink.api.java.ExecutionEnvironment;
-import org.apache.flink.runtime.jobgraph.SavepointRestoreSettings;
+import org.apache.flink.api.java.ExecutionEnvironmentFactory;
+import org.apache.flink.client.ClientUtils;
+import org.apache.flink.client.cli.ClientOptions;
+import org.apache.flink.configuration.Configuration;
+import org.apache.flink.configuration.DeploymentOptions;
+import org.apache.flink.core.execution.DetachedJobExecutionResult;
+import org.apache.flink.core.execution.JobClient;
+import org.apache.flink.core.execution.JobListener;
+import org.apache.flink.core.execution.PipelineExecutorServiceLoader;
+import org.apache.flink.util.ExceptionUtils;
+import org.apache.flink.util.FlinkRuntimeException;
+import org.apache.flink.util.ShutdownHookUtil;
 
-import java.net.URL;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
-/**
- * Execution Environment for remote execution with the Client.
- */
+import static org.apache.flink.util.Preconditions.checkNotNull;
+
+/** Execution Environment for remote execution with the Client. */
 public class ContextEnvironment extends ExecutionEnvironment {
 
-	private final ClusterClient<?> client;
+    private static final Logger LOG = LoggerFactory.getLogger(ExecutionEnvironment.class);
 
-	private final boolean detached;
+    private final boolean suppressSysout;
 
-	private final List<URL> jarFilesToAttach;
+    private final boolean enforceSingleJobExecution;
 
-	private final List<URL> classpathsToAttach;
+    private int jobCounter;
 
-	private final ClassLoader userCodeClassLoader;
+    public ContextEnvironment(
+            final PipelineExecutorServiceLoader executorServiceLoader,
+            final Configuration configuration,
+            final ClassLoader userCodeClassLoader,
+            final boolean enforceSingleJobExecution,
+            final boolean suppressSysout) {
+        super(executorServiceLoader, configuration, userCodeClassLoader);
+        this.suppressSysout = suppressSysout;
+        this.enforceSingleJobExecution = enforceSingleJobExecution;
 
-	private final SavepointRestoreSettings savepointSettings;
+        this.jobCounter = 0;
+    }
 
-	private boolean alreadyCalled;
+    @Override
+    public JobExecutionResult execute(String jobName) throws Exception {
+        final JobClient jobClient = executeAsync(jobName);
+        final List<JobListener> jobListeners = getJobListeners();
 
-	public ContextEnvironment(ClusterClient<?> remoteConnection, List<URL> jarFiles, List<URL> classpaths,
-				ClassLoader userCodeClassLoader, SavepointRestoreSettings savepointSettings, boolean detached) {
-		this.client = remoteConnection;
-		this.jarFilesToAttach = jarFiles;
-		this.classpathsToAttach = classpaths;
-		this.userCodeClassLoader = userCodeClassLoader;
-		this.savepointSettings = savepointSettings;
+        try {
+            final JobExecutionResult jobExecutionResult = getJobExecutionResult(jobClient);
+            jobListeners.forEach(
+                    jobListener -> jobListener.onJobExecuted(jobExecutionResult, null));
+            return jobExecutionResult;
+        } catch (Throwable t) {
+            jobListeners.forEach(
+                    jobListener ->
+                            jobListener.onJobExecuted(
+                                    null, ExceptionUtils.stripExecutionException(t)));
+            ExceptionUtils.rethrowException(t);
 
-		this.detached = detached;
-		this.alreadyCalled = false;
-	}
+            // never reached, only make javac happy
+            return null;
+        }
+    }
 
-	@Override
-	public JobExecutionResult execute(String jobName) throws Exception {
-		verifyExecuteIsCalledOnceWhenInDetachedMode();
+    private JobExecutionResult getJobExecutionResult(final JobClient jobClient) throws Exception {
+        checkNotNull(jobClient);
 
-		final Plan plan = createProgramPlan(jobName);
-		final JobSubmissionResult jobSubmissionResult = client.run(
-			plan,
-			jarFilesToAttach,
-			classpathsToAttach,
-			userCodeClassLoader,
-			getParallelism(),
-			savepointSettings);
+        JobExecutionResult jobExecutionResult;
+        if (getConfiguration().get(DeploymentOptions.ATTACHED)) {
+            CompletableFuture<JobExecutionResult> jobExecutionResultFuture =
+                    jobClient.getJobExecutionResult();
 
-		lastJobExecutionResult = jobSubmissionResult.getJobExecutionResult();
-		return lastJobExecutionResult;
-	}
+            ScheduledExecutorService clientHeartbeatService = null;
+            if (getConfiguration().get(DeploymentOptions.SHUTDOWN_IF_ATTACHED)) {
+                Thread shutdownHook =
+                        ShutdownHookUtil.addShutdownHook(
+                                () -> {
+                                    // wait a smidgen to allow the async request to go through
+                                    // before
+                                    // the jvm exits
+                                    jobClient.cancel().get(1, TimeUnit.SECONDS);
+                                },
+                                ContextEnvironment.class.getSimpleName(),
+                                LOG);
+                jobExecutionResultFuture.whenComplete(
+                        (ignored, throwable) ->
+                                ShutdownHookUtil.removeShutdownHook(
+                                        shutdownHook,
+                                        ContextEnvironment.class.getSimpleName(),
+                                        LOG));
+                clientHeartbeatService =
+                        ClientUtils.reportHeartbeatPeriodically(
+                                jobClient,
+                                getConfiguration()
+                                        .get(ClientOptions.CLIENT_HEARTBEAT_INTERVAL)
+                                        .toMillis(),
+                                getConfiguration()
+                                        .get(ClientOptions.CLIENT_HEARTBEAT_TIMEOUT)
+                                        .toMillis());
+            }
 
-	private void verifyExecuteIsCalledOnceWhenInDetachedMode() {
-		if (alreadyCalled && detached) {
-			throw new InvalidProgramException(DetachedJobExecutionResult.DETACHED_MESSAGE + DetachedJobExecutionResult.EXECUTE_TWICE_MESSAGE);
-		}
-		alreadyCalled = true;
-	}
+            jobExecutionResult = jobExecutionResultFuture.get();
+            if (clientHeartbeatService != null) {
+                clientHeartbeatService.shutdown();
+            }
+            if (!suppressSysout) {
+                System.out.println(jobExecutionResult);
+            }
+            LOG.info(String.valueOf(jobExecutionResult));
+        } else {
+            jobExecutionResult = new DetachedJobExecutionResult(jobClient.getJobID());
+        }
 
-	@Override
-	public String toString() {
-		return "Context Environment (parallelism = " + (getParallelism() == ExecutionConfig.PARALLELISM_DEFAULT ? "default" : getParallelism()) + ")";
-	}
+        return jobExecutionResult;
+    }
 
-	public ClusterClient<?> getClient() {
-		return this.client;
-	}
+    @Override
+    public JobClient executeAsync(String jobName) throws Exception {
+        validateAllowedExecution();
+        final JobClient jobClient = super.executeAsync(jobName);
 
-	public List<URL> getJars(){
-		return jarFilesToAttach;
-	}
+        if (!suppressSysout) {
+            System.out.println("Job has been submitted with JobID " + jobClient.getJobID());
+        }
+        LOG.info("Job has been submitted with JobID {}", jobClient.getJobID());
+        return jobClient;
+    }
 
-	public List<URL> getClasspaths(){
-		return classpathsToAttach;
-	}
+    private void validateAllowedExecution() {
+        if (enforceSingleJobExecution && jobCounter > 0) {
+            throw new FlinkRuntimeException(
+                    "Cannot have more than one execute() or executeAsync() call in a single environment.");
+        }
+        jobCounter++;
+    }
 
-	public ClassLoader getUserCodeClassLoader() {
-		return userCodeClassLoader;
-	}
+    @Override
+    public String toString() {
+        return "Context Environment (parallelism = "
+                + (getParallelism() == ExecutionConfig.PARALLELISM_DEFAULT
+                        ? "default"
+                        : getParallelism())
+                + ")";
+    }
 
-	public SavepointRestoreSettings getSavepointRestoreSettings() {
-		return savepointSettings;
-	}
+    // --------------------------------------------------------------------------------------------
 
-	// --------------------------------------------------------------------------------------------
+    public static void setAsContext(
+            final PipelineExecutorServiceLoader executorServiceLoader,
+            final Configuration configuration,
+            final ClassLoader userCodeClassLoader,
+            final boolean enforceSingleJobExecution,
+            final boolean suppressSysout) {
+        ExecutionEnvironmentFactory factory =
+                () ->
+                        new ContextEnvironment(
+                                executorServiceLoader,
+                                configuration,
+                                userCodeClassLoader,
+                                enforceSingleJobExecution,
+                                suppressSysout);
+        initializeContextEnvironment(factory);
+    }
 
-	static void setAsContext(ContextEnvironmentFactory factory) {
-		initializeContextEnvironment(factory);
-	}
-
-	static void unsetContext() {
-		resetContextEnvironment();
-	}
+    public static void unsetAsContext() {
+        resetContextEnvironment();
+    }
 }

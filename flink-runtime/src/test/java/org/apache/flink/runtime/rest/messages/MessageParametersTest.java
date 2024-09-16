@@ -19,105 +19,101 @@
 package org.apache.flink.runtime.rest.messages;
 
 import org.apache.flink.api.common.JobID;
-import org.apache.flink.util.TestLogger;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.util.Collection;
 import java.util.Collections;
 
-/**
- * Tests for {@link MessageParameters}.
- */
-public class MessageParametersTest extends TestLogger {
-	@Test
-	public void testResolveUrl() {
-		String genericUrl = "/jobs/:jobid/state";
-		TestMessageParameters parameters = new TestMessageParameters();
-		JobID pathJobID = new JobID();
-		JobID queryJobID = new JobID();
-		parameters.pathParameter.resolve(pathJobID);
-		parameters.queryParameter.resolve(Collections.singletonList(queryJobID));
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-		String resolvedUrl = MessageParameters.resolveUrl(genericUrl, parameters);
+/** Tests for {@link MessageParameters}. */
+class MessageParametersTest {
+    @Test
+    void testResolveUrl() {
+        String genericUrl = "/jobs/:jobid/state";
+        TestMessageParameters parameters = new TestMessageParameters();
+        JobID pathJobID = new JobID();
+        JobID queryJobID = new JobID();
+        parameters.pathParameter.resolve(pathJobID);
+        parameters.queryParameter.resolve(Collections.singletonList(queryJobID));
 
-		Assert.assertEquals("/jobs/" + pathJobID + "/state?jobid=" + queryJobID, resolvedUrl);
-	}
+        String resolvedUrl = MessageParameters.resolveUrl(genericUrl, parameters);
 
-	@Test
-	public void testUnresolvedParameters() {
-		String genericUrl = "/jobs/:jobid/state";
-		TestMessageParameters parameters = new TestMessageParameters();
-		try {
-			MessageParameters.resolveUrl(genericUrl, parameters);
-			Assert.fail();
-		} catch (IllegalStateException expected) {
-			// the mandatory jobid path parameter was not resolved
-		}
-		JobID jobID = new JobID();
-		parameters.pathParameter.resolve(jobID);
+        assertThat("/jobs/" + pathJobID + "/state?jobid=" + queryJobID).isEqualTo(resolvedUrl);
+    }
 
-		String resolvedUrl = MessageParameters.resolveUrl(genericUrl, parameters);
-		Assert.assertEquals("/jobs/" + jobID + "/state", resolvedUrl);
-	}
+    @Test
+    void testUnresolvedParameters() {
+        String genericUrl = "/jobs/:jobid/state";
+        TestMessageParameters parameters = new TestMessageParameters();
+        assertThatThrownBy(() -> MessageParameters.resolveUrl(genericUrl, parameters))
+                .isInstanceOf(IllegalStateException.class);
 
-	private static class TestMessageParameters extends MessageParameters {
-		private final TestPathParameter pathParameter = new TestPathParameter();
-		private final TestQueryParameter queryParameter = new TestQueryParameter();
+        JobID jobID = new JobID();
+        parameters.pathParameter.resolve(jobID);
 
-		@Override
-		public Collection<MessagePathParameter<?>> getPathParameters() {
-			return Collections.singleton(pathParameter);
-		}
+        String resolvedUrl = MessageParameters.resolveUrl(genericUrl, parameters);
+        assertThat(resolvedUrl).isEqualTo("/jobs/" + jobID + "/state");
+    }
 
-		@Override
-		public Collection<MessageQueryParameter<?>> getQueryParameters() {
-			return Collections.singleton(queryParameter);
-		}
-	}
+    private static class TestMessageParameters extends MessageParameters {
+        private final TestPathParameter pathParameter = new TestPathParameter();
+        private final TestQueryParameter queryParameter = new TestQueryParameter();
 
-	private static class TestPathParameter extends MessagePathParameter<JobID> {
+        @Override
+        public Collection<MessagePathParameter<?>> getPathParameters() {
+            return Collections.singleton(pathParameter);
+        }
 
-		TestPathParameter() {
-			super("jobid");
-		}
+        @Override
+        public Collection<MessageQueryParameter<?>> getQueryParameters() {
+            return Collections.singleton(queryParameter);
+        }
+    }
 
-		@Override
-		public JobID convertFromString(String value) {
-			return JobID.fromHexString(value);
-		}
+    private static class TestPathParameter extends MessagePathParameter<JobID> {
 
-		@Override
-		protected String convertToString(JobID value) {
-			return value.toString();
-		}
+        TestPathParameter() {
+            super("jobid");
+        }
 
-		@Override
-		public String getDescription() {
-			return "path parameter";
-		}
-	}
+        @Override
+        public JobID convertFromString(String value) {
+            return JobID.fromHexString(value);
+        }
 
-	private static class TestQueryParameter extends MessageQueryParameter<JobID> {
+        @Override
+        protected String convertToString(JobID value) {
+            return value.toString();
+        }
 
-		TestQueryParameter() {
-			super("jobid", MessageParameterRequisiteness.OPTIONAL);
-		}
+        @Override
+        public String getDescription() {
+            return "path parameter";
+        }
+    }
 
-		@Override
-		public JobID convertStringToValue(String value) {
-			return JobID.fromHexString(value);
-		}
+    private static class TestQueryParameter extends MessageQueryParameter<JobID> {
 
-		@Override
-		public String convertValueToString(JobID value) {
-			return value.toString();
-		}
+        TestQueryParameter() {
+            super("jobid", MessageParameterRequisiteness.OPTIONAL);
+        }
 
-		@Override
-		public String getDescription() {
-			return "query parameter";
-		}
-	}
+        @Override
+        public JobID convertStringToValue(String value) {
+            return JobID.fromHexString(value);
+        }
+
+        @Override
+        public String convertValueToString(JobID value) {
+            return value.toString();
+        }
+
+        @Override
+        public String getDescription() {
+            return "query parameter";
+        }
+    }
 }

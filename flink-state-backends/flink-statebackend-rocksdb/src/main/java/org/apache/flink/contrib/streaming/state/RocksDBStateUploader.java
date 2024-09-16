@@ -18,136 +18,170 @@
 
 package org.apache.flink.contrib.streaming.state;
 
+import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.core.fs.CloseableRegistry;
-import org.apache.flink.core.fs.FSDataInputStream;
-import org.apache.flink.core.fs.FileSystem;
-import org.apache.flink.core.fs.Path;
-import org.apache.flink.runtime.concurrent.FutureUtils;
+import org.apache.flink.runtime.state.CheckpointStateOutputStream;
 import org.apache.flink.runtime.state.CheckpointStreamFactory;
 import org.apache.flink.runtime.state.CheckpointedStateScope;
-import org.apache.flink.runtime.state.StateHandleID;
+import org.apache.flink.runtime.state.IncrementalKeyedStateHandle.HandleAndLocalPath;
+import org.apache.flink.runtime.state.StateUtil;
 import org.apache.flink.runtime.state.StreamStateHandle;
 import org.apache.flink.util.ExceptionUtils;
 import org.apache.flink.util.FlinkRuntimeException;
 import org.apache.flink.util.IOUtils;
+import org.apache.flink.util.concurrent.FutureUtils;
 import org.apache.flink.util.function.CheckedSupplier;
 
 import javax.annotation.Nonnull;
 
+import java.io.Closeable;
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.Map;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
-import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
-/**
- * Help class for uploading RocksDB state files.
- */
-public class RocksDBStateUploader extends RocksDBStateDataTransfer {
-	private static final int READ_BUFFER_SIZE = 16 * 1024;
+/** Help class for uploading RocksDB state files. */
+public class RocksDBStateUploader implements Closeable {
+    private static final int READ_BUFFER_SIZE = 16 * 1024;
 
-	public RocksDBStateUploader(int numberOfSnapshottingThreads) {
-		super(numberOfSnapshottingThreads);
-	}
+    private final RocksDBStateDataTransferHelper transfer;
 
-	/**
-	 * Upload all the files to checkpoint fileSystem using specified number of threads.
-	 *
-	 * @param files The files will be uploaded to checkpoint filesystem.
-	 * @param checkpointStreamFactory The checkpoint streamFactory used to create outputstream.
-	 *
-	 * @throws Exception Thrown if can not upload all the files.
-	 */
-	public Map<StateHandleID, StreamStateHandle> uploadFilesToCheckpointFs(
-		@Nonnull Map<StateHandleID, Path> files,
-		CheckpointStreamFactory checkpointStreamFactory,
-		CloseableRegistry closeableRegistry) throws Exception {
+    @VisibleForTesting
+    public RocksDBStateUploader(int numberOfSnapshottingThreads) {
+        this(RocksDBStateDataTransferHelper.forThreadNum(numberOfSnapshottingThreads));
+    }
 
-		Map<StateHandleID, StreamStateHandle> handles = new HashMap<>();
+    public RocksDBStateUploader(RocksDBStateDataTransferHelper transfer) {
+        this.transfer = transfer;
+    }
 
-		Map<StateHandleID, CompletableFuture<StreamStateHandle>> futures =
-			createUploadFutures(files, checkpointStreamFactory, closeableRegistry);
+    /**
+     * Upload all the files to checkpoint fileSystem using specified number of threads.
+     *
+     * @param files The files will be uploaded to checkpoint filesystem.
+     * @param checkpointStreamFactory The checkpoint streamFactory used to create outputstream.
+     * @param stateScope
+     * @throws Exception Thrown if can not upload all the files.
+     */
+    public List<HandleAndLocalPath> uploadFilesToCheckpointFs(
+            @Nonnull List<Path> files,
+            CheckpointStreamFactory checkpointStreamFactory,
+            CheckpointedStateScope stateScope,
+            CloseableRegistry closeableRegistry,
+            CloseableRegistry tmpResourcesRegistry)
+            throws Exception {
 
-		try {
-			FutureUtils.waitForAll(futures.values()).get();
+        List<CompletableFuture<HandleAndLocalPath>> futures =
+                createUploadFutures(
+                        files,
+                        checkpointStreamFactory,
+                        stateScope,
+                        closeableRegistry,
+                        tmpResourcesRegistry);
 
-			for (Map.Entry<StateHandleID, CompletableFuture<StreamStateHandle>> entry : futures.entrySet()) {
-				handles.put(entry.getKey(), entry.getValue().get());
-			}
-		} catch (ExecutionException e) {
-			Throwable throwable = ExceptionUtils.stripExecutionException(e);
-			throwable = ExceptionUtils.stripException(throwable, RuntimeException.class);
-			if (throwable instanceof IOException) {
-				throw (IOException) throwable;
-			} else {
-				throw new FlinkRuntimeException("Failed to download data for state handles.", e);
-			}
-		}
+        List<HandleAndLocalPath> handles = new ArrayList<>(files.size());
 
-		return handles;
-	}
+        try {
+            FutureUtils.waitForAll(futures).get();
 
-	private Map<StateHandleID, CompletableFuture<StreamStateHandle>> createUploadFutures(
-		Map<StateHandleID, Path> files,
-		CheckpointStreamFactory checkpointStreamFactory,
-		CloseableRegistry closeableRegistry) {
-		Map<StateHandleID, CompletableFuture<StreamStateHandle>> futures = new HashMap<>(files.size());
+            for (CompletableFuture<HandleAndLocalPath> future : futures) {
+                handles.add(future.get());
+            }
+        } catch (ExecutionException e) {
+            Throwable throwable = ExceptionUtils.stripExecutionException(e);
+            throwable = ExceptionUtils.stripException(throwable, RuntimeException.class);
+            if (throwable instanceof IOException) {
+                throw (IOException) throwable;
+            } else {
+                throw new FlinkRuntimeException("Failed to upload data for state handles.", e);
+            }
+        }
 
-		for (Map.Entry<StateHandleID, Path> entry : files.entrySet()) {
-			final Supplier<StreamStateHandle> supplier =
-				CheckedSupplier.unchecked(() -> uploadLocalFileToCheckpointFs(entry.getValue(), checkpointStreamFactory, closeableRegistry));
-			futures.put(entry.getKey(), CompletableFuture.supplyAsync(supplier, executorService));
-		}
+        return handles;
+    }
 
-		return futures;
-	}
+    private List<CompletableFuture<HandleAndLocalPath>> createUploadFutures(
+            List<Path> files,
+            CheckpointStreamFactory checkpointStreamFactory,
+            CheckpointedStateScope stateScope,
+            CloseableRegistry closeableRegistry,
+            CloseableRegistry tmpResourcesRegistry) {
+        return files.stream()
+                .map(
+                        e ->
+                                CompletableFuture.supplyAsync(
+                                        CheckedSupplier.unchecked(
+                                                () ->
+                                                        uploadLocalFileToCheckpointFs(
+                                                                e,
+                                                                checkpointStreamFactory,
+                                                                stateScope,
+                                                                closeableRegistry,
+                                                                tmpResourcesRegistry)),
+                                        transfer.getExecutorService()))
+                .collect(Collectors.toList());
+    }
 
-	private StreamStateHandle uploadLocalFileToCheckpointFs(
-		Path filePath,
-		CheckpointStreamFactory checkpointStreamFactory,
-		CloseableRegistry closeableRegistry) throws IOException {
-		FSDataInputStream inputStream = null;
-		CheckpointStreamFactory.CheckpointStateOutputStream outputStream = null;
+    private HandleAndLocalPath uploadLocalFileToCheckpointFs(
+            Path filePath,
+            CheckpointStreamFactory checkpointStreamFactory,
+            CheckpointedStateScope stateScope,
+            CloseableRegistry closeableRegistry,
+            CloseableRegistry tmpResourcesRegistry)
+            throws IOException {
 
-		try {
-			final byte[] buffer = new byte[READ_BUFFER_SIZE];
+        InputStream inputStream = null;
+        CheckpointStateOutputStream outputStream = null;
 
-			FileSystem backupFileSystem = filePath.getFileSystem();
-			inputStream = backupFileSystem.open(filePath);
-			closeableRegistry.registerCloseable(inputStream);
+        try {
+            final byte[] buffer = new byte[READ_BUFFER_SIZE];
 
-			outputStream = checkpointStreamFactory
-				.createCheckpointStateOutputStream(CheckpointedStateScope.SHARED);
-			closeableRegistry.registerCloseable(outputStream);
+            inputStream = Files.newInputStream(filePath);
+            closeableRegistry.registerCloseable(inputStream);
 
-			while (true) {
-				int numBytes = inputStream.read(buffer);
+            outputStream = checkpointStreamFactory.createCheckpointStateOutputStream(stateScope);
+            closeableRegistry.registerCloseable(outputStream);
 
-				if (numBytes == -1) {
-					break;
-				}
+            while (true) {
+                int numBytes = inputStream.read(buffer);
 
-				outputStream.write(buffer, 0, numBytes);
-			}
+                if (numBytes == -1) {
+                    break;
+                }
 
-			StreamStateHandle result = null;
-			if (closeableRegistry.unregisterCloseable(outputStream)) {
-				result = outputStream.closeAndGetHandle();
-				outputStream = null;
-			}
-			return result;
+                outputStream.write(buffer, 0, numBytes);
+            }
 
-		} finally {
+            final StreamStateHandle result;
+            if (closeableRegistry.unregisterCloseable(outputStream)) {
+                result = outputStream.closeAndGetHandle();
+                outputStream = null;
+            } else {
+                result = null;
+            }
+            tmpResourcesRegistry.registerCloseable(
+                    () -> StateUtil.discardStateObjectQuietly(result));
+            return HandleAndLocalPath.of(result, filePath.getFileName().toString());
 
-			if (closeableRegistry.unregisterCloseable(inputStream)) {
-				IOUtils.closeQuietly(inputStream);
-			}
+        } finally {
 
-			if (closeableRegistry.unregisterCloseable(outputStream)) {
-				IOUtils.closeQuietly(outputStream);
-			}
-		}
-	}
+            if (closeableRegistry.unregisterCloseable(inputStream)) {
+                IOUtils.closeQuietly(inputStream);
+            }
+
+            if (closeableRegistry.unregisterCloseable(outputStream)) {
+                IOUtils.closeQuietly(outputStream);
+            }
+        }
+    }
+
+    @Override
+    public void close() throws IOException {
+        this.transfer.close();
+    }
 }
-

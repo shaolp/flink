@@ -19,15 +19,25 @@
 package org.apache.flink.runtime.state;
 
 import org.apache.flink.api.common.JobID;
+import org.apache.flink.configuration.Configuration;
 import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
 import org.apache.flink.runtime.checkpoint.CheckpointMetrics;
+import org.apache.flink.runtime.checkpoint.InflightDataRescalingDescriptor;
 import org.apache.flink.runtime.checkpoint.JobManagerTaskRestore;
 import org.apache.flink.runtime.checkpoint.OperatorSubtaskState;
 import org.apache.flink.runtime.checkpoint.PrioritizedOperatorSubtaskState;
+import org.apache.flink.runtime.checkpoint.SubTaskInitializationMetrics;
 import org.apache.flink.runtime.checkpoint.TaskStateSnapshot;
+import org.apache.flink.runtime.checkpoint.channel.SequentialChannelStateReader;
+import org.apache.flink.runtime.checkpoint.channel.SequentialChannelStateReaderImpl;
+import org.apache.flink.runtime.checkpoint.filemerging.FileMergingSnapshotManager;
 import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
 import org.apache.flink.runtime.jobgraph.OperatorID;
+import org.apache.flink.runtime.state.changelog.ChangelogStateHandle;
+import org.apache.flink.runtime.state.changelog.StateChangelogStorage;
+import org.apache.flink.runtime.state.changelog.StateChangelogStorageView;
 import org.apache.flink.runtime.taskmanager.CheckpointResponder;
+import org.apache.flink.util.ExceptionUtils;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,129 +45,281 @@ import org.slf4j.LoggerFactory;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
+import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
 /**
- * This class is the default implementation of {@link TaskStateManager} and collaborates with the job manager
- * through {@link CheckpointResponder}) as well as a task-manager-local state store. Like this, client code does
- * not have to deal with the differences between remote or local state on recovery because this class handles both
- * cases transparently.
+ * This class is the default implementation of {@link TaskStateManager} and collaborates with the
+ * job manager through {@link CheckpointResponder}) as well as a task-manager-local state store.
+ * Like this, client code does not have to deal with the differences between remote or local state
+ * on recovery because this class handles both cases transparently.
  *
- * <p>Reported state is tagged by clients so that this class can properly forward to the right receiver for the
- * checkpointed state.
+ * <p>Reported state is tagged by clients so that this class can properly forward to the right
+ * receiver for the checkpointed state.
  */
 public class TaskStateManagerImpl implements TaskStateManager {
 
-	/** The logger for this class. */
-	private static final Logger LOG = LoggerFactory.getLogger(TaskStateManagerImpl.class);
+    /** The logger for this class. */
+    private static final Logger LOG = LoggerFactory.getLogger(TaskStateManagerImpl.class);
 
-	/** The id of the job for which this manager was created, can report, and recover. */
-	private final JobID jobId;
+    /** The id of the job for which this manager was created, can report, and recover. */
+    private final JobID jobId;
 
-	/** The execution attempt id that this manager reports for. */
-	private final ExecutionAttemptID executionAttemptID;
+    /** The execution attempt id that this manager reports for. */
+    private final ExecutionAttemptID executionAttemptID;
 
-	/** The data given by the job manager to restore the job. This is null for a new job without previous state. */
-	@Nullable
-	private final JobManagerTaskRestore jobManagerTaskRestore;
+    /**
+     * The data given by the job manager to restore the job. This is null for a new job without
+     * previous state.
+     */
+    @Nullable private final JobManagerTaskRestore jobManagerTaskRestore;
 
-	/** The local state store to which this manager reports local state snapshots. */
-	private final TaskLocalStateStore localStateStore;
+    /** The local state store to which this manager reports local state snapshots. */
+    private final TaskLocalStateStore localStateStore;
 
-	/** The checkpoint responder through which this manager can report to the job manager. */
-	private final CheckpointResponder checkpointResponder;
+    /** The file merging snapshot manager */
+    @Nullable private final FileMergingSnapshotManagerClosableWrapper fileMergingSnapshotManager;
 
-	public TaskStateManagerImpl(
-		@Nonnull JobID jobId,
-		@Nonnull ExecutionAttemptID executionAttemptID,
-		@Nonnull TaskLocalStateStore localStateStore,
-		@Nullable JobManagerTaskRestore jobManagerTaskRestore,
-		@Nonnull CheckpointResponder checkpointResponder) {
+    /** The changelog storage where the manager reads and writes the changelog */
+    @Nullable private final StateChangelogStorage<?> stateChangelogStorage;
 
-		this.jobId = jobId;
-		this.localStateStore = localStateStore;
-		this.jobManagerTaskRestore = jobManagerTaskRestore;
-		this.executionAttemptID = executionAttemptID;
-		this.checkpointResponder = checkpointResponder;
-	}
+    private final TaskExecutorStateChangelogStoragesManager changelogStoragesManager;
 
-	@Override
-	public void reportTaskStateSnapshots(
-		@Nonnull CheckpointMetaData checkpointMetaData,
-		@Nonnull CheckpointMetrics checkpointMetrics,
-		@Nullable TaskStateSnapshot acknowledgedState,
-		@Nullable TaskStateSnapshot localState) {
+    /** The checkpoint responder through which this manager can report to the job manager. */
+    private final CheckpointResponder checkpointResponder;
 
-		long checkpointId = checkpointMetaData.getCheckpointId();
+    private final SequentialChannelStateReader sequentialChannelStateReader;
 
-		localStateStore.storeLocalState(checkpointId, localState);
+    public TaskStateManagerImpl(
+            @Nonnull JobID jobId,
+            @Nonnull ExecutionAttemptID executionAttemptID,
+            @Nonnull TaskLocalStateStore localStateStore,
+            @Nullable FileMergingSnapshotManagerClosableWrapper fileMergingSnapshotManager,
+            @Nullable StateChangelogStorage<?> stateChangelogStorage,
+            @Nonnull TaskExecutorStateChangelogStoragesManager changelogStoragesManager,
+            @Nullable JobManagerTaskRestore jobManagerTaskRestore,
+            @Nonnull CheckpointResponder checkpointResponder) {
+        this(
+                jobId,
+                executionAttemptID,
+                localStateStore,
+                fileMergingSnapshotManager,
+                stateChangelogStorage,
+                changelogStoragesManager,
+                jobManagerTaskRestore,
+                checkpointResponder,
+                new SequentialChannelStateReaderImpl(
+                        jobManagerTaskRestore == null
+                                ? new TaskStateSnapshot()
+                                : jobManagerTaskRestore.getTaskStateSnapshot()));
+    }
 
-		checkpointResponder.acknowledgeCheckpoint(
-			jobId,
-			executionAttemptID,
-			checkpointId,
-			checkpointMetrics,
-			acknowledgedState);
-	}
+    public TaskStateManagerImpl(
+            @Nonnull JobID jobId,
+            @Nonnull ExecutionAttemptID executionAttemptID,
+            @Nonnull TaskLocalStateStore localStateStore,
+            @Nullable FileMergingSnapshotManagerClosableWrapper fileMergingSnapshotManager,
+            @Nullable StateChangelogStorage<?> stateChangelogStorage,
+            @Nonnull TaskExecutorStateChangelogStoragesManager changelogStoragesManager,
+            @Nullable JobManagerTaskRestore jobManagerTaskRestore,
+            @Nonnull CheckpointResponder checkpointResponder,
+            @Nonnull SequentialChannelStateReaderImpl sequentialChannelStateReader) {
+        this.jobId = jobId;
+        this.localStateStore = localStateStore;
+        this.fileMergingSnapshotManager = fileMergingSnapshotManager;
+        this.stateChangelogStorage = stateChangelogStorage;
+        this.changelogStoragesManager = changelogStoragesManager;
+        this.jobManagerTaskRestore = jobManagerTaskRestore;
+        this.executionAttemptID = executionAttemptID;
+        this.checkpointResponder = checkpointResponder;
+        this.sequentialChannelStateReader = sequentialChannelStateReader;
+    }
 
-	@Nonnull
-	@Override
-	public PrioritizedOperatorSubtaskState prioritizedOperatorState(OperatorID operatorID) {
+    @Override
+    public void reportInitializationMetrics(
+            SubTaskInitializationMetrics subTaskInitializationMetrics) {
+        checkpointResponder.reportInitializationMetrics(
+                jobId, executionAttemptID, subTaskInitializationMetrics);
+    }
 
-		if (jobManagerTaskRestore == null) {
-			return PrioritizedOperatorSubtaskState.emptyNotRestored();
-		}
+    @Override
+    public void reportTaskStateSnapshots(
+            @Nonnull CheckpointMetaData checkpointMetaData,
+            @Nonnull CheckpointMetrics checkpointMetrics,
+            @Nullable TaskStateSnapshot acknowledgedState,
+            @Nullable TaskStateSnapshot localState) {
 
-		TaskStateSnapshot jobManagerStateSnapshot =
-			jobManagerTaskRestore.getTaskStateSnapshot();
+        long checkpointId = checkpointMetaData.getCheckpointId();
 
-		OperatorSubtaskState jobManagerSubtaskState =
-			jobManagerStateSnapshot.getSubtaskStateByOperatorID(operatorID);
+        localStateStore.storeLocalState(checkpointId, localState);
 
-		if (jobManagerSubtaskState == null) {
-			return PrioritizedOperatorSubtaskState.emptyNotRestored();
-		}
+        checkpointResponder.acknowledgeCheckpoint(
+                jobId, executionAttemptID, checkpointId, checkpointMetrics, acknowledgedState);
+    }
 
-		long restoreCheckpointId = jobManagerTaskRestore.getRestoreCheckpointId();
+    @Override
+    public void reportIncompleteTaskStateSnapshots(
+            CheckpointMetaData checkpointMetaData, CheckpointMetrics checkpointMetrics) {
 
-		TaskStateSnapshot localStateSnapshot =
-			localStateStore.retrieveLocalState(restoreCheckpointId);
+        checkpointResponder.reportCheckpointMetrics(
+                jobId, executionAttemptID, checkpointMetaData.getCheckpointId(), checkpointMetrics);
+    }
 
-		localStateStore.pruneMatchingCheckpoints((long checkpointId) -> checkpointId != restoreCheckpointId);
+    @Override
+    public InflightDataRescalingDescriptor getInputRescalingDescriptor() {
+        if (jobManagerTaskRestore == null) {
+            return InflightDataRescalingDescriptor.NO_RESCALE;
+        }
+        return jobManagerTaskRestore.getTaskStateSnapshot().getInputRescalingDescriptor();
+    }
 
-		List<OperatorSubtaskState> alternativesByPriority = Collections.emptyList();
+    @Override
+    public InflightDataRescalingDescriptor getOutputRescalingDescriptor() {
+        if (jobManagerTaskRestore == null) {
+            return InflightDataRescalingDescriptor.NO_RESCALE;
+        }
+        return jobManagerTaskRestore.getTaskStateSnapshot().getOutputRescalingDescriptor();
+    }
 
-		if (localStateSnapshot != null) {
-			OperatorSubtaskState localSubtaskState = localStateSnapshot.getSubtaskStateByOperatorID(operatorID);
+    public boolean isTaskDeployedAsFinished() {
+        if (jobManagerTaskRestore == null) {
+            return false;
+        }
 
-			if (localSubtaskState != null) {
-				alternativesByPriority = Collections.singletonList(localSubtaskState);
-			}
-		}
+        return jobManagerTaskRestore.getTaskStateSnapshot().isTaskDeployedAsFinished();
+    }
 
-		LOG.debug("Operator {} has remote state {} from job manager and local state alternatives {} from local " +
-				"state store {}.", operatorID, jobManagerSubtaskState, alternativesByPriority, localStateStore);
+    @Override
+    public Optional<Long> getRestoreCheckpointId() {
+        if (jobManagerTaskRestore == null) {
+            // This happens only if no checkpoint to restore.
+            return Optional.empty();
+        }
 
-		PrioritizedOperatorSubtaskState.Builder builder = new PrioritizedOperatorSubtaskState.Builder(
-			jobManagerSubtaskState,
-			alternativesByPriority,
-			true);
+        return Optional.of(jobManagerTaskRestore.getRestoreCheckpointId());
+    }
 
-		return builder.build();
-	}
+    @Override
+    public PrioritizedOperatorSubtaskState prioritizedOperatorState(OperatorID operatorID) {
 
-	@Nonnull
-	@Override
-	public LocalRecoveryConfig createLocalRecoveryConfig() {
-		return localStateStore.getLocalRecoveryConfig();
-	}
+        if (jobManagerTaskRestore == null) {
+            return PrioritizedOperatorSubtaskState.emptyNotRestored();
+        }
 
-	/**
-	 * Tracking when local state can be disposed.
-	 */
-	@Override
-	public void notifyCheckpointComplete(long checkpointId) throws Exception {
-		localStateStore.confirmCheckpoint(checkpointId);
-	}
+        TaskStateSnapshot jobManagerStateSnapshot = jobManagerTaskRestore.getTaskStateSnapshot();
+
+        OperatorSubtaskState jobManagerSubtaskState =
+                jobManagerStateSnapshot.getSubtaskStateByOperatorID(operatorID);
+
+        if (jobManagerSubtaskState == null) {
+            return PrioritizedOperatorSubtaskState.empty(
+                    jobManagerTaskRestore.getRestoreCheckpointId());
+        }
+
+        long restoreCheckpointId = jobManagerTaskRestore.getRestoreCheckpointId();
+
+        TaskStateSnapshot localStateSnapshot =
+                localStateStore.retrieveLocalState(restoreCheckpointId);
+
+        localStateStore.pruneMatchingCheckpoints(
+                (long checkpointId) -> checkpointId != restoreCheckpointId);
+
+        List<OperatorSubtaskState> alternativesByPriority = Collections.emptyList();
+
+        if (localStateSnapshot != null) {
+            OperatorSubtaskState localSubtaskState =
+                    localStateSnapshot.getSubtaskStateByOperatorID(operatorID);
+
+            if (localSubtaskState != null) {
+                alternativesByPriority = Collections.singletonList(localSubtaskState);
+            }
+        }
+
+        LOG.debug(
+                "Operator {} has remote state {} from job manager and local state alternatives {} from local "
+                        + "state store {}.",
+                operatorID,
+                jobManagerSubtaskState,
+                alternativesByPriority,
+                localStateStore);
+
+        PrioritizedOperatorSubtaskState.Builder builder =
+                new PrioritizedOperatorSubtaskState.Builder(
+                        jobManagerSubtaskState,
+                        alternativesByPriority,
+                        jobManagerTaskRestore.getRestoreCheckpointId());
+
+        return builder.build();
+    }
+
+    public Optional<OperatorSubtaskState> getSubtaskJobManagerRestoredState(OperatorID operatorID) {
+        if (jobManagerTaskRestore == null) {
+            return Optional.empty();
+        }
+        OperatorSubtaskState state =
+                jobManagerTaskRestore
+                        .getTaskStateSnapshot()
+                        .getSubtaskStateByOperatorID(operatorID);
+        return (state == null) ? Optional.empty() : Optional.of(state);
+    }
+
+    @Nonnull
+    @Override
+    public LocalRecoveryConfig createLocalRecoveryConfig() {
+        return localStateStore.getLocalRecoveryConfig();
+    }
+
+    @Override
+    public SequentialChannelStateReader getSequentialChannelStateReader() {
+        return sequentialChannelStateReader;
+    }
+
+    @Nullable
+    @Override
+    public StateChangelogStorage<?> getStateChangelogStorage() {
+        return stateChangelogStorage;
+    }
+
+    @Nullable
+    @Override
+    public StateChangelogStorageView<?> getStateChangelogStorageView(
+            Configuration configuration, ChangelogStateHandle changelogStateHandle) {
+        StateChangelogStorageView<?> storageView = null;
+        try {
+            storageView =
+                    changelogStoragesManager.stateChangelogStorageViewForJob(
+                            jobId, configuration, changelogStateHandle);
+        } catch (IOException e) {
+            ExceptionUtils.rethrow(e);
+        }
+        return storageView;
+    }
+
+    @Nullable
+    @Override
+    public FileMergingSnapshotManager getFileMergingSnapshotManager() {
+        return fileMergingSnapshotManager == null ? null : fileMergingSnapshotManager.get();
+    }
+
+    /** Tracking when local state can be confirmed and disposed. */
+    @Override
+    public void notifyCheckpointComplete(long checkpointId) throws Exception {
+        localStateStore.confirmCheckpoint(checkpointId);
+    }
+
+    /** Tracking when some local state can be disposed. */
+    @Override
+    public void notifyCheckpointAborted(long checkpointId) {
+        localStateStore.abortCheckpoint(checkpointId);
+    }
+
+    @Override
+    public void close() throws Exception {
+        sequentialChannelStateReader.close();
+        if (fileMergingSnapshotManager != null) {
+            fileMergingSnapshotManager.close();
+        }
+    }
 }

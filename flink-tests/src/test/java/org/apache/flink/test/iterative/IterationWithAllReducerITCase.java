@@ -22,34 +22,39 @@ import org.apache.flink.api.common.functions.ReduceFunction;
 import org.apache.flink.api.java.DataSet;
 import org.apache.flink.api.java.ExecutionEnvironment;
 import org.apache.flink.api.java.operators.IterativeDataSet;
-import org.apache.flink.test.util.JavaProgramTestBase;
+import org.apache.flink.test.util.JavaProgramTestBaseJUnit4;
 
 import java.util.List;
 
-/**
- * Test iterator with an all-reduce.
- */
-public class IterationWithAllReducerITCase extends JavaProgramTestBase {
-	private static final String EXPECTED = "1\n";
+import static org.apache.flink.test.util.TestBaseUtils.compareResultAsText;
 
-	@Override
-	protected void testProgram() throws Exception {
-		ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
-		env.setParallelism(4);
+/** Test iterator with an all-reduce. */
+public class IterationWithAllReducerITCase extends JavaProgramTestBaseJUnit4 {
+    private static final String EXPECTED = "1\n";
 
-		DataSet<String> initialInput = env.fromElements("1", "1", "1", "1", "1", "1", "1", "1");
+    @Override
+    protected void testProgram() throws Exception {
+        ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
+        env.setParallelism(4);
 
-		IterativeDataSet<String> iteration = initialInput.iterate(5).name("Loop");
+        DataSet<String> initialInput = env.fromElements("1", "1", "1", "1", "1", "1", "1", "1");
 
-		DataSet<String> sumReduce = iteration.reduce(new ReduceFunction<String>(){
-			@Override
-			public String reduce(String value1, String value2) throws Exception {
-				return value1;
-			}
-		}).name("Compute sum (Reduce)");
+        IterativeDataSet<String> iteration = initialInput.iterate(5).name("Loop");
 
-		List<String> result = iteration.closeWith(sumReduce).collect();
+        DataSet<String> sumReduce =
+                iteration
+                        .reduce(
+                                new ReduceFunction<String>() {
+                                    @Override
+                                    public String reduce(String value1, String value2)
+                                            throws Exception {
+                                        return value1;
+                                    }
+                                })
+                        .name("Compute sum (Reduce)");
 
-		compareResultAsText(result, EXPECTED);
-	}
+        List<String> result = iteration.closeWith(sumReduce).collect();
+
+        compareResultAsText(result, EXPECTED);
+    }
 }

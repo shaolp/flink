@@ -19,126 +19,132 @@
 package org.apache.flink.api.common.resources;
 
 import org.apache.flink.annotation.Internal;
-import org.apache.flink.util.Preconditions;
 
 import java.io.Serializable;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.util.Objects;
 
+import static org.apache.flink.util.Preconditions.checkArgument;
 import static org.apache.flink.util.Preconditions.checkNotNull;
 
 /**
- * Base class for resources one can specify.
+ * Base class for resources one can specify. Notice that the scale of value will be limited to
+ * {@link #MAX_VALUE_SCALE} and all the trailing zeros will be stripped for readability.
  */
 @Internal
-public abstract class Resource implements Serializable {
+public abstract class Resource<T extends Resource<T>>
+        implements Serializable, Comparable<Resource> {
 
-	private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = 1L;
 
-	/**
-	 * Enum defining how resources are aggregated.
-	 */
-	public enum ResourceAggregateType {
-		/**
-		 * Denotes keeping the sum of the values with same name when merging two resource specs for operator chaining.
-		 */
-		AGGREGATE_TYPE_SUM,
+    private static final int MAX_VALUE_SCALE = 8;
 
-		/**
-		 * Denotes keeping the max of the values with same name when merging two resource specs for operator chaining.
-		 */
-		AGGREGATE_TYPE_MAX
-	}
+    private final String name;
 
-	private final String name;
+    private final BigDecimal value;
 
-	private final double value;
+    protected Resource(String name, double value) {
+        this(name, BigDecimal.valueOf(value));
+    }
 
-	private final ResourceAggregateType resourceAggregateType;
+    protected Resource(String name, BigDecimal value) {
+        checkNotNull(value);
+        final BigDecimal valueRoundDown =
+                value.setScale(MAX_VALUE_SCALE, RoundingMode.DOWN).stripTrailingZeros();
+        checkArgument(
+                valueRoundDown.compareTo(BigDecimal.ZERO) >= 0,
+                "Resource value must be no less than 0");
 
-	protected Resource(String name, double value, ResourceAggregateType type) {
-		this.name = checkNotNull(name);
-		this.value = value;
-		this.resourceAggregateType = checkNotNull(type);
-	}
+        this.name = checkNotNull(name);
+        this.value = valueRoundDown;
+    }
 
-	public Resource merge(Resource other) {
-		Preconditions.checkArgument(getClass() == other.getClass(), "Merge with different resource type");
-		Preconditions.checkArgument(name.equals(other.name), "Merge with different resource name");
-		Preconditions.checkArgument(resourceAggregateType == other.resourceAggregateType, "Merge with different aggregate resourceAggregateType");
+    public T merge(T other) {
+        checkNotNull(other, "Cannot merge with null resources");
+        checkArgument(getClass() == other.getClass(), "Merge with different resource type");
+        checkArgument(name.equals(other.getName()), "Merge with different resource name");
 
-		final double aggregatedValue;
-		switch (resourceAggregateType) {
-			case AGGREGATE_TYPE_MAX :
-				aggregatedValue = Math.max(value, other.value);
-				break;
+        return create(value.add(other.getValue()));
+    }
 
-			case AGGREGATE_TYPE_SUM:
-			default:
-				aggregatedValue = value + other.value;
-		}
+    public T subtract(T other) {
+        checkNotNull(other, "Cannot subtract null resources");
+        checkArgument(getClass() == other.getClass(), "Minus with different resource type");
+        checkArgument(name.equals(other.getName()), "Minus with different resource name");
+        checkArgument(
+                value.compareTo(other.getValue()) >= 0,
+                "Try to subtract a larger resource from this one.");
 
-		return create(aggregatedValue, resourceAggregateType);
-	}
+        return create(value.subtract(other.getValue()));
+    }
 
-	public Resource subtract(Resource other) {
-		Preconditions.checkArgument(getClass() == other.getClass(), "Minus with different resource type");
-		Preconditions.checkArgument(name.equals(other.name), "Minus with different resource name");
-		Preconditions.checkArgument(resourceAggregateType == other.resourceAggregateType, "Minus with different aggregate resourceAggregateType");
-		Preconditions.checkArgument(value >= other.value, "Try to subtract a larger resource from this one.");
+    public T multiply(BigDecimal multiplier) {
+        return create(value.multiply(multiplier));
+    }
 
-		final double subtractedValue;
-		switch (resourceAggregateType) {
-			case AGGREGATE_TYPE_MAX :
-				// TODO: For max, should check if the latest max item is removed and change accordingly.
-				subtractedValue = value;
-				break;
+    public T multiply(int multiplier) {
+        return multiply(BigDecimal.valueOf(multiplier));
+    }
 
-			case AGGREGATE_TYPE_SUM:
-			default:
-				subtractedValue = value - other.value;
-		}
+    public T divide(BigDecimal by) {
+        return create(value.divide(by, MAX_VALUE_SCALE, RoundingMode.DOWN));
+    }
 
-		return create(subtractedValue, resourceAggregateType);
-	}
+    public T divide(int by) {
+        return divide(BigDecimal.valueOf(by));
+    }
 
-	@Override
-	public boolean equals(Object o) {
-		if (this == o) {
-			return true;
-		} else if (o != null && getClass() == o.getClass()) {
-			Resource other = (Resource) o;
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        } else if (o != null && getClass() == o.getClass()) {
+            @SuppressWarnings("unchecked")
+            T other = (T) o;
 
-			return name.equals(other.name) && resourceAggregateType == other.resourceAggregateType && value == other.value;
-		} else {
-			return false;
-		}
-	}
+            // Two Resources are considered equal if the values equals disregarding the scales
+            return name.equals(other.getName()) && value.compareTo(other.getValue()) == 0;
+        } else {
+            return false;
+        }
+    }
 
-	@Override
-	public int hashCode() {
-		int result = name.hashCode();
-		result = 31 * result + resourceAggregateType.ordinal();
-		result = 31 * result + (int) value;
-		return result;
-	}
+    @Override
+    public int hashCode() {
+        int result = name.hashCode();
+        result = 31 * result + Objects.hashCode(value.doubleValue());
+        return result;
+    }
 
-	public String getName() {
-		return name;
-	}
+    @Override
+    public String toString() {
+        return String.format("Resource(%s: %s)", name, value);
+    }
 
-	public ResourceAggregateType getResourceAggregateType() {
-		return resourceAggregateType;
-	}
+    @Override
+    public int compareTo(Resource other) {
+        checkArgument(other != null && getClass() == other.getClass() && name.equals(other.name));
+        return value.compareTo(other.value);
+    }
 
-	public double getValue() {
-		return value;
-	}
+    public String getName() {
+        return name;
+    }
 
-	/**
-	 * Create a resource of the same resource resourceAggregateType.
-	 *
-	 * @param value The value of the resource
-	 * @param type The aggregate resourceAggregateType of the resource
-	 * @return A new instance of the sub resource
-	 */
-	protected abstract Resource create(double value, ResourceAggregateType type);
+    public BigDecimal getValue() {
+        return value;
+    }
+
+    public boolean isZero() {
+        return value.compareTo(BigDecimal.ZERO) == 0;
+    }
+
+    /**
+     * Create a new instance of the sub resource.
+     *
+     * @param value The value of the resource
+     * @return A new instance of the sub resource
+     */
+    protected abstract T create(BigDecimal value);
 }

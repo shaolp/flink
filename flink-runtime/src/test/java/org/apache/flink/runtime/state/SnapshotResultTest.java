@@ -18,51 +18,49 @@
 
 package org.apache.flink.runtime.state;
 
-import org.apache.flink.util.TestLogger;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
-public class SnapshotResultTest extends TestLogger {
+class SnapshotResultTest {
 
-	@Test
-	public void discardState() throws Exception {
-		SnapshotResult<StateObject> result = SnapshotResult.withLocalState(mock(StateObject.class), mock(StateObject.class));
-		result.discardState();
-		verify(result.getJobManagerOwnedSnapshot()).discardState();
-		verify(result.getTaskLocalSnapshot()).discardState();
-	}
+    @Test
+    void discardState() throws Exception {
+        SnapshotResult<StateObject> result =
+                SnapshotResult.withLocalState(mock(StateObject.class), mock(StateObject.class));
+        result.discardState();
+        verify(result.getJobManagerOwnedSnapshot()).discardState();
+        verify(result.getTaskLocalSnapshot()).discardState();
+    }
 
-	@Test
-	public void getStateSize() {
-		long size = 42L;
+    @Test
+    void getStateSize() {
+        long size = 42L;
 
-		SnapshotResult<StateObject> result = SnapshotResult.withLocalState(
-			new DummyStateObject(size),
-			new DummyStateObject(size));
-		Assert.assertEquals(size, result.getStateSize());
-	}
+        SnapshotResult<StateObject> result =
+                SnapshotResult.withLocalState(
+                        new DummyStateObject(size), new DummyStateObject(size));
+        assertThat(result.getStateSize()).isEqualTo(size);
+    }
 
-	static class DummyStateObject implements StateObject {
+    static class DummyStateObject implements StateObject {
 
-		private static final long serialVersionUID = 1L;
+        private static final long serialVersionUID = 1L;
 
-		private final long size;
+        private final long size;
 
-		DummyStateObject(long size) {
-			this.size = size;
-		}
+        DummyStateObject(long size) {
+            this.size = size;
+        }
 
-		@Override
-		public void discardState() {
-		}
+        @Override
+        public void discardState() {}
 
-		@Override
-		public long getStateSize() {
-			return size;
-		}
-	}
-
+        @Override
+        public long getStateSize() {
+            return size;
+        }
+    }
 }

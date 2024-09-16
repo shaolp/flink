@@ -19,66 +19,92 @@
 package org.apache.flink.table.operations;
 
 import org.apache.flink.annotation.Internal;
-import org.apache.flink.table.api.TableSchema;
+import org.apache.flink.table.catalog.ResolvedSchema;
 import org.apache.flink.table.expressions.ResolvedExpression;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
- * Relational operation that performs computations on top of subsets of input rows grouped by
- * key.
+ * Relational operation that performs computations on top of subsets of input rows grouped by key.
  */
 @Internal
 public class AggregateQueryOperation implements QueryOperation {
 
-	private final List<ResolvedExpression> groupingExpressions;
-	private final List<ResolvedExpression> aggregateExpressions;
-	private final QueryOperation child;
-	private final TableSchema tableSchema;
+    private final List<ResolvedExpression> groupingExpressions;
+    private final List<ResolvedExpression> aggregateExpressions;
+    private final QueryOperation child;
+    private final ResolvedSchema resolvedSchema;
 
-	public AggregateQueryOperation(
-			List<ResolvedExpression> groupingExpressions,
-			List<ResolvedExpression> aggregateExpressions,
-			QueryOperation child,
-			TableSchema tableSchema) {
-		this.groupingExpressions = groupingExpressions;
-		this.aggregateExpressions = aggregateExpressions;
-		this.child = child;
-		this.tableSchema = tableSchema;
-	}
+    public AggregateQueryOperation(
+            List<ResolvedExpression> groupingExpressions,
+            List<ResolvedExpression> aggregateExpressions,
+            QueryOperation child,
+            ResolvedSchema resolvedSchema) {
+        this.groupingExpressions = groupingExpressions;
+        this.aggregateExpressions = aggregateExpressions;
+        this.child = child;
+        this.resolvedSchema = resolvedSchema;
+    }
 
-	@Override
-	public TableSchema getTableSchema() {
-		return tableSchema;
-	}
+    @Override
+    public ResolvedSchema getResolvedSchema() {
+        return resolvedSchema;
+    }
 
-	@Override
-	public String asSummaryString() {
-		Map<String, Object> args = new LinkedHashMap<>();
-		args.put("group", groupingExpressions);
-		args.put("agg", aggregateExpressions);
+    @Override
+    public String asSummaryString() {
+        Map<String, Object> args = new LinkedHashMap<>();
+        args.put("group", groupingExpressions);
+        args.put("agg", aggregateExpressions);
 
-		return OperationUtils.formatWithChildren("Aggregate", args, getChildren(), Operation::asSummaryString);
-	}
+        return OperationUtils.formatWithChildren(
+                "Aggregate", args, getChildren(), Operation::asSummaryString);
+    }
 
-	public List<ResolvedExpression> getGroupingExpressions() {
-		return groupingExpressions;
-	}
+    public List<ResolvedExpression> getGroupingExpressions() {
+        return groupingExpressions;
+    }
 
-	public List<ResolvedExpression> getAggregateExpressions() {
-		return aggregateExpressions;
-	}
+    public List<ResolvedExpression> getAggregateExpressions() {
+        return aggregateExpressions;
+    }
 
-	@Override
-	public List<QueryOperation> getChildren() {
-		return Collections.singletonList(child);
-	}
+    @Override
+    public String asSerializableString() {
+        final String groupingExprs = getGroupingExprs();
+        return String.format(
+                "SELECT %s FROM (%s\n)\nGROUP BY %s",
+                Stream.concat(groupingExpressions.stream(), aggregateExpressions.stream())
+                        .map(ResolvedExpression::asSerializableString)
+                        .collect(Collectors.joining(", ")),
+                OperationUtils.indent(child.asSerializableString()),
+                groupingExprs);
+    }
 
-	@Override
-	public <T> T accept(QueryOperationVisitor<T> visitor) {
-		return visitor.visit(this);
-	}
+    private String getGroupingExprs() {
+        if (groupingExpressions.isEmpty()) {
+            return "1";
+        } else {
+            final String groupingExprs =
+                    groupingExpressions.stream()
+                            .map(ResolvedExpression::asSerializableString)
+                            .collect(Collectors.joining(", "));
+            return groupingExprs;
+        }
+    }
+
+    @Override
+    public List<QueryOperation> getChildren() {
+        return Collections.singletonList(child);
+    }
+
+    @Override
+    public <T> T accept(QueryOperationVisitor<T> visitor) {
+        return visitor.visit(this);
+    }
 }

@@ -19,10 +19,13 @@
 package org.apache.flink.sql.parser.ddl;
 
 import org.apache.flink.sql.parser.ExtendedSqlNode;
-import org.apache.flink.sql.parser.error.SqlParseException;
+import org.apache.flink.sql.parser.SqlConstraintValidator;
+import org.apache.flink.sql.parser.SqlUnparseUtils;
+import org.apache.flink.sql.parser.ddl.SqlTableColumn.SqlComputedColumn;
+import org.apache.flink.sql.parser.ddl.SqlTableColumn.SqlRegularColumn;
+import org.apache.flink.sql.parser.ddl.constraint.SqlTableConstraint;
+import org.apache.flink.sql.parser.error.SqlValidateException;
 
-import org.apache.calcite.sql.SqlBasicCall;
-import org.apache.calcite.sql.SqlCall;
 import org.apache.calcite.sql.SqlCharStringLiteral;
 import org.apache.calcite.sql.SqlCreate;
 import org.apache.calcite.sql.SqlIdentifier;
@@ -37,286 +40,266 @@ import org.apache.calcite.sql.parser.SqlParserPos;
 import org.apache.calcite.sql.pretty.SqlPrettyWriter;
 import org.apache.calcite.util.ImmutableNullableList;
 
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
+import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
-/**
- * CREATE TABLE DDL sql call.
- */
+/** CREATE TABLE DDL sql call. */
 public class SqlCreateTable extends SqlCreate implements ExtendedSqlNode {
 
-	public static final SqlSpecialOperator OPERATOR = new SqlSpecialOperator("CREATE TABLE", SqlKind.CREATE_TABLE);
+    public static final SqlSpecialOperator OPERATOR =
+            new SqlSpecialOperator("CREATE TABLE", SqlKind.CREATE_TABLE);
 
-	private final SqlIdentifier tableName;
+    private final SqlIdentifier tableName;
 
-	private final SqlNodeList columnList;
+    private final SqlNodeList columnList;
 
-	private final SqlNodeList propertyList;
+    private final SqlNodeList propertyList;
 
-	private final SqlNodeList primaryKeyList;
+    private final List<SqlTableConstraint> tableConstraints;
 
-	private final List<SqlNodeList> uniqueKeysList;
+    public SqlDistribution getDistribution() {
+        return distribution;
+    }
 
-	private final SqlNodeList partitionKeyList;
+    private final SqlDistribution distribution;
 
-	private final SqlCharStringLiteral comment;
+    private final SqlNodeList partitionKeyList;
 
-	public SqlCreateTable(
-			SqlParserPos pos,
-			SqlIdentifier tableName,
-			SqlNodeList columnList,
-			SqlNodeList primaryKeyList,
-			List<SqlNodeList> uniqueKeysList,
-			SqlNodeList propertyList,
-			SqlNodeList partitionKeyList,
-			SqlCharStringLiteral comment) {
-		super(OPERATOR, pos, false, false);
-		this.tableName = requireNonNull(tableName, "Table name is missing");
-		this.columnList = requireNonNull(columnList, "Column list should not be null");
-		this.primaryKeyList = primaryKeyList;
-		this.uniqueKeysList = uniqueKeysList;
-		this.propertyList = propertyList;
-		this.partitionKeyList = partitionKeyList;
-		this.comment = comment;
-	}
+    private final SqlWatermark watermark;
 
-	@Override
-	public SqlOperator getOperator() {
-		return OPERATOR;
-	}
+    private final SqlCharStringLiteral comment;
 
-	@Override
-	public List<SqlNode> getOperandList() {
-		return ImmutableNullableList.of(tableName, columnList, primaryKeyList,
-			propertyList, partitionKeyList, comment);
-	}
+    private final boolean isTemporary;
 
-	public SqlIdentifier getTableName() {
-		return tableName;
-	}
+    public SqlCreateTable(
+            SqlParserPos pos,
+            SqlIdentifier tableName,
+            SqlNodeList columnList,
+            List<SqlTableConstraint> tableConstraints,
+            SqlNodeList propertyList,
+            SqlDistribution distribution,
+            SqlNodeList partitionKeyList,
+            @Nullable SqlWatermark watermark,
+            @Nullable SqlCharStringLiteral comment,
+            boolean isTemporary,
+            boolean ifNotExists) {
+        this(
+                OPERATOR,
+                pos,
+                tableName,
+                columnList,
+                tableConstraints,
+                propertyList,
+                distribution,
+                partitionKeyList,
+                watermark,
+                comment,
+                isTemporary,
+                ifNotExists);
+    }
 
-	public SqlNodeList getColumnList() {
-		return columnList;
-	}
+    protected SqlCreateTable(
+            SqlSpecialOperator operator,
+            SqlParserPos pos,
+            SqlIdentifier tableName,
+            SqlNodeList columnList,
+            List<SqlTableConstraint> tableConstraints,
+            SqlNodeList propertyList,
+            @Nullable SqlDistribution distribution,
+            SqlNodeList partitionKeyList,
+            @Nullable SqlWatermark watermark,
+            @Nullable SqlCharStringLiteral comment,
+            boolean isTemporary,
+            boolean ifNotExists) {
+        super(operator, pos, false, ifNotExists);
+        this.tableName = requireNonNull(tableName, "tableName should not be null");
+        this.columnList = requireNonNull(columnList, "columnList should not be null");
+        this.tableConstraints =
+                requireNonNull(tableConstraints, "table constraints should not be null");
+        this.propertyList = requireNonNull(propertyList, "propertyList should not be null");
+        this.distribution = distribution;
+        this.partitionKeyList =
+                requireNonNull(partitionKeyList, "partitionKeyList should not be null");
+        this.watermark = watermark;
+        this.comment = comment;
+        this.isTemporary = isTemporary;
+    }
 
-	public SqlNodeList getPropertyList() {
-		return propertyList;
-	}
+    @Override
+    public @Nonnull SqlOperator getOperator() {
+        return OPERATOR;
+    }
 
-	public SqlNodeList getPartitionKeyList() {
-		return partitionKeyList;
-	}
+    @Override
+    public @Nonnull List<SqlNode> getOperandList() {
+        return ImmutableNullableList.of(
+                tableName,
+                columnList,
+                new SqlNodeList(tableConstraints, SqlParserPos.ZERO),
+                propertyList,
+                partitionKeyList,
+                watermark,
+                comment);
+    }
 
-	public SqlNodeList getPrimaryKeyList() {
-		return primaryKeyList;
-	}
+    public SqlIdentifier getTableName() {
+        return tableName;
+    }
 
-	public List<SqlNodeList> getUniqueKeysList() {
-		return uniqueKeysList;
-	}
+    public SqlNodeList getColumnList() {
+        return columnList;
+    }
 
-	public SqlCharStringLiteral getComment() {
-		return comment;
-	}
+    public SqlNodeList getPropertyList() {
+        return propertyList;
+    }
 
-	public boolean isIfNotExists() {
-		return ifNotExists;
-	}
+    public SqlNodeList getPartitionKeyList() {
+        return partitionKeyList;
+    }
 
-	public void validate() throws SqlParseException {
-		Set<String> columnNames = new HashSet<>();
-		if (columnList != null) {
-			for (SqlNode column : columnList) {
-				String columnName = null;
-				if (column instanceof SqlTableColumn) {
-					SqlTableColumn tableColumn = (SqlTableColumn) column;
-					columnName = tableColumn.getName().getSimple();
-				} else if (column instanceof SqlBasicCall) {
-					SqlBasicCall tableColumn = (SqlBasicCall) column;
-					columnName = tableColumn.getOperands()[1].toString();
-				}
+    public List<SqlTableConstraint> getTableConstraints() {
+        return tableConstraints;
+    }
 
-				if (!columnNames.add(columnName)) {
-					throw new SqlParseException(
-						column.getParserPosition(),
-						"Duplicate column name [" + columnName + "], at " +
-							column.getParserPosition());
-				}
-			}
-		}
+    public Optional<SqlWatermark> getWatermark() {
+        return Optional.ofNullable(watermark);
+    }
 
-		if (this.primaryKeyList != null) {
-			for (SqlNode primaryKeyNode : this.primaryKeyList) {
-				String primaryKey = ((SqlIdentifier) primaryKeyNode).getSimple();
-				if (!columnNames.contains(primaryKey)) {
-					throw new SqlParseException(
-						primaryKeyNode.getParserPosition(),
-						"Primary key [" + primaryKey + "] not defined in columns, at " +
-							primaryKeyNode.getParserPosition());
-				}
-			}
-		}
+    public Optional<SqlCharStringLiteral> getComment() {
+        return Optional.ofNullable(comment);
+    }
 
-		if (this.uniqueKeysList != null) {
-			for (SqlNodeList uniqueKeys: this.uniqueKeysList) {
-				for (SqlNode uniqueKeyNode : uniqueKeys) {
-					String uniqueKey = ((SqlIdentifier) uniqueKeyNode).getSimple();
-					if (!columnNames.contains(uniqueKey)) {
-						throw new SqlParseException(
-								uniqueKeyNode.getParserPosition(),
-								"Unique key [" + uniqueKey + "] not defined in columns, at " + uniqueKeyNode.getParserPosition());
-					}
-				}
-			}
-		}
+    public boolean isIfNotExists() {
+        return ifNotExists;
+    }
 
-		if (this.partitionKeyList != null) {
-			for (SqlNode partitionKeyNode : this.partitionKeyList.getList()) {
-				String partitionKey = ((SqlIdentifier) partitionKeyNode).getSimple();
-				if (!columnNames.contains(partitionKey)) {
-					throw new SqlParseException(
-						partitionKeyNode.getParserPosition(),
-						"Partition column [" + partitionKey + "] not defined in columns, at "
-							+ partitionKeyNode.getParserPosition());
-				}
-			}
-		}
+    public boolean isTemporary() {
+        return isTemporary;
+    }
 
-	}
+    @Override
+    public void validate() throws SqlValidateException {
+        SqlConstraintValidator.validateAndChangeColumnNullability(tableConstraints, columnList);
+    }
 
-	public boolean containsComputedColumn() {
-		for (SqlNode column : columnList) {
-			if (column instanceof SqlBasicCall) {
-				return true;
-			}
-		}
-		return false;
-	}
+    public boolean hasRegularColumnsOnly() {
+        for (SqlNode column : columnList) {
+            final SqlTableColumn tableColumn = (SqlTableColumn) column;
+            if (!(tableColumn instanceof SqlRegularColumn)) {
+                return false;
+            }
+        }
+        return true;
+    }
 
-	/**
-	 * Returns the projection format of the DDL columns(including computed columns).
-	 * e.g. If we got a DDL:
-	 * <pre>
-	 *   create table tbl1(
-	 *     col1 int,
-	 *     col2 varchar,
-	 *     col3 as to_timestamp(col2)
-	 *   ) with (
-	 *     'connector' = 'csv'
-	 *   )
-	 * </pre>
-	 * we would return a query like:
-	 *
-	 * <p>"col1, col2, to_timestamp(col2) as col3", caution that the "computed column" operands
-	 * have been reversed.
-	 */
-	public String getColumnSqlString() {
-		SqlPrettyWriter writer = new SqlPrettyWriter(AnsiSqlDialect.DEFAULT);
-		writer.setAlwaysUseParentheses(true);
-		writer.setSelectListItemsOnSeparateLines(false);
-		writer.setIndentation(0);
-		writer.startList("", "");
-		for (SqlNode column : columnList) {
-			writer.sep(",");
-			if (column instanceof SqlTableColumn) {
-				SqlTableColumn tableColumn = (SqlTableColumn) column;
-				tableColumn.getName().unparse(writer, 0, 0);
-			} else {
-				column.unparse(writer, 0, 0);
-			}
-		}
+    /** Returns the column constraints plus the table constraints. */
+    public List<SqlTableConstraint> getFullConstraints() {
+        return SqlConstraintValidator.getFullConstraints(tableConstraints, columnList);
+    }
 
-		return writer.toString();
-	}
+    /**
+     * Returns the projection format of the DDL columns(including computed columns). i.e. the
+     * following DDL:
+     *
+     * <pre>
+     *   create table tbl1(
+     *     col1 int,
+     *     col2 varchar,
+     *     col3 as to_timestamp(col2)
+     *   ) with (
+     *     'connector' = 'csv'
+     *   )
+     * </pre>
+     *
+     * <p>is equivalent with query "col1, col2, to_timestamp(col2) as col3", caution that the
+     * "computed column" operands have been reversed.
+     */
+    public String getColumnSqlString() {
+        SqlPrettyWriter writer =
+                new SqlPrettyWriter(
+                        SqlPrettyWriter.config()
+                                .withDialect(AnsiSqlDialect.DEFAULT)
+                                .withAlwaysUseParentheses(true)
+                                .withSelectListItemsOnSeparateLines(false)
+                                .withIndentation(0));
+        writer.startList("", "");
+        for (SqlNode column : columnList) {
+            writer.sep(",");
+            SqlTableColumn tableColumn = (SqlTableColumn) column;
+            if (tableColumn instanceof SqlComputedColumn) {
+                SqlComputedColumn computedColumn = (SqlComputedColumn) tableColumn;
+                computedColumn.getExpr().unparse(writer, 0, 0);
+                writer.keyword("AS");
+            }
+            tableColumn.getName().unparse(writer, 0, 0);
+        }
 
-	@Override
-	public void unparse(
-			SqlWriter writer,
-			int leftPrec,
-			int rightPrec) {
-		writer.keyword("CREATE TABLE");
-		tableName.unparse(writer, leftPrec, rightPrec);
-		SqlWriter.Frame frame = writer.startList(SqlWriter.FrameTypeEnum.create("sds"), "(", ")");
-		for (SqlNode column : columnList) {
-			printIndent(writer);
-			if (column instanceof SqlBasicCall) {
-				SqlCall call = (SqlCall) column;
-				SqlCall newCall = call.getOperator().createCall(
-					SqlParserPos.ZERO,
-					call.operand(1),
-					call.operand(0));
-				newCall.unparse(writer, leftPrec, rightPrec);
-			} else {
-				column.unparse(writer, leftPrec, rightPrec);
-			}
-		}
-		if (primaryKeyList != null && primaryKeyList.size() > 0) {
-			printIndent(writer);
-			writer.keyword("PRIMARY KEY");
-			SqlWriter.Frame keyFrame = writer.startList("(", ")");
-			primaryKeyList.unparse(writer, leftPrec, rightPrec);
-			writer.endList(keyFrame);
-		}
-		if (uniqueKeysList != null && uniqueKeysList.size() > 0) {
-			printIndent(writer);
-			for (SqlNodeList uniqueKeyList : uniqueKeysList) {
-				writer.keyword("UNIQUE");
-				SqlWriter.Frame keyFrame = writer.startList("(", ")");
-				uniqueKeyList.unparse(writer, leftPrec, rightPrec);
-				writer.endList(keyFrame);
-			}
-		}
+        return writer.toString();
+    }
 
-		writer.newlineAndIndent();
-		writer.endList(frame);
+    @Override
+    public void unparse(SqlWriter writer, int leftPrec, int rightPrec) {
+        writer.keyword("CREATE");
+        if (isTemporary()) {
+            writer.keyword("TEMPORARY");
+        }
+        writer.keyword("TABLE");
+        if (isIfNotExists()) {
+            writer.keyword("IF NOT EXISTS");
+        }
+        tableName.unparse(writer, leftPrec, rightPrec);
+        if (columnList.size() > 0 || tableConstraints.size() > 0 || watermark != null) {
+            SqlUnparseUtils.unparseTableSchema(
+                    writer, leftPrec, rightPrec, columnList, tableConstraints, watermark);
+        }
 
-		if (comment != null) {
-			writer.newlineAndIndent();
-			writer.keyword("COMMENT");
-			comment.unparse(writer, leftPrec, rightPrec);
-		}
+        if (comment != null) {
+            writer.newlineAndIndent();
+            writer.keyword("COMMENT");
+            comment.unparse(writer, leftPrec, rightPrec);
+        }
 
-		if (this.partitionKeyList != null && this.partitionKeyList.size() > 0) {
-			writer.newlineAndIndent();
-			writer.keyword("PARTITIONED BY");
-			SqlWriter.Frame withFrame = writer.startList("(", ")");
-			this.partitionKeyList.unparse(writer, leftPrec, rightPrec);
-			writer.endList(withFrame);
-			writer.newlineAndIndent();
-		}
+        if (this.distribution != null) {
+            distribution.unparse(writer, leftPrec, rightPrec);
+        }
 
-		if (propertyList != null) {
-			writer.keyword("WITH");
-			SqlWriter.Frame withFrame = writer.startList("(", ")");
-			for (SqlNode property : propertyList) {
-				printIndent(writer);
-				property.unparse(writer, leftPrec, rightPrec);
-			}
-			writer.newlineAndIndent();
-			writer.endList(withFrame);
-		}
-	}
+        if (this.partitionKeyList.size() > 0) {
+            writer.newlineAndIndent();
+            writer.keyword("PARTITIONED BY");
+            SqlWriter.Frame partitionedByFrame = writer.startList("(", ")");
+            this.partitionKeyList.unparse(writer, leftPrec, rightPrec);
+            writer.endList(partitionedByFrame);
+            writer.newlineAndIndent();
+        }
 
-	private void printIndent(SqlWriter writer) {
-		writer.sep(",", false);
-		writer.newlineAndIndent();
-		writer.print("  ");
-	}
+        if (this.propertyList.size() > 0) {
+            writer.keyword("WITH");
+            SqlWriter.Frame withFrame = writer.startList("(", ")");
+            for (SqlNode property : propertyList) {
+                SqlUnparseUtils.printIndent(writer);
+                property.unparse(writer, leftPrec, rightPrec);
+            }
+            writer.newlineAndIndent();
+            writer.endList(withFrame);
+        }
+    }
 
-	/**
-	 * Table creation context.
-	 */
-	public static class TableCreationContext {
-		public List<SqlNode> columnList = new ArrayList<>();
-		public SqlNodeList primaryKeyList;
-		public List<SqlNodeList> uniqueKeysList = new ArrayList<>();
-	}
+    /** Table creation context. */
+    public static class TableCreationContext {
+        public List<SqlNode> columnList = new ArrayList<>();
+        public List<SqlTableConstraint> constraints = new ArrayList<>();
+        @Nullable public SqlWatermark watermark;
+        @Nullable public SqlDistribution distribution;
+    }
 
-	public String[] fullTableName() {
-		return tableName.names.toArray(new String[0]);
-	}
+    public String[] fullTableName() {
+        return tableName.names.toArray(new String[0]);
+    }
 }

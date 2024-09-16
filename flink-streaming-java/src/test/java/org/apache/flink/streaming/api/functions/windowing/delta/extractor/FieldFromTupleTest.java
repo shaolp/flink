@@ -44,44 +44,65 @@ import org.apache.flink.api.java.tuple.Tuple7;
 import org.apache.flink.api.java.tuple.Tuple8;
 import org.apache.flink.api.java.tuple.Tuple9;
 
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
-import static org.junit.Assert.assertEquals;
+import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * Tests for {@link FieldFromTuple}.
- */
-public class FieldFromTupleTest {
+/** Tests for {@link FieldFromTuple}. */
+class FieldFromTupleTest {
 
-	private String[] testStrings;
+    private String[] testStrings;
 
-	@Before
-	public void init() {
-		testStrings = new String[Tuple.MAX_ARITY];
-		for (int i = 0; i < Tuple.MAX_ARITY; i++) {
-			testStrings[i] = Integer.toString(i);
-		}
-	}
+    @BeforeEach
+    void init() {
+        testStrings = new String[Tuple.MAX_ARITY];
+        for (int i = 0; i < Tuple.MAX_ARITY; i++) {
+            testStrings[i] = Integer.toString(i);
+        }
+    }
 
-	@Test
-	public void testSingleFieldExtraction() throws InstantiationException, IllegalAccessException {
-		// extract single fields
-		for (int i = 0; i < Tuple.MAX_ARITY; i++) {
-			Tuple current = (Tuple) CLASSES[i].newInstance();
-			for (int j = 0; j < i; j++) {
-				current.setField(testStrings[j], j);
-			}
-			for (int j = 0; j < i; j++) {
-				assertEquals(testStrings[j], new FieldFromTuple<String>(j).extract(current));
-			}
-		}
-	}
+    @Test
+    void testSingleFieldExtraction() throws InstantiationException, IllegalAccessException {
+        // extract single fields
+        for (int i = 0; i < Tuple.MAX_ARITY; i++) {
+            Tuple current = (Tuple) CLASSES[i].newInstance();
+            for (int j = 0; j < i; j++) {
+                current.setField(testStrings[j], j);
+            }
+            for (int j = 0; j < i; j++) {
+                assertThat(new FieldFromTuple<String>(j).extract(current))
+                        .isEqualTo(testStrings[j]);
+            }
+        }
+    }
 
-	private static final Class<?>[] CLASSES = new Class<?>[] { Tuple1.class, Tuple2.class,
-			Tuple3.class, Tuple4.class, Tuple5.class, Tuple6.class, Tuple7.class, Tuple8.class,
-			Tuple9.class, Tuple10.class, Tuple11.class, Tuple12.class, Tuple13.class,
-			Tuple14.class, Tuple15.class, Tuple16.class, Tuple17.class, Tuple18.class,
-			Tuple19.class, Tuple20.class, Tuple21.class, Tuple22.class, Tuple23.class,
-			Tuple24.class, Tuple25.class };
+    private static final Class<?>[] CLASSES =
+            new Class<?>[] {
+                Tuple1.class,
+                Tuple2.class,
+                Tuple3.class,
+                Tuple4.class,
+                Tuple5.class,
+                Tuple6.class,
+                Tuple7.class,
+                Tuple8.class,
+                Tuple9.class,
+                Tuple10.class,
+                Tuple11.class,
+                Tuple12.class,
+                Tuple13.class,
+                Tuple14.class,
+                Tuple15.class,
+                Tuple16.class,
+                Tuple17.class,
+                Tuple18.class,
+                Tuple19.class,
+                Tuple20.class,
+                Tuple21.class,
+                Tuple22.class,
+                Tuple23.class,
+                Tuple24.class,
+                Tuple25.class
+            };
 }

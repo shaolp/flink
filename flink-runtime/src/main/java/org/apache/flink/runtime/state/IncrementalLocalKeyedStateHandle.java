@@ -23,126 +23,104 @@ import org.apache.flink.util.ExceptionUtils;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import java.util.Set;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 /**
- * State handle for local copies of {@link IncrementalRemoteKeyedStateHandle}. Consists of a {@link DirectoryStateHandle} that
- * represents the directory of the native RocksDB snapshot, the key groups, and a stream state handle for Flink's state
- * meta data file.
+ * State handle for local copies of {@link IncrementalRemoteKeyedStateHandle}. Consists of a {@link
+ * DirectoryStateHandle} that represents the directory of the native RocksDB snapshot, the key
+ * groups, and a stream state handle for Flink's state meta data file.
  */
-public class IncrementalLocalKeyedStateHandle extends DirectoryKeyedStateHandle implements IncrementalKeyedStateHandle {
+public class IncrementalLocalKeyedStateHandle extends AbstractIncrementalStateHandle {
 
-	private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = 1L;
 
-	/** Id of the checkpoint that created this state handle. */
-	@Nonnegative
-	private final long checkpointId;
+    private final DirectoryStateHandle directoryStateHandle;
 
-	/** UUID to identify the backend which created this state handle. */
-	@Nonnull
-	private final UUID backendIdentifier;
+    public IncrementalLocalKeyedStateHandle(
+            @Nonnull UUID backendIdentifier,
+            @Nonnegative long checkpointId,
+            @Nonnull DirectoryStateHandle directoryStateHandle,
+            @Nonnull KeyGroupRange keyGroupRange,
+            @Nonnull StreamStateHandle metaDataState,
+            @Nonnull List<HandleAndLocalPath> sharedState) {
 
-	/** Handle to Flink's state meta data. */
-	@Nonnull
-	private final StreamStateHandle metaDataState;
+        super(
+                backendIdentifier,
+                keyGroupRange,
+                checkpointId,
+                new ArrayList<>(sharedState),
+                metaDataState,
+                StateHandleID.randomStateHandleId());
+        this.directoryStateHandle = directoryStateHandle;
+    }
 
-	/** Set with the ids of all shared state handles created by the checkpoint. */
-	@Nonnull
-	private final Set<StateHandleID> sharedStateHandleIDs;
+    @Override
+    public CheckpointBoundKeyedStateHandle rebound(long checkpointId) {
+        return new IncrementalLocalKeyedStateHandle(
+                backendIdentifier,
+                checkpointId,
+                getDirectoryStateHandle(),
+                getKeyGroupRange(),
+                getMetaDataStateHandle(),
+                getSharedStateHandles());
+    }
 
-	public IncrementalLocalKeyedStateHandle(
-		@Nonnull UUID backendIdentifier,
-		@Nonnegative long checkpointId,
-		@Nonnull DirectoryStateHandle directoryStateHandle,
-		@Nonnull KeyGroupRange keyGroupRange,
-		@Nonnull StreamStateHandle metaDataState,
-		@Nonnull Set<StateHandleID> sharedStateHandleIDs) {
+    @Override
+    public void discardState() throws Exception {
 
-		super(directoryStateHandle, keyGroupRange);
-		this.backendIdentifier = backendIdentifier;
-		this.checkpointId = checkpointId;
-		this.metaDataState = metaDataState;
-		this.sharedStateHandleIDs = sharedStateHandleIDs;
-	}
+        Exception collectedEx = null;
 
-	@Nonnull
-	public StreamStateHandle getMetaDataState() {
-		return metaDataState;
-	}
+        try {
+            directoryStateHandle.discardState();
+        } catch (Exception e) {
+            collectedEx = e;
+        }
 
-	@Override
-	public long getCheckpointId() {
-		return checkpointId;
-	}
+        try {
+            metaStateHandle.discardState();
+        } catch (Exception e) {
+            collectedEx = ExceptionUtils.firstOrSuppressed(e, collectedEx);
+        }
 
-	@Override
-	@Nonnull
-	public UUID getBackendIdentifier() {
-		return backendIdentifier;
-	}
+        if (collectedEx != null) {
+            throw collectedEx;
+        }
+    }
 
-	@Override
-	@Nonnull
-	public Set<StateHandleID> getSharedStateHandleIDs() {
-		return sharedStateHandleIDs;
-	}
+    @Override
+    public long getStateSize() {
+        return directoryStateHandle.getStateSize() + metaStateHandle.getStateSize();
+    }
 
-	@Override
-	public boolean equals(Object o) {
-		if (this == o) {
-			return true;
-		}
-		if (o == null || getClass() != o.getClass()) {
-			return false;
-		}
-		if (!super.equals(o)) {
-			return false;
-		}
+    @Override
+    public void collectSizeStats(StateObjectSizeStatsCollector collector) {
+        metaStateHandle.collectSizeStats(collector);
+        directoryStateHandle.collectSizeStats(collector);
+    }
 
-		IncrementalLocalKeyedStateHandle that = (IncrementalLocalKeyedStateHandle) o;
+    @Override
+    public String toString() {
+        return "IncrementalLocalKeyedStateHandle{"
+                + "directoryStateHandle="
+                + directoryStateHandle
+                + "} "
+                + super.toString();
+    }
 
-		return getMetaDataState().equals(that.getMetaDataState());
-	}
+    @Override
+    public void registerSharedStates(SharedStateRegistry stateRegistry, long checkpointID) {
+        // Nothing to do, this is for local use only.
+    }
 
-	@Override
-	public void discardState() throws Exception {
+    @Override
+    public long getCheckpointedSize() {
+        return directoryStateHandle.getStateSize();
+    }
 
-		Exception collectedEx = null;
-
-		try {
-			super.discardState();
-		} catch (Exception e) {
-			collectedEx = e;
-		}
-
-		try {
-			metaDataState.discardState();
-		} catch (Exception e) {
-			collectedEx = ExceptionUtils.firstOrSuppressed(e, collectedEx);
-		}
-
-		if (collectedEx != null) {
-			throw collectedEx;
-		}
-	}
-
-	@Override
-	public long getStateSize() {
-		return super.getStateSize() + metaDataState.getStateSize();
-	}
-
-	@Override
-	public int hashCode() {
-		int result = super.hashCode();
-		result = 31 * result + getMetaDataState().hashCode();
-		return result;
-	}
-
-	@Override
-	public String toString() {
-		return "IncrementalLocalKeyedStateHandle{" +
-			"metaDataState=" + metaDataState +
-			"} " + super.toString();
-	}
+    @Nonnull
+    public DirectoryStateHandle getDirectoryStateHandle() {
+        return directoryStateHandle;
+    }
 }

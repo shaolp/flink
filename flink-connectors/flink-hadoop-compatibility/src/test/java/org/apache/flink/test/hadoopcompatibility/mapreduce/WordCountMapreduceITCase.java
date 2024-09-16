@@ -36,91 +36,102 @@ import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.lib.input.TextInputFormat;
 import org.apache.hadoop.mapreduce.lib.output.TextOutputFormat;
-import org.junit.Assume;
-import org.junit.Before;
+import org.junit.jupiter.api.BeforeEach;
 
-/**
- * Test WordCount with Hadoop input and output "mapreduce" (modern) formats.
- */
-public class WordCountMapreduceITCase extends JavaProgramTestBase {
+import static org.apache.flink.test.util.TestBaseUtils.compareResultsByLinesInMemory;
+import static org.assertj.core.api.Assumptions.assumeThat;
 
-	protected String textPath;
-	protected String resultPath;
+/** Test WordCount with Hadoop input and output "mapreduce" (modern) formats. */
+class WordCountMapreduceITCase extends JavaProgramTestBase {
 
-	@Before
-	public void checkOperatingSystem() {
-		// FLINK-5164 - see https://wiki.apache.org/hadoop/WindowsProblems
-		Assume.assumeTrue("This test can't run successfully on Windows.", !OperatingSystem.isWindows());
-	}
+    private String textPath;
+    private String resultPath;
 
-	@Override
-	protected void preSubmit() throws Exception {
-		textPath = createTempFile("text.txt", WordCountData.TEXT);
-		resultPath = getTempDirPath("result");
-	}
+    @BeforeEach
+    void checkOperatingSystem() {
+        // FLINK-5164 - see https://wiki.apache.org/hadoop/WindowsProblems
+        assumeThat(OperatingSystem.isWindows())
+                .as("This test can't run successfully on Windows.")
+                .isFalse();
+    }
 
-	@Override
-	protected void postSubmit() throws Exception {
-		compareResultsByLinesInMemory(WordCountData.COUNTS, resultPath, new String[] {".", "_"});
-	}
+    @Override
+    protected void preSubmit() throws Exception {
+        textPath = createTempFile("text.txt", WordCountData.TEXT);
+        resultPath = getTempDirPath("result");
+    }
 
-	@Override
-	protected void testProgram() throws Exception {
-		internalRun();
-		postSubmit();
-	}
+    @Override
+    protected void postSubmit() throws Exception {
+        compareResultsByLinesInMemory(WordCountData.COUNTS, resultPath, new String[] {".", "_"});
+    }
 
-	private void internalRun() throws Exception {
-		final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
+    @Override
+    protected void testProgram() throws Exception {
+        internalRun();
+        postSubmit();
+    }
 
-		DataSet<Tuple2<LongWritable, Text>> input;
-		input = env.createInput(HadoopInputs.readHadoopFile(new TextInputFormat(),
-			LongWritable.class, Text.class, textPath));
+    private void internalRun() throws Exception {
+        final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
 
-		DataSet<String> text = input.map(new MapFunction<Tuple2<LongWritable, Text>, String>() {
-			@Override
-			public String map(Tuple2<LongWritable, Text> value) throws Exception {
-				return value.f1.toString();
-			}
-		});
+        DataSet<Tuple2<LongWritable, Text>> input;
+        input =
+                env.createInput(
+                        HadoopInputs.readHadoopFile(
+                                new TextInputFormat(), LongWritable.class, Text.class, textPath));
 
-		DataSet<Tuple2<String, Integer>> counts =
-				// split up the lines in pairs (2-tuples) containing: (word,1)
-				text.flatMap(new Tokenizer())
-						// group by the tuple field "0" and sum up tuple field "1"
-						.groupBy(0)
-						.sum(1);
+        DataSet<String> text =
+                input.map(
+                        new MapFunction<Tuple2<LongWritable, Text>, String>() {
+                            @Override
+                            public String map(Tuple2<LongWritable, Text> value) throws Exception {
+                                return value.f1.toString();
+                            }
+                        });
 
-		DataSet<Tuple2<Text, LongWritable>> words = counts.map(new MapFunction<Tuple2<String, Integer>, Tuple2<Text, LongWritable>>() {
+        DataSet<Tuple2<String, Integer>> counts =
+                // split up the lines in pairs (2-tuples) containing: (word,1)
+                text.flatMap(new Tokenizer())
+                        // group by the tuple field "0" and sum up tuple field "1"
+                        .groupBy(0)
+                        .sum(1);
 
-			@Override
-			public Tuple2<Text, LongWritable> map(Tuple2<String, Integer> value) throws Exception {
-				return new Tuple2<Text, LongWritable>(new Text(value.f0), new LongWritable(value.f1));
-			}
-		});
+        DataSet<Tuple2<Text, LongWritable>> words =
+                counts.map(
+                        new MapFunction<Tuple2<String, Integer>, Tuple2<Text, LongWritable>>() {
 
-		// Set up Hadoop Output Format
-		Job job = Job.getInstance();
-		HadoopOutputFormat<Text, LongWritable> hadoopOutputFormat =
-				new HadoopOutputFormat<Text, LongWritable>(new TextOutputFormat<Text, LongWritable>(), job);
-		job.getConfiguration().set("mapred.textoutputformat.separator", " ");
-		TextOutputFormat.setOutputPath(job, new Path(resultPath));
+                            @Override
+                            public Tuple2<Text, LongWritable> map(Tuple2<String, Integer> value)
+                                    throws Exception {
+                                return new Tuple2<Text, LongWritable>(
+                                        new Text(value.f0), new LongWritable(value.f1));
+                            }
+                        });
 
-		// Output & Execute
-		words.output(hadoopOutputFormat);
-		env.execute("Hadoop Compat WordCount");
-	}
+        // Set up Hadoop Output Format
+        Job job = Job.getInstance();
+        HadoopOutputFormat<Text, LongWritable> hadoopOutputFormat =
+                new HadoopOutputFormat<Text, LongWritable>(
+                        new TextOutputFormat<Text, LongWritable>(), job);
+        job.getConfiguration().set("mapred.textoutputformat.separator", " ");
+        TextOutputFormat.setOutputPath(job, new Path(resultPath));
 
-	static final class Tokenizer implements FlatMapFunction<String, Tuple2<String, Integer>> {
+        // Output & Execute
+        words.output(hadoopOutputFormat);
+        env.execute("Hadoop Compat WordCount");
+    }
 
-		@Override
-		public void flatMap(String value, Collector<Tuple2<String, Integer>> out) {
-			String[] tokens = value.toLowerCase().split("\\W+");
-			for (String token : tokens) {
-				if (token.length() > 0) {
-					out.collect(new Tuple2<>(token, 1));
-				}
-			}
-		}
-	}
+    static final class Tokenizer implements FlatMapFunction<String, Tuple2<String, Integer>> {
+
+        @Override
+        public void flatMap(String value, Collector<Tuple2<String, Integer>> out) {
+            String[] tokens = value.toLowerCase().split("\\W+");
+            for (String token : tokens) {
+                if (token.length() > 0) {
+                    out.collect(new Tuple2<>(token, 1));
+                }
+            }
+        }
+    }
 }

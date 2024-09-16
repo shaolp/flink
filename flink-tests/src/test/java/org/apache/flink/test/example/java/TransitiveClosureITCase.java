@@ -22,43 +22,46 @@ package org.apache.flink.test.example.java;
 import org.apache.flink.examples.java.graph.TransitiveClosureNaive;
 import org.apache.flink.test.testdata.ConnectedComponentsData;
 import org.apache.flink.test.testdata.TransitiveClosureData;
-import org.apache.flink.test.util.JavaProgramTestBase;
+import org.apache.flink.test.util.JavaProgramTestBaseJUnit4;
 
 import java.io.BufferedReader;
 
-/**
- * Test for {@link TransitiveClosureNaive}.
- */
-public class TransitiveClosureITCase extends JavaProgramTestBase {
+import static org.apache.flink.test.util.TestBaseUtils.getResultReader;
 
-	private static final long SEED = 0xBADC0FFEEBEEFL;
+/** Test for {@link TransitiveClosureNaive}. */
+public class TransitiveClosureITCase extends JavaProgramTestBaseJUnit4 {
 
-	private static final int NUM_VERTICES = 100;
+    private static final long SEED = 0xBADC0FFEEBEEFL;
 
-	private static final int NUM_EDGES = 500;
+    private static final int NUM_VERTICES = 100;
 
-	private String edgesPath;
-	private String resultPath;
+    private static final int NUM_EDGES = 500;
 
-	@Override
-	protected void preSubmit() throws Exception {
-		edgesPath = createTempFile("edges.txt", ConnectedComponentsData.getRandomOddEvenEdges(NUM_EDGES, NUM_VERTICES, SEED));
-		resultPath = getTempFilePath("results");
-	}
+    private String edgesPath;
+    private String resultPath;
 
-	@Override
-	protected void testProgram() throws Exception {
-		TransitiveClosureNaive.main(
-				"--edges", edgesPath,
-				"--output", resultPath,
-				"--iterations", "5");
-	}
+    @Override
+    protected void preSubmit() throws Exception {
+        edgesPath =
+                createTempFile(
+                        "edges.txt",
+                        ConnectedComponentsData.getRandomOddEvenEdges(
+                                NUM_EDGES, NUM_VERTICES, SEED));
+        resultPath = getTempFilePath("results");
+    }
 
-	@Override
-	protected void postSubmit() throws Exception {
-		for (BufferedReader reader : getResultReader(resultPath)) {
-			TransitiveClosureData.checkOddEvenResult(reader);
-		}
-	}
+    @Override
+    protected void testProgram() throws Exception {
+        TransitiveClosureNaive.main(
+                "--edges", edgesPath,
+                "--output", resultPath,
+                "--iterations", "5");
+    }
+
+    @Override
+    protected void postSubmit() throws Exception {
+        for (BufferedReader reader : getResultReader(resultPath)) {
+            TransitiveClosureData.checkOddEvenResult(reader);
+        }
+    }
 }
-

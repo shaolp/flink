@@ -21,6 +21,7 @@ package org.apache.flink.api.java.typeutils;
 import org.apache.flink.annotation.Public;
 import org.apache.flink.annotation.PublicEvolving;
 import org.apache.flink.api.common.ExecutionConfig;
+import org.apache.flink.api.common.serialization.SerializerConfig;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.api.java.typeutils.runtime.EitherSerializer;
@@ -40,108 +41,114 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
 @Public
 public class EitherTypeInfo<L, R> extends TypeInformation<Either<L, R>> {
 
-	private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = 1L;
 
-	private final TypeInformation<L> leftType;
+    private final TypeInformation<L> leftType;
 
-	private final TypeInformation<R> rightType;
+    private final TypeInformation<R> rightType;
 
-	@PublicEvolving
-	public EitherTypeInfo(TypeInformation<L> leftType, TypeInformation<R> rightType) {
-		this.leftType = checkNotNull(leftType);
-		this.rightType = checkNotNull(rightType);
-	}
+    @PublicEvolving
+    public EitherTypeInfo(TypeInformation<L> leftType, TypeInformation<R> rightType) {
+        this.leftType = checkNotNull(leftType);
+        this.rightType = checkNotNull(rightType);
+    }
 
-	@Override
-	@PublicEvolving
-	public boolean isBasicType() {
-		return false;
-	}
+    @Override
+    @PublicEvolving
+    public boolean isBasicType() {
+        return false;
+    }
 
-	@Override
-	@PublicEvolving
-	public boolean isTupleType() {
-		return false;
-	}
+    @Override
+    @PublicEvolving
+    public boolean isTupleType() {
+        return false;
+    }
 
-	@Override
-	@PublicEvolving
-	public int getArity() {
-		return 1;
-	}
+    @Override
+    @PublicEvolving
+    public int getArity() {
+        return 1;
+    }
 
-	@Override
-	@PublicEvolving
-	public int getTotalFields() {
-		return 1;
-	}
+    @Override
+    @PublicEvolving
+    public int getTotalFields() {
+        return 1;
+    }
 
-	@SuppressWarnings("unchecked")
-	@Override
-	@PublicEvolving
-	public Class<Either<L, R>> getTypeClass() {
-		return (Class<Either<L, R>>) (Class<?>) Either.class;
-	}
+    @SuppressWarnings("unchecked")
+    @Override
+    @PublicEvolving
+    public Class<Either<L, R>> getTypeClass() {
+        return (Class<Either<L, R>>) (Class<?>) Either.class;
+    }
 
-	@Override
-	@PublicEvolving
-	public Map<String, TypeInformation<?>> getGenericParameters() {
-		Map<String, TypeInformation<?>> m = new HashMap<>();
-		m.put("L", this.leftType);
-		m.put("R", this.rightType);
-		return m;
-	}
+    @Override
+    @PublicEvolving
+    public Map<String, TypeInformation<?>> getGenericParameters() {
+        Map<String, TypeInformation<?>> m = new HashMap<>();
+        m.put("L", this.leftType);
+        m.put("R", this.rightType);
+        return m;
+    }
 
-	@Override
-	@PublicEvolving
-	public boolean isKeyType() {
-		return false;
-	}
+    @Override
+    @PublicEvolving
+    public boolean isKeyType() {
+        return false;
+    }
 
-	@Override
-	@PublicEvolving
-	public TypeSerializer<Either<L, R>> createSerializer(ExecutionConfig config) {
-		return new EitherSerializer<L, R>(leftType.createSerializer(config),
-				rightType.createSerializer(config));
-	}
+    @Override
+    @PublicEvolving
+    public TypeSerializer<Either<L, R>> createSerializer(SerializerConfig config) {
+        return new EitherSerializer<L, R>(
+                leftType.createSerializer(config), rightType.createSerializer(config));
+    }
 
-	@Override
-	public String toString() {
-		return "Either <" + leftType.toString() + ", " + rightType.toString() + ">";
-	}
+    @Override
+    @Deprecated
+    @PublicEvolving
+    public TypeSerializer<Either<L, R>> createSerializer(ExecutionConfig config) {
+        return createSerializer(config.getSerializerConfig());
+    }
 
-	@SuppressWarnings("unchecked")
-	@Override
-	public boolean equals(Object obj) {
-		if (obj instanceof EitherTypeInfo) {
-			EitherTypeInfo<L, R> other = (EitherTypeInfo<L, R>) obj;
+    @Override
+    public String toString() {
+        return "Either <" + leftType.toString() + ", " + rightType.toString() + ">";
+    }
 
-			return other.canEqual(this) &&
-				leftType.equals(other.leftType) &&
-				rightType.equals(other.rightType);
-		} else {
-			return false;
-		}
-	}
+    @SuppressWarnings("unchecked")
+    @Override
+    public boolean equals(Object obj) {
+        if (obj instanceof EitherTypeInfo) {
+            EitherTypeInfo<L, R> other = (EitherTypeInfo<L, R>) obj;
 
-	@Override
-	public int hashCode() {
-		return 17 * leftType.hashCode() + rightType.hashCode();
-	}
+            return other.canEqual(this)
+                    && leftType.equals(other.leftType)
+                    && rightType.equals(other.rightType);
+        } else {
+            return false;
+        }
+    }
 
-	@Override
-	public boolean canEqual(Object obj) {
-		return obj instanceof EitherTypeInfo;
-	}
+    @Override
+    public int hashCode() {
+        return 17 * leftType.hashCode() + rightType.hashCode();
+    }
 
-	// --------------------------------------------------------------------------------------------
+    @Override
+    public boolean canEqual(Object obj) {
+        return obj instanceof EitherTypeInfo;
+    }
 
-	public TypeInformation<L> getLeftType() {
-		return leftType;
-	}
+    // --------------------------------------------------------------------------------------------
 
-	public TypeInformation<R> getRightType() {
-		return rightType;
-	}
+    public TypeInformation<L> getLeftType() {
+        return leftType;
+    }
 
+    public TypeInformation<R> getRightType() {
+        return rightType;
+    }
 }

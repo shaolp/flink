@@ -23,55 +23,53 @@ import org.apache.flink.api.common.functions.RichMapFunction;
 import org.apache.flink.api.java.ExecutionEnvironment;
 import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.api.java.io.DiscardingOutputFormat;
-import org.apache.flink.test.util.JavaProgramTestBase;
+import org.apache.flink.test.util.JavaProgramTestBaseJUnit4;
 
 import org.junit.Assert;
 
-/**
- * Integration tests for custom {@link Partitioner}.
- */
+/** Integration tests for custom {@link Partitioner}. */
 @SuppressWarnings("serial")
-public class CustomPartitioningITCase extends JavaProgramTestBase {
+public class CustomPartitioningITCase extends JavaProgramTestBaseJUnit4 {
 
-	@Override
-	protected void testProgram() throws Exception {
-		ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
+    @Override
+    protected void testProgram() throws Exception {
+        ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
 
-		if (!isCollectionExecution()) {
-			Assert.assertTrue(env.getParallelism() > 1);
-		}
+        if (!isCollectionExecution()) {
+            Assert.assertTrue(env.getParallelism() > 1);
+        }
 
-		env.generateSequence(1, 1000)
-			.partitionCustom(new AllZeroPartitioner(), new IdKeySelector<Long>())
-			.map(new FailExceptInPartitionZeroMapper())
-			.output(new DiscardingOutputFormat<Long>());
+        env.generateSequence(1, 1000)
+                .partitionCustom(new AllZeroPartitioner(), new IdKeySelector<Long>())
+                .map(new FailExceptInPartitionZeroMapper())
+                .output(new DiscardingOutputFormat<Long>());
 
-		env.execute();
-	}
+        env.execute();
+    }
 
-	private static class FailExceptInPartitionZeroMapper extends RichMapFunction<Long, Long> {
+    private static class FailExceptInPartitionZeroMapper extends RichMapFunction<Long, Long> {
 
-		@Override
-		public Long map(Long value) throws Exception {
-			if (getRuntimeContext().getIndexOfThisSubtask() == 0) {
-				return value;
-			} else {
-				throw new Exception("Received data in a partition other than partition 0");
-			}
-		}
-	}
+        @Override
+        public Long map(Long value) throws Exception {
+            if (getRuntimeContext().getTaskInfo().getIndexOfThisSubtask() == 0) {
+                return value;
+            } else {
+                throw new Exception("Received data in a partition other than partition 0");
+            }
+        }
+    }
 
-	private static class AllZeroPartitioner implements Partitioner<Long> {
-		@Override
-		public int partition(Long key, int numPartitions) {
-			return 0;
-		}
-	}
+    private static class AllZeroPartitioner implements Partitioner<Long> {
+        @Override
+        public int partition(Long key, int numPartitions) {
+            return 0;
+        }
+    }
 
-	private static class IdKeySelector<T> implements KeySelector<T, T> {
-		@Override
-		public T getKey(T value) {
-			return value;
-		}
-	}
+    private static class IdKeySelector<T> implements KeySelector<T, T> {
+        @Override
+        public T getKey(T value) {
+            return value;
+        }
+    }
 }

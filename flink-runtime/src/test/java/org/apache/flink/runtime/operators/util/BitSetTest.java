@@ -19,81 +19,89 @@ package org.apache.flink.runtime.operators.util;
 
 import org.apache.flink.core.memory.MemorySegment;
 import org.apache.flink.core.memory.MemorySegmentFactory;
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
+import org.apache.flink.testutils.junit.extensions.parameterized.ParameterizedTestExtension;
+import org.apache.flink.testutils.junit.extensions.parameterized.Parameters;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.TestTemplate;
+import org.junit.jupiter.api.extension.ExtendWith;
 
-@RunWith(Parameterized.class)
-public class BitSetTest {
+import java.util.Arrays;
+import java.util.List;
 
-	private BitSet bitSet;
-	int byteSize;
-	MemorySegment memorySegment;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-	public BitSetTest(int byteSize) {
-		this.byteSize = byteSize;
-		memorySegment = MemorySegmentFactory.allocateUnpooledSegment(byteSize);
-	}
+@ExtendWith(ParameterizedTestExtension.class)
+class BitSetTest {
 
-	@Before
-	public void init() {
-		bitSet = new BitSet(byteSize);
-		bitSet.setMemorySegment(memorySegment, 0);
-		bitSet.clear();
-	}
+    private BitSet bitSet;
+    int byteSize;
+    MemorySegment memorySegment;
 
-	@Test(expected = IllegalArgumentException.class)
-	public void verifyBitSetSize1() {
-		bitSet.setMemorySegment(memorySegment, 1);
-	}
-	
-	@Test(expected = IllegalArgumentException.class)
-	public void verifyBitSetSize2() {
-		bitSet.setMemorySegment(null, 1);
-	}
-	
-	@Test(expected = IllegalArgumentException.class)
-	public void verifyBitSetSize3() {
-		bitSet.setMemorySegment(memorySegment, -1);
-	}
+    BitSetTest(int byteSize) {
+        this.byteSize = byteSize;
+        memorySegment = MemorySegmentFactory.allocateUnpooledSegment(byteSize);
+    }
 
-	@Test(expected = IllegalArgumentException.class)
-	public void verifyInputIndex1() {
-		bitSet.set(8 * byteSize + 1);
-	}
-	
-	@Test(expected = IllegalArgumentException.class)
-	public void verifyInputIndex2() {
-		bitSet.set(-1);
-	}
+    @BeforeEach
+    void init() {
+        bitSet = new BitSet(byteSize);
+        bitSet.setMemorySegment(memorySegment, 0);
+        bitSet.clear();
+    }
 
-	@Test
-	public void testSetValues() {
-		int bitSize = bitSet.bitSize();
-		assertEquals(bitSize, 8 * byteSize);
-		for (int i = 0; i < bitSize; i++) {
-			assertFalse(bitSet.get(i));
-			if (i % 2 == 0) {
-				bitSet.set(i);
-			}
-		}
+    @TestTemplate
+    void verifyBitSetSize1() {
+        assertThatThrownBy(() -> bitSet.setMemorySegment(memorySegment, 1))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
 
-		for (int i = 0; i < bitSize; i++) {
-			if (i % 2 == 0) {
-				assertTrue(bitSet.get(i));
-			} else {
-				assertFalse(bitSet.get(i));
-			}
-		}
-	}
+    @TestTemplate
+    void verifyBitSetSize2() {
+        assertThatThrownBy(() -> bitSet.setMemorySegment(null, 1))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
 
-	@Parameterized.Parameters(name = "byte size = {0}")
-	public static Object[] getByteSize() {
-		return new Integer[]{1000, 1024, 2019};
-	}
+    @TestTemplate
+    void verifyBitSetSize3() {
+        assertThatThrownBy(() -> bitSet.setMemorySegment(memorySegment, -1))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @TestTemplate
+    void verifyInputIndex1() {
+        assertThatThrownBy(() -> bitSet.set(8 * byteSize))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @TestTemplate
+    void verifyInputIndex2() {
+        assertThatThrownBy(() -> bitSet.set(-1)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @TestTemplate
+    void testSetValues() {
+        int bitSize = bitSet.bitSize();
+        assertThat(bitSize).isEqualTo(8 * byteSize);
+        for (int i = 0; i < bitSize; i++) {
+            assertThat(bitSet.get(i)).isFalse();
+            if (i % 2 == 0) {
+                bitSet.set(i);
+            }
+        }
+
+        for (int i = 0; i < bitSize; i++) {
+            if (i % 2 == 0) {
+                assertThat(bitSet.get(i)).isTrue();
+            } else {
+                assertThat(bitSet.get(i)).isFalse();
+            }
+        }
+    }
+
+    @Parameters(name = "byte size = {0}")
+    private static List<Integer> getByteSize() {
+        return Arrays.asList(1000, 1024, 2019);
+    }
 }

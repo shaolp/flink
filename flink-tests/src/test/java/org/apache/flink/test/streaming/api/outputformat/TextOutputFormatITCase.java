@@ -22,32 +22,29 @@ import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.test.testdata.WordCountData;
 import org.apache.flink.test.testfunctions.Tokenizer;
-import org.apache.flink.test.util.AbstractTestBase;
+import org.apache.flink.test.util.AbstractTestBaseJUnit4;
 
 import org.junit.Test;
 
-/**
- * Integration tests for {@link org.apache.flink.api.java.io.TextOutputFormat}.
- */
-public class TextOutputFormatITCase extends AbstractTestBase {
+import static org.apache.flink.test.util.TestBaseUtils.compareResultsByLinesInMemory;
 
-	@Test
-	public void testProgram() throws Exception {
-		String resultPath = getTempDirPath("result");
+/** Integration tests for {@link org.apache.flink.api.java.io.TextOutputFormat}. */
+public class TextOutputFormatITCase extends AbstractTestBaseJUnit4 {
 
-		StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+    @Test
+    public void testProgram() throws Exception {
+        String resultPath = getTempDirPath("result");
 
-		DataStream<String> text = env.fromElements(WordCountData.TEXT);
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 
-		DataStream<Tuple2<String, Integer>> counts = text
-				.flatMap(new Tokenizer())
-				.keyBy(0).sum(1);
+        DataStream<String> text = env.fromData(WordCountData.TEXT);
 
-		counts.writeAsText(resultPath);
+        DataStream<Tuple2<String, Integer>> counts = text.flatMap(new Tokenizer()).keyBy(0).sum(1);
 
-		env.execute("WriteAsTextTest");
+        counts.writeAsText(resultPath);
 
-		compareResultsByLinesInMemory(WordCountData.STREAMING_COUNTS_AS_TUPLES, resultPath);
-	}
+        env.execute("WriteAsTextTest");
 
+        compareResultsByLinesInMemory(WordCountData.STREAMING_COUNTS_AS_TUPLES, resultPath);
+    }
 }

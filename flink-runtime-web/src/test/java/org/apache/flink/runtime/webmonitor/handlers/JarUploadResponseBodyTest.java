@@ -19,28 +19,30 @@
 package org.apache.flink.runtime.webmonitor.handlers;
 
 import org.apache.flink.runtime.rest.messages.RestResponseMarshallingTestBase;
+import org.apache.flink.testutils.junit.extensions.parameterized.NoOpTestExtension;
 
-import static org.junit.Assert.assertEquals;
+import org.junit.jupiter.api.extension.ExtendWith;
 
-/**
- * Tests for {@link JarUploadResponseBody}.
- */
-public class JarUploadResponseBodyTest extends RestResponseMarshallingTestBase<JarUploadResponseBody> {
+import static org.assertj.core.api.Assertions.assertThat;
 
-	@Override
-	protected Class<JarUploadResponseBody> getTestResponseClass() {
-		return JarUploadResponseBody.class;
-	}
+/** Tests for {@link JarUploadResponseBody}. */
+@ExtendWith(NoOpTestExtension.class)
+class JarUploadResponseBodyTest extends RestResponseMarshallingTestBase<JarUploadResponseBody> {
 
-	@Override
-	protected JarUploadResponseBody getTestResponseInstance() throws Exception {
-		return new JarUploadResponseBody("/tmp");
-	}
+    @Override
+    protected Class<JarUploadResponseBody> getTestResponseClass() {
+        return JarUploadResponseBody.class;
+    }
 
-	@Override
-	protected void assertOriginalEqualsToUnmarshalled(final JarUploadResponseBody expected, final JarUploadResponseBody actual) {
-		assertEquals(expected.getFilename(), actual.getFilename());
-		assertEquals(expected.getStatus(), actual.getStatus());
-	}
+    @Override
+    protected JarUploadResponseBody getTestResponseInstance() throws Exception {
+        return new JarUploadResponseBody("/tmp");
+    }
 
+    @Override
+    protected void assertOriginalEqualsToUnmarshalled(
+            final JarUploadResponseBody expected, final JarUploadResponseBody actual) {
+        assertThat(actual.getFilename()).isEqualTo(expected.getFilename());
+        assertThat(actual.getStatus()).isEqualTo(expected.getStatus());
+    }
 }

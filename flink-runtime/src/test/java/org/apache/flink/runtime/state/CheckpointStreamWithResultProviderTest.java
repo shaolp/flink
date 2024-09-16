@@ -22,192 +22,192 @@ import org.apache.flink.api.common.JobID;
 import org.apache.flink.core.fs.FSDataInputStream;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
 import org.apache.flink.runtime.state.memory.MemCheckpointStreamFactory;
+import org.apache.flink.testutils.junit.utils.TempDirUtils;
 import org.apache.flink.util.MethodForwardingTestUtil;
-import org.apache.flink.util.TestLogger;
 
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
 
-/**
- * Test for CheckpointStreamWithResultProvider.
- */
-public class CheckpointStreamWithResultProviderTest extends TestLogger {
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-	private static TemporaryFolder temporaryFolder;
+/** Test for CheckpointStreamWithResultProvider. */
+class CheckpointStreamWithResultProviderTest {
 
-	@BeforeClass
-	public static void beforeClass() throws IOException {
-		temporaryFolder = new TemporaryFolder();
-		temporaryFolder.create();
-	}
+    @TempDir private Path temporaryFolder;
 
-	@AfterClass
-	public static void afterClass() {
-		temporaryFolder.delete();
-	}
+    @Test
+    void testFactory() throws Exception {
 
-	@Test
-	public void testFactory() throws Exception {
+        CheckpointStreamFactory primaryFactory = createCheckpointStreamFactory();
+        try (CheckpointStreamWithResultProvider primaryOnly =
+                CheckpointStreamWithResultProvider.createSimpleStream(
+                        CheckpointedStateScope.EXCLUSIVE, primaryFactory)) {
 
-		CheckpointStreamFactory primaryFactory = createCheckpointStreamFactory();
-		try (
-			CheckpointStreamWithResultProvider primaryOnly =
-				CheckpointStreamWithResultProvider.createSimpleStream(
-					CheckpointedStateScope.EXCLUSIVE,
-					primaryFactory)) {
+            assertThat(primaryOnly)
+                    .isInstanceOf(CheckpointStreamWithResultProvider.PrimaryStreamOnly.class);
+        }
 
-			Assert.assertTrue(primaryOnly instanceof CheckpointStreamWithResultProvider.PrimaryStreamOnly);
-		}
+        LocalSnapshotDirectoryProvider directoryProvider = createLocalRecoveryDirectoryProvider();
+        try (CheckpointStreamWithResultProvider primaryAndSecondary =
+                CheckpointStreamWithResultProvider.createDuplicatingStream(
+                        42L, CheckpointedStateScope.EXCLUSIVE, primaryFactory, directoryProvider)) {
 
-		LocalRecoveryDirectoryProvider directoryProvider = createLocalRecoveryDirectoryProvider();
-		try (
-			CheckpointStreamWithResultProvider primaryAndSecondary =
-				CheckpointStreamWithResultProvider.createDuplicatingStream(
-					42L,
-					CheckpointedStateScope.EXCLUSIVE,
-					primaryFactory,
-					directoryProvider)) {
+            assertThat(primaryAndSecondary)
+                    .isInstanceOf(
+                            CheckpointStreamWithResultProvider.PrimaryAndSecondaryStream.class);
+        }
+    }
 
-			Assert.assertTrue(primaryAndSecondary instanceof CheckpointStreamWithResultProvider.PrimaryAndSecondaryStream);
-		}
-	}
+    @Test
+    void testCloseAndFinalizeCheckpointStreamResultPrimaryOnly() throws Exception {
+        CheckpointStreamFactory primaryFactory = createCheckpointStreamFactory();
 
-	@Test
-	public void testCloseAndFinalizeCheckpointStreamResultPrimaryOnly() throws Exception {
-		CheckpointStreamFactory primaryFactory = createCheckpointStreamFactory();
+        CheckpointStreamWithResultProvider resultProvider =
+                CheckpointStreamWithResultProvider.createSimpleStream(
+                        CheckpointedStateScope.EXCLUSIVE, primaryFactory);
 
-		CheckpointStreamWithResultProvider resultProvider =
-			CheckpointStreamWithResultProvider.createSimpleStream(CheckpointedStateScope.EXCLUSIVE, primaryFactory);
+        SnapshotResult<StreamStateHandle> result = writeCheckpointTestData(resultProvider);
 
-		SnapshotResult<StreamStateHandle> result = writeCheckpointTestData(resultProvider);
+        assertThat(result.getJobManagerOwnedSnapshot()).isNotNull();
+        assertThat(result.getTaskLocalSnapshot()).isNull();
 
-		Assert.assertNotNull(result.getJobManagerOwnedSnapshot());
-		Assert.assertNull(result.getTaskLocalSnapshot());
+        try (FSDataInputStream inputStream =
+                result.getJobManagerOwnedSnapshot().openInputStream()) {
+            assertThat(inputStream.read()).isEqualTo(0x42);
+            assertThat(inputStream.read()).isEqualTo(-1);
+        }
+    }
 
-		try (FSDataInputStream inputStream = result.getJobManagerOwnedSnapshot().openInputStream()) {
-			Assert.assertEquals(0x42, inputStream.read());
-			Assert.assertEquals(-1, inputStream.read());
-		}
-	}
+    @Test
+    void testCloseAndFinalizeCheckpointStreamResultPrimaryAndSecondary() throws Exception {
+        CheckpointStreamFactory primaryFactory = createCheckpointStreamFactory();
+        LocalSnapshotDirectoryProvider directoryProvider = createLocalRecoveryDirectoryProvider();
 
-	@Test
-	public void testCloseAndFinalizeCheckpointStreamResultPrimaryAndSecondary() throws Exception {
-		CheckpointStreamFactory primaryFactory = createCheckpointStreamFactory();
-		LocalRecoveryDirectoryProvider directoryProvider = createLocalRecoveryDirectoryProvider();
+        CheckpointStreamWithResultProvider resultProvider =
+                CheckpointStreamWithResultProvider.createDuplicatingStream(
+                        42L, CheckpointedStateScope.EXCLUSIVE, primaryFactory, directoryProvider);
 
-		CheckpointStreamWithResultProvider resultProvider =
-			CheckpointStreamWithResultProvider.createDuplicatingStream(
-				42L,
-				CheckpointedStateScope.EXCLUSIVE,
-				primaryFactory,
-				directoryProvider);
+        SnapshotResult<StreamStateHandle> result = writeCheckpointTestData(resultProvider);
 
-		SnapshotResult<StreamStateHandle> result = writeCheckpointTestData(resultProvider);
+        assertThat(result.getJobManagerOwnedSnapshot()).isNotNull();
+        assertThat(result.getTaskLocalSnapshot()).isNotNull();
 
-		Assert.assertNotNull(result.getJobManagerOwnedSnapshot());
-		Assert.assertNotNull(result.getTaskLocalSnapshot());
+        try (FSDataInputStream inputStream =
+                result.getJobManagerOwnedSnapshot().openInputStream()) {
+            assertThat(inputStream.read()).isEqualTo(0x42);
+            assertThat(inputStream.read()).isEqualTo(-1);
+        }
 
-		try (FSDataInputStream inputStream = result.getJobManagerOwnedSnapshot().openInputStream()) {
-			Assert.assertEquals(0x42, inputStream.read());
-			Assert.assertEquals(-1, inputStream.read());
-		}
+        try (FSDataInputStream inputStream = result.getTaskLocalSnapshot().openInputStream()) {
+            assertThat(inputStream.read()).isEqualTo(0x42);
+            assertThat(inputStream.read()).isEqualTo(-1);
+        }
+    }
 
-		try (FSDataInputStream inputStream = result.getTaskLocalSnapshot().openInputStream()) {
-			Assert.assertEquals(0x42, inputStream.read());
-			Assert.assertEquals(-1, inputStream.read());
-		}
-	}
+    @Test
+    void testCompletedAndCloseStateHandling() throws Exception {
+        CheckpointStreamFactory primaryFactory = createCheckpointStreamFactory();
 
-	@Test
-	public void testCompletedAndCloseStateHandling() throws Exception {
-		CheckpointStreamFactory primaryFactory = createCheckpointStreamFactory();
+        testCloseBeforeComplete(
+                new CheckpointStreamWithResultProvider.PrimaryStreamOnly(
+                        primaryFactory.createCheckpointStateOutputStream(
+                                CheckpointedStateScope.EXCLUSIVE)));
+        testCompleteBeforeClose(
+                new CheckpointStreamWithResultProvider.PrimaryStreamOnly(
+                        primaryFactory.createCheckpointStateOutputStream(
+                                CheckpointedStateScope.EXCLUSIVE)));
 
-		testCloseBeforeComplete(new CheckpointStreamWithResultProvider.PrimaryStreamOnly(
-			primaryFactory.createCheckpointStateOutputStream(CheckpointedStateScope.EXCLUSIVE)));
-		testCompleteBeforeClose(new CheckpointStreamWithResultProvider.PrimaryStreamOnly(
-			primaryFactory.createCheckpointStateOutputStream(CheckpointedStateScope.EXCLUSIVE)));
+        testCloseBeforeComplete(
+                new CheckpointStreamWithResultProvider.PrimaryAndSecondaryStream(
+                        primaryFactory.createCheckpointStateOutputStream(
+                                CheckpointedStateScope.EXCLUSIVE),
+                        primaryFactory.createCheckpointStateOutputStream(
+                                CheckpointedStateScope.EXCLUSIVE)));
+        testCompleteBeforeClose(
+                new CheckpointStreamWithResultProvider.PrimaryAndSecondaryStream(
+                        primaryFactory.createCheckpointStateOutputStream(
+                                CheckpointedStateScope.EXCLUSIVE),
+                        primaryFactory.createCheckpointStateOutputStream(
+                                CheckpointedStateScope.EXCLUSIVE)));
+    }
 
-		testCloseBeforeComplete(new CheckpointStreamWithResultProvider.PrimaryAndSecondaryStream(
-				primaryFactory.createCheckpointStateOutputStream(CheckpointedStateScope.EXCLUSIVE),
-				primaryFactory.createCheckpointStateOutputStream(CheckpointedStateScope.EXCLUSIVE)));
-		testCompleteBeforeClose(new CheckpointStreamWithResultProvider.PrimaryAndSecondaryStream(
-				primaryFactory.createCheckpointStateOutputStream(CheckpointedStateScope.EXCLUSIVE),
-				primaryFactory.createCheckpointStateOutputStream(CheckpointedStateScope.EXCLUSIVE)));
-	}
+    @Test
+    void testCloseMethodForwarding() throws Exception {
+        CheckpointStreamFactory streamFactory = createCheckpointStreamFactory();
 
-	@Test
-	public void testCloseMethodForwarding() throws Exception {
-		CheckpointStreamFactory streamFactory = createCheckpointStreamFactory();
+        MethodForwardingTestUtil.testMethodForwarding(
+                Closeable.class,
+                CheckpointStreamWithResultProvider.PrimaryStreamOnly::new,
+                () -> {
+                    try {
+                        return streamFactory.createCheckpointStateOutputStream(
+                                CheckpointedStateScope.EXCLUSIVE);
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
+                    }
+                });
 
-		MethodForwardingTestUtil.testMethodForwarding(
-			Closeable.class,
-			CheckpointStreamWithResultProvider.PrimaryStreamOnly::new,
-			() -> {
-				try {
-					return streamFactory.createCheckpointStateOutputStream(CheckpointedStateScope.EXCLUSIVE);
-				} catch (IOException e) {
-					throw new RuntimeException(e);
-				}
-			});
+        MethodForwardingTestUtil.testMethodForwarding(
+                Closeable.class,
+                CheckpointStreamWithResultProvider.PrimaryAndSecondaryStream::new,
+                () -> {
+                    try {
+                        return new DuplicatingCheckpointOutputStream(
+                                streamFactory.createCheckpointStateOutputStream(
+                                        CheckpointedStateScope.EXCLUSIVE),
+                                streamFactory.createCheckpointStateOutputStream(
+                                        CheckpointedStateScope.EXCLUSIVE));
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
+                    }
+                });
+    }
 
-		MethodForwardingTestUtil.testMethodForwarding(
-			Closeable.class,
-			CheckpointStreamWithResultProvider.PrimaryAndSecondaryStream::new,
-			() -> {
-				try {
-					return new DuplicatingCheckpointOutputStream(
-						streamFactory.createCheckpointStateOutputStream(CheckpointedStateScope.EXCLUSIVE),
-						streamFactory.createCheckpointStateOutputStream(CheckpointedStateScope.EXCLUSIVE));
-				} catch (IOException e) {
-					throw new RuntimeException(e);
-				}
-			});
-	}
+    private SnapshotResult<StreamStateHandle> writeCheckpointTestData(
+            CheckpointStreamWithResultProvider resultProvider) throws IOException {
 
-	private SnapshotResult<StreamStateHandle> writeCheckpointTestData(
-		CheckpointStreamWithResultProvider resultProvider) throws IOException {
+        CheckpointStateOutputStream checkpointOutputStream =
+                resultProvider.getCheckpointOutputStream();
+        checkpointOutputStream.write(0x42);
+        return resultProvider.closeAndFinalizeCheckpointStreamResult();
+    }
 
-		CheckpointStreamFactory.CheckpointStateOutputStream checkpointOutputStream =
-			resultProvider.getCheckpointOutputStream();
-		checkpointOutputStream.write(0x42);
-		return resultProvider.closeAndFinalizeCheckpointStreamResult();
-	}
+    private CheckpointStreamFactory createCheckpointStreamFactory() {
+        return new MemCheckpointStreamFactory(16 * 1024);
+    }
 
-	private CheckpointStreamFactory createCheckpointStreamFactory() {
-		return new MemCheckpointStreamFactory(16 * 1024);
-	}
+    /**
+     * Test that an exception is thrown if the stream was already closed before and we ask for a
+     * result later.
+     */
+    private void testCloseBeforeComplete(CheckpointStreamWithResultProvider resultProvider)
+            throws IOException {
+        resultProvider.getCheckpointOutputStream().write(0x42);
+        resultProvider.close();
+        assertThatThrownBy(resultProvider::closeAndFinalizeCheckpointStreamResult)
+                .isInstanceOf(IOException.class);
+    }
 
-	/**
-	 * Test that an exception is thrown if the stream was already closed before and we ask for a result later.
-	 */
-	private void testCloseBeforeComplete(CheckpointStreamWithResultProvider resultProvider) throws IOException {
-		resultProvider.getCheckpointOutputStream().write(0x42);
-		resultProvider.close();
-		try {
-			resultProvider.closeAndFinalizeCheckpointStreamResult();
-			Assert.fail();
-		} catch (IOException ignore) {
-		}
-	}
+    private void testCompleteBeforeClose(CheckpointStreamWithResultProvider resultProvider)
+            throws IOException {
+        resultProvider.getCheckpointOutputStream().write(0x42);
+        assertThat(resultProvider.closeAndFinalizeCheckpointStreamResult()).isNotNull();
+        resultProvider.close();
+    }
 
-	private void testCompleteBeforeClose(CheckpointStreamWithResultProvider resultProvider) throws IOException {
-		resultProvider.getCheckpointOutputStream().write(0x42);
-		Assert.assertNotNull(resultProvider.closeAndFinalizeCheckpointStreamResult());
-		resultProvider.close();
-	}
-
-	private LocalRecoveryDirectoryProvider createLocalRecoveryDirectoryProvider() throws IOException {
-		File localStateDir = temporaryFolder.newFolder();
-		JobID jobID = new JobID();
-		JobVertexID jobVertexID = new JobVertexID();
-		int subtaskIdx = 0;
-		return new LocalRecoveryDirectoryProviderImpl(localStateDir, jobID, jobVertexID, subtaskIdx);
-	}
+    private LocalSnapshotDirectoryProvider createLocalRecoveryDirectoryProvider()
+            throws IOException {
+        File localStateDir = TempDirUtils.newFolder(temporaryFolder);
+        JobID jobID = new JobID();
+        JobVertexID jobVertexID = new JobVertexID();
+        int subtaskIdx = 0;
+        return new LocalSnapshotDirectoryProviderImpl(
+                localStateDir, jobID, jobVertexID, subtaskIdx);
+    }
 }

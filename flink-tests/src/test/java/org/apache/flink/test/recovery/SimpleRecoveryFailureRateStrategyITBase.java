@@ -25,26 +25,33 @@ import org.apache.flink.test.util.MiniClusterWithClientResource;
 
 import org.junit.ClassRule;
 
-/**
- * Test cluster configuration with failure-rate recovery.
- */
+import java.time.Duration;
+
+import static org.apache.flink.configuration.RestartStrategyOptions.RestartStrategyType.FAILURE_RATE;
+
+/** Test cluster configuration with failure-rate recovery. */
 public class SimpleRecoveryFailureRateStrategyITBase extends SimpleRecoveryITCaseBase {
 
-	@ClassRule
-	public static final MiniClusterWithClientResource MINI_CLUSTER_RESOURCE = new MiniClusterWithClientResource(
-		new MiniClusterResourceConfiguration.Builder()
-			.setConfiguration(getConfiguration())
-			.setNumberTaskManagers(2)
-			.setNumberSlotsPerTaskManager(2)
-			.build());
+    @ClassRule
+    public static final MiniClusterWithClientResource MINI_CLUSTER_RESOURCE =
+            new MiniClusterWithClientResource(
+                    new MiniClusterResourceConfiguration.Builder()
+                            .setConfiguration(getConfiguration())
+                            .setNumberTaskManagers(2)
+                            .setNumberSlotsPerTaskManager(2)
+                            .build());
 
-	private static Configuration getConfiguration() {
-		Configuration config = new Configuration();
-		config.setString(RestartStrategyOptions.RESTART_STRATEGY, "failure-rate");
-		config.setInteger(RestartStrategyOptions.RESTART_STRATEGY_FAILURE_RATE_MAX_FAILURES_PER_INTERVAL, 1);
-		config.setString(RestartStrategyOptions.RESTART_STRATEGY_FAILURE_RATE_FAILURE_RATE_INTERVAL, "1 second");
-		config.setString(RestartStrategyOptions.RESTART_STRATEGY_FAILURE_RATE_DELAY, "0 s");
+    private static Configuration getConfiguration() {
+        Configuration config = new Configuration();
+        config.set(RestartStrategyOptions.RESTART_STRATEGY, FAILURE_RATE.getMainValue());
+        config.set(
+                RestartStrategyOptions.RESTART_STRATEGY_FAILURE_RATE_MAX_FAILURES_PER_INTERVAL, 3);
+        config.set(
+                RestartStrategyOptions.RESTART_STRATEGY_FAILURE_RATE_FAILURE_RATE_INTERVAL,
+                Duration.ofSeconds(1));
+        config.set(
+                RestartStrategyOptions.RESTART_STRATEGY_FAILURE_RATE_DELAY, Duration.ofSeconds(0));
 
-		return config;
-	}
+        return config;
+    }
 }

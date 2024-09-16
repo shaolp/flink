@@ -18,37 +18,41 @@
 
 package org.apache.flink.api.java.typeutils.runtime;
 
-import org.apache.flink.api.common.ExecutionConfig;
+import org.apache.flink.api.common.serialization.SerializerConfigImpl;
 import org.apache.flink.api.common.typeutils.SerializerTestInstance;
 import org.apache.flink.api.java.typeutils.TypeExtractor;
 import org.apache.flink.api.java.typeutils.WritableTypeInfo;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-/**
- * Tests for the {@link WritableSerializer}.
- */
-public class WritableSerializerTest {
+/** Tests for the {@link WritableSerializer}. */
+class WritableSerializerTest {
 
-	@Test
-	public void testStringArrayWritable() {
-		StringArrayWritable[] data = new StringArrayWritable[]{
-				new StringArrayWritable(new String[]{}),
-				new StringArrayWritable(new String[]{""}),
-				new StringArrayWritable(new String[]{"a", "a"}),
-				new StringArrayWritable(new String[]{"a", "b"}),
-				new StringArrayWritable(new String[]{"c", "c"}),
-				new StringArrayWritable(new String[]{"d", "f"}),
-				new StringArrayWritable(new String[]{"d", "m"}),
-				new StringArrayWritable(new String[]{"z", "x"}),
-				new StringArrayWritable(new String[]{"a", "a", "a"})
-		};
+    @Test
+    void testStringArrayWritable() {
+        StringArrayWritable[] data =
+                new StringArrayWritable[] {
+                    new StringArrayWritable(new String[] {}),
+                    new StringArrayWritable(new String[] {""}),
+                    new StringArrayWritable(new String[] {"a", "a"}),
+                    new StringArrayWritable(new String[] {"a", "b"}),
+                    new StringArrayWritable(new String[] {"c", "c"}),
+                    new StringArrayWritable(new String[] {"d", "f"}),
+                    new StringArrayWritable(new String[] {"d", "m"}),
+                    new StringArrayWritable(new String[] {"z", "x"}),
+                    new StringArrayWritable(new String[] {"a", "a", "a"})
+                };
 
-		WritableTypeInfo<StringArrayWritable> writableTypeInfo = (WritableTypeInfo<StringArrayWritable>) TypeExtractor.getForObject(data[0]);
-		WritableSerializer<StringArrayWritable> writableSerializer = (WritableSerializer<StringArrayWritable>) writableTypeInfo.createSerializer(new ExecutionConfig());
+        WritableTypeInfo<StringArrayWritable> writableTypeInfo =
+                (WritableTypeInfo<StringArrayWritable>) TypeExtractor.getForObject(data[0]);
+        WritableSerializer<StringArrayWritable> writableSerializer =
+                (WritableSerializer<StringArrayWritable>)
+                        writableTypeInfo.createSerializer(new SerializerConfigImpl());
 
-		SerializerTestInstance<StringArrayWritable> testInstance = new SerializerTestInstance<StringArrayWritable>(writableSerializer, writableTypeInfo.getTypeClass(), -1, data);
+        SerializerTestInstance<StringArrayWritable> testInstance =
+                new SerializerTestInstance<StringArrayWritable>(
+                        writableSerializer, writableTypeInfo.getTypeClass(), -1, data) {};
 
-		testInstance.testAll();
-	}
+        testInstance.testAll();
+    }
 }

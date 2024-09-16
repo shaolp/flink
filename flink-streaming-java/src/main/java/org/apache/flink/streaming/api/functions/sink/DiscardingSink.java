@@ -19,17 +19,21 @@
 package org.apache.flink.streaming.api.functions.sink;
 
 import org.apache.flink.annotation.Public;
+import org.apache.flink.api.common.SupportsConcurrentExecutionAttempts;
 
 /**
  * A stream sink that ignores all elements.
  *
  * @param <T> The type of elements received by the sink.
+ * @deprecated This interface will be removed in future versions. Use the new {@link
+ *     org.apache.flink.streaming.api.functions.sink.v2.DiscardingSink} interface instead.
  */
+@Deprecated
 @Public
-public class DiscardingSink<T> implements SinkFunction<T> {
+public class DiscardingSink<T> implements SinkFunction<T>, SupportsConcurrentExecutionAttempts {
 
-	private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = 1L;
 
-	@Override
-	public void invoke(T value) {}
+    @Override
+    public void invoke(T value) {}
 }
